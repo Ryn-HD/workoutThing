@@ -232,7 +232,7 @@ export function Reps_maxUnilateralCompletedReps(set: ISet): number | undefined {
 }
 
 export function Reps_avgUnilateralCompletedReps(set: ISet): number | undefined {
-  if (set.isUnilateral) {
+  if (set.isUnilateral || set.completedRepsLeft != null) {
     return Math.round(((set.completedReps ?? 0) + (set.completedRepsLeft ?? 0)) / 2);
   } else {
     return set.completedReps;
@@ -242,7 +242,7 @@ export function Reps_avgUnilateralCompletedReps(set: ISet): number | undefined {
 export function Reps_setVolume(set: ISet, unit: IUnit): IWeight {
   const totalReps =
     set.isUnilateral || set.completedRepsLeft != null
-      ? (set.completedReps ?? 0) + (set.completedRepsLeft ?? 0)
+      ? (Reps_avgUnilateralCompletedReps(set) ?? 0)
       : (set.completedReps ?? 0);
   return Weight_multiply(set.completedWeight ?? set.weight ?? Weight_build(0, unit), totalReps);
 }

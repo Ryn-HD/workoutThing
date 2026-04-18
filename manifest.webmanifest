@@ -1,7 +1,7 @@
 {
-  "short_name": "Liftosaur",
-  "name": "Liftosaur: Weight lifting tracking app",
-  "description": "Weather forecast information",
+  "short_name": "WorkoutThing",
+  "name": "WorkoutThing",
+  "description": "Personal workout tracker",
   "icons": [
     {
       "src": "/icons/icon192.png",
@@ -24,12 +24,7 @@
   "background_color": "#ffffff",
   "display": "fullscreen",
   "scope": "/",
-  "prefer_related_applications": true,
-  "related_applications": [
-    {
-      "platform": "play",
-      "id": "com.liftosaur.www.twa"
-    }
-  ],
+  "prefer_related_applications": false,
+  "related_applications": [],
   "theme_color": "#ffffff"
 }

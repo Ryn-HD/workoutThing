@@ -7,6 +7,7 @@ import { ExerciseImage } from "./exerciseImage";
 import { IHistoryEntryPersonalRecords } from "../models/history";
 import { HistoryRecordSetsView } from "./historyRecordSets";
 import { ObjectUtils_values } from "../utils/object";
+import { Bodyweight_displayWeight, Bodyweight_isExercise } from "../models/bodyweight";
 
 interface IHistoryEntryProps {
   entry: IHistoryEntry;
@@ -22,6 +23,7 @@ export const HistoryEntryView = memo((props: IHistoryEntryProps): JSX.Element =>
   const { entry, isNext, settings, showNotes, isOngoing, isLast } = props;
   const exercise = Exercise_get(entry.exercise, settings.exercises);
   const exerciseUnit = Equipment_getUnitOrDefaultForExerciseType(settings, exercise);
+  const isBodyweight = Bodyweight_isExercise(settings, exercise);
   const isPr = ObjectUtils_values(props.prs || {}).some((v) => v);
   return (
     <div data-cy="history-entry-exercise" className={`flex flex-row items-center flex-1 gap-2`}>
@@ -50,14 +52,17 @@ export const HistoryEntryView = memo((props: IHistoryEntryProps): JSX.Element =>
             <HistoryRecordSetsView
               sets={entry.sets.map((set) => ({
                 ...set,
-                weight:
+                weight: Bodyweight_displayWeight(
                   isNext && set.weight
                     ? Weight_roundConvertTo(set.weight, props.settings, exerciseUnit, entry.exercise)
                     : set.weight,
+                  isBodyweight
+                ),
               }))}
               prs={props.prs}
               settings={props.settings}
               isNext={isNext}
+              hideZeroWeight={isBodyweight}
             />
           </div>
         </div>

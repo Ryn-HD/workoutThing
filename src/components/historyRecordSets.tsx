@@ -23,13 +23,17 @@ interface IHistoryRecordSetsProps {
   isNext: boolean;
   settings: ISettings;
   prs?: IHistoryEntryPersonalRecords;
+  hideZeroWeight?: boolean;
 }
 
 export function HistoryRecordSetsView(props: IHistoryRecordSetsProps): JSX.Element {
   const { sets, isNext } = props;
   const groups = Reps_group(sets, isNext);
   const displayGroups = groups.map((g) => {
-    return g.map((set) => Reps_setToDisplaySet(set, isNext, props.settings));
+    return g.map((set) => {
+      const displaySet = Reps_setToDisplaySet(set, isNext, props.settings);
+      return props.hideZeroWeight && displaySet.weight === "0" ? { ...displaySet, weight: undefined } : displaySet;
+    });
   });
   return (
     <div className="text-sm text-right">

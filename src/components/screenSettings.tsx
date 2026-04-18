@@ -438,7 +438,7 @@ export function ScreenSettings(props: IProps): JSX.Element {
         />
         {Features_isEnabled("affiliates", props.user?.id ?? props.tempUserId) && (
           <>
-            <GroupHeader name="Earn money with Liftosaur" topPadding={true} />
+            <GroupHeader name="Affiliate Program" topPadding={true} />
             <MenuItem
               expandName={true}
               name="Affiliate Program"
@@ -489,13 +489,13 @@ export function ScreenSettings(props: IProps): JSX.Element {
         <div className="ls-changelog">
           <MenuItem name="Changelog" onClick={() => WhatsNew_showWhatsNew(props.dispatch)} />
         </div>
-        <InternalLink
-          name="contact-us"
-          href="mailto:info@liftosaur.com"
+        <a
+          href="https://github.com/astashov/liftosaur/discussions"
+          target="_blank"
           className="block py-3 text-base text-left border-b border-border-neutral"
         >
-          Contact Us
-        </InternalLink>
+          Upstream Discussions
+        </a>
         <a
           href="https://discord.com/invite/AAh3cvdBRs"
           target="_blank"
@@ -535,7 +535,7 @@ export function ScreenSettings(props: IProps): JSX.Element {
           href="https://github.com/astashov/liftosaur"
           className="block py-3 text-base text-left border-b border-border-neutral"
         >
-          Source Code on Github
+          Upstream Source Code on Github
         </a>
         <a
           href="https://github.com/astashov/liftosaur/discussions"

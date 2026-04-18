@@ -160,9 +160,9 @@ export const ProgramShareOutput = forwardRef(
               className="inline mr-1 align-middle"
               style={{ width: "2em", height: "2em" }}
               src="/images/logo.svg"
-              alt="Liftosaur Logo"
+              alt="WorkoutThing Logo"
             />
-            <span className="font-bold align-middle">Liftosaur</span>
+            <span className="font-bold align-middle">WorkoutThing</span>
           </div>
         </div>
       </div>

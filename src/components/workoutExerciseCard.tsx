@@ -30,6 +30,7 @@ import { IconSwap } from "./icons/iconSwap";
 import { IconTrash } from "./icons/iconTrash";
 import { IconEdit2 } from "./icons/iconEdit2";
 import { TextareaAutogrow } from "./textareaAutogrow";
+import { PersonalFork_unlocksLocalPremiumFeature } from "../utils/personalFork";
 import {
   Progress_getNextSupersetEntry,
   Progress_doesUse1RM,
@@ -477,7 +478,9 @@ export function WorkoutExerciseCard(props: IWorkoutExerciseCardProps): JSX.Eleme
                 .recordModify((type) => {
                   return Settings_getNextTargetType(
                     type,
-                    !Subscriptions_hasSubscription(props.subscription) || !currentEquipmentName
+                    (!Subscriptions_hasSubscription(props.subscription) &&
+                      !PersonalFork_unlocksLocalPremiumFeature("platesCalculator")) ||
+                      !currentEquipmentName
                   );
                 }),
               "Change target type"
@@ -507,7 +510,8 @@ interface IWorkoutPlatesCalculatorProps {
 }
 
 function WorkoutPlatesCalculator(props: IWorkoutPlatesCalculatorProps): JSX.Element {
-  const isSubscribed = Subscriptions_hasSubscription(props.subscription);
+  const isSubscribed =
+    Subscriptions_hasSubscription(props.subscription) || PersonalFork_unlocksLocalPremiumFeature("platesCalculator");
   const { plates, totalWeight: weight } = Weight_calculatePlates(
     props.weight,
     props.settings,

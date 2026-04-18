@@ -87,7 +87,7 @@ export function ExerciseDataSettings(props: IExerciseDataSettingsProps): JSX.Ele
       })}
       <MenuItemEditable
         type="boolean"
-        name="Is Unilateral"
+        name="Track sides separately"
         value={Exercise_getIsUnilateral(fullExercise, props.settings) ? "true" : "false"}
         onChange={(value) => {
           const isUnilateral = value === "true";

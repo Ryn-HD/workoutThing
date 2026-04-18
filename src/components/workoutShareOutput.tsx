@@ -38,7 +38,7 @@ export function WorkoutShareOutput(props: IWorkoutShareOutputProps): JSX.Element
       <div className="flex items-end">
         <div className="flex items-start gap-2 mx-2 font-bold text-white bg-no-repeat bg-contain">
           <img src="/images/icon512.png" className="w-6 h-6 rounded-md" />
-          <div className="text-lg">Liftosaur</div>
+          <div className="text-lg">WorkoutThing</div>
         </div>
         {numberOfRecordPrs > 0 && (
           <div className="pr-2 ml-auto font-bold text-right text-yellow-600">

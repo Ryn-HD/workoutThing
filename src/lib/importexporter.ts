@@ -13,9 +13,10 @@ import { UrlUtils_build } from "../utils/url";
 import { IExportedPlannerProgram } from "../pages/planner/models/types";
 import { PlannerProgram_convertExportedPlannerToProgram } from "../pages/planner/models/plannerProgram";
 import { Settings_build } from "../models/settings";
+import { PersonalFork_exportPrefix } from "../utils/personalFork";
 
 export function ImportExporter_exportStorage(storage: IStorage): void {
-  Exporter_toFile(`liftosaur-${DateUtils_formatYYYYMMDD(Date.now())}.json`, JSON.stringify(storage, null, 2));
+  Exporter_toFile(`${PersonalFork_exportPrefix}-${DateUtils_formatYYYYMMDD(Date.now())}.json`, JSON.stringify(storage, null, 2));
 }
 
 function isPlanProgram(program: IExportedProgram | IExportedPlannerProgram): program is IExportedPlannerProgram {

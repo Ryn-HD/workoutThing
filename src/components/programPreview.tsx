@@ -7,6 +7,7 @@ import { Modal } from "./modal";
 import { MusclesView } from "./muscles/musclesView";
 import { Locker } from "./locker";
 import { Subscriptions_hasSubscription } from "../utils/subscriptions";
+import { PersonalFork_unlocksLocalPremiumFeature } from "../utils/personalFork";
 import {
   IEvaluatedProgram,
   Program_evaluate,
@@ -140,13 +141,14 @@ export function ProgramPreviewMusclesModal(props: IProgramPreviewMusclesModalPro
   }
   const title =
     props.muscles.type === "program" ? `Muscles for program '${props.program.name}'` : `Muscles for day '${name}'`;
+  const unlockMuscles = PersonalFork_unlocksLocalPremiumFeature("muscles");
 
   return (
     <Modal
       shouldShowClose={true}
       onClose={props.onClose}
       isFullWidth={true}
-      overflowHidden={props.dispatch && !Subscriptions_hasSubscription(props.subscription)}
+      overflowHidden={props.dispatch && !unlockMuscles && !Subscriptions_hasSubscription(props.subscription)}
     >
       {props.dispatch && (
         <Locker topic="Muscles" dispatch={props.dispatch} blur={8} subscription={props.subscription} />

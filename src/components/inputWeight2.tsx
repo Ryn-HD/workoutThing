@@ -16,6 +16,7 @@ import { IconBarbellSide } from "./icons/iconBarbellSide";
 import { Tailwind_colors } from "../utils/tailwindConfig";
 import { Subscriptions_hasSubscription } from "../utils/subscriptions";
 import { Equipment_getUnitOrDefaultForExerciseType } from "../models/equipment";
+import { PersonalFork_unlocksLocalPremiumFeature } from "../utils/personalFork";
 
 interface IInputWeight2Props {
   value: IWeight | IPercentage | undefined;
@@ -49,6 +50,7 @@ export function InputWeight2(props: IInputWeight2Props): JSX.Element {
     unitRef.current = unit;
   }, [unit]);
   const [value, setValue] = useState(props.value);
+  const unlockPlatesCalculator = PersonalFork_unlocksLocalPremiumFeature("platesCalculator");
   const initialValue = value ?? props.initialValue;
   const evaluatedWeight =
     initialValue && props.exerciseType
@@ -68,11 +70,12 @@ export function InputWeight2(props: IInputWeight2Props): JSX.Element {
         min={props.min}
         max={props.max}
         keyboardAddon={
-          (props.subscription && Subscriptions_hasSubscription(props.subscription)) || props.addOn ? (
+          (props.subscription && (Subscriptions_hasSubscription(props.subscription) || unlockPlatesCalculator)) ||
+          props.addOn ? (
             <div className="py-2">
               {props.subscription &&
                 props.exerciseType &&
-                Subscriptions_hasSubscription(props.subscription) &&
+                (Subscriptions_hasSubscription(props.subscription) || unlockPlatesCalculator) &&
                 evaluatedWeight &&
                 Weight_is(evaluatedWeight) && (
                   <PlatesCalculator

@@ -58,6 +58,7 @@ import {
 } from "../utils/sendMessage";
 import { UidFactory_generateUid } from "../utils/generator";
 import { ClipboardUtils_copy } from "../utils/clipboard";
+import { PersonalFork_exportPrefix, PersonalFork_unlocksLocalPremiumScreen } from "../utils/personalFork";
 import {
   Progress_getProgress,
   Progress_updateTimer,
@@ -854,6 +855,7 @@ export function Thunk_pushScreen<T extends IScreen>(
     }
     if (
       ["musclesProgram", "musclesDay", "graphs"].indexOf(screen) !== -1 &&
+      !PersonalFork_unlocksLocalPremiumScreen(screen) &&
       !Subscriptions_hasSubscription(getState().storage.subscription)
     ) {
       opts = { stack: "subscription" };
@@ -1095,7 +1097,7 @@ export function Thunk_exportHistoryToCSV(): IThunk {
     dispatch(Thunk_postevent("export-history-to-csv"));
     const state = getState();
     const csv = CSV_toString(History_exportAsCSV(state.storage.history, state.storage.settings));
-    Exporter_toFile(`liftosaur_${DateUtils_formatYYYYMMDD(Date.now())}.csv`, csv);
+    Exporter_toFile(`${PersonalFork_exportPrefix}_${DateUtils_formatYYYYMMDD(Date.now())}.csv`, csv);
   };
 }
 
@@ -1111,7 +1113,7 @@ export function Thunk_exportProgramsToText(): IThunk {
       text += PlannerProgram_generateFullText(program.planner.weeks);
       text += `\n\n\n`;
     }
-    Exporter_toFile(`liftosaur_all_programs_${DateUtils_formatYYYYMMDD(Date.now())}.txt`, text);
+    Exporter_toFile(`${PersonalFork_exportPrefix}_all_programs_${DateUtils_formatYYYYMMDD(Date.now())}.txt`, text);
   };
 }
 

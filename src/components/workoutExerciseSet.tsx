@@ -30,6 +30,7 @@ import {
   Weight_getOneRepMax,
 } from "../models/weight";
 import { Exercise_getIsUnilateral, Exercise_onerm } from "../models/exercise";
+import { Bodyweight_displayWeight, Bodyweight_isExercise } from "../models/bodyweight";
 
 interface IWorkoutExerciseSet {
   exerciseType: IExerciseType;
@@ -57,8 +58,15 @@ interface IWorkoutExerciseSet {
 
 export function WorkoutExerciseSet(props: IWorkoutExerciseSet): JSX.Element {
   const set = props.set;
+  const isBodyweight = Bodyweight_isExercise(props.settings, props.exerciseType);
   const placeholderReps = `${set.minReps != null ? `${n(set.minReps)}-` : ""}${set.reps != null ? n(set.reps) : ""}${set.reps != null && set.isAmrap ? "+" : ""}`;
-  const placeholderWeight = set.weight?.value != null ? `${n(set.weight.value)}${set.askWeight ? "+" : ""}` : undefined;
+  const inputWeight = Bodyweight_displayWeight(set.completedWeight, isBodyweight);
+  const inputInitialWeight = Bodyweight_displayWeight(set.weight, isBodyweight);
+  const placeholderWeight = isBodyweight
+    ? "+ load"
+    : set.weight?.value != null
+      ? `${n(set.weight.value)}${set.askWeight ? "+" : ""}`
+      : undefined;
   const completedRpeValue = set.logRpe && set.completedRpe != null ? set.completedRpe : undefined;
   const isMobile = Mobile_isMobileFromWindow();
   const isPlaywright = Mobile_isPlaywrightFromWindow();
@@ -265,8 +273,8 @@ export function WorkoutExerciseSet(props: IWorkoutExerciseSet): JSX.Element {
                 }
                 subscription={props.subscription}
                 placeholder={placeholderWeight}
-                initialValue={set.weight}
-                value={set.completedWeight || undefined}
+                initialValue={inputInitialWeight}
+                value={inputWeight}
                 max={9999}
                 min={-9999}
                 settings={props.settings}
@@ -374,6 +382,7 @@ export function WorkoutExerciseSet(props: IWorkoutExerciseSet): JSX.Element {
 interface IWorkoutExerciseSetTargetProps {
   setType: "program" | "warmup" | "adhoc";
   set: ISet;
+  isBodyweight: boolean;
 }
 
 function WorkoutExerciseSetTarget(props: IWorkoutExerciseSetTargetProps): JSX.Element {
@@ -548,6 +557,86 @@ function getDataCy(set: ISet): string {
   }
 }
 
+function WorkoutExerciseSetTarget2(props: IWorkoutExerciseSetTargetProps): JSX.Element {
+  const set = props.set;
+  const targetWeight = Bodyweight_displayWeight(set.weight, props.isBodyweight);
+  const originalWeight = Bodyweight_displayWeight(set.originalWeight, props.isBodyweight);
+  const isDiffWeight = targetWeight && originalWeight && !Weight_eq(targetWeight, originalWeight);
+
+  if (props.setType === "warmup") {
+    return (
+      <span className="inline-block text-xs break-all text-text-secondary">
+        <div className="inline-block text-sm align-middle">
+          <div className="text-xs text-text-secondary">Warmup</div>
+          <div>
+            {set.reps != null && <span className="font-semibold">{n(Math.max(0, set.reps))}</span>}
+            {set.reps != null && targetWeight != null && <span className="text-text-secondary"> x </span>}
+            {targetWeight != null && (
+              <span>
+                <span> </span>
+                <span className="font-semibold">{n(targetWeight.value)}</span>
+                <span className="text-xs">{targetWeight.unit}</span>
+              </span>
+            )}
+          </div>
+        </div>
+      </span>
+    );
+  }
+
+  const hasTarget = set.reps != null || targetWeight != null;
+  return (
+    <div className="inline-block text-sm align-middle">
+      {set.label ? <div className="text-xs text-text-secondary">{set.label}</div> : null}
+      {props.setType === "adhoc" && <div className="text-xs text-text-secondary">Ad-hoc</div>}
+      {hasTarget ? (
+        <div>
+          {set.reps != null && (
+            <span className="font-semibold text-syntax-reps">
+              {set.minReps != null ? `${n(Math.max(0, set.minReps))}-` : null}
+              {n(Math.max(0, set.reps))}
+              {set.isAmrap ? "+" : ""}
+            </span>
+          )}
+          {set.reps != null && targetWeight != null && <span className="text-text-secondary"> x </span>}
+          <span>
+            {originalWeight && targetWeight && (
+              <span className={isDiffWeight ? "line-through text-text-secondary" : "font-semibold text-syntax-weight"}>
+                <span>{n(originalWeight.value)}</span>
+                <span className="text-xs font-normal">{originalWeight.unit}</span>
+              </span>
+            )}
+            {targetWeight && isDiffWeight && (
+              <span className="text-syntax-weight">
+                <span> </span>
+                <span className="font-semibold">{n(targetWeight.value)}</span>
+                <span className="text-xs">{targetWeight.unit}</span>
+              </span>
+            )}
+          </span>
+          <span className="font-semibold text-syntax-rpe">
+            {originalWeight == null && set.askWeight ? " ?" : ""}
+            {set.askWeight ? "+" : ""}
+            {set.rpe ? ` @${n(Math.max(0, set.rpe))}` : null}
+            {set.rpe && set.logRpe ? "+" : ""}
+          </span>
+          {set.timer != null ? (
+            <span>
+              <span> </span>
+              <span className="text-syntax-timer">
+                <span>{n(set.timer)}</span>
+                <span className="text-xs">s</span>
+              </span>
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <div>None</div>
+      )}
+    </div>
+  );
+}
+
 interface IWorkoutExerciseSetTargetFieldProps {
   setType: "program" | "warmup" | "adhoc";
   set: ISet;
@@ -557,9 +646,14 @@ interface IWorkoutExerciseSetTargetFieldProps {
 }
 
 function WorkoutExerciseSetTargetField(props: IWorkoutExerciseSetTargetFieldProps): JSX.Element {
+  const isBodyweight = Bodyweight_isExercise(props.settings, props.exerciseType);
   switch (props.settings.workoutSettings.targetType) {
     case "target": {
-      return <WorkoutExerciseSetTarget set={props.set} setType={props.setType} />;
+      return isBodyweight ? (
+        <WorkoutExerciseSetTarget2 set={props.set} setType={props.setType} isBodyweight={isBodyweight} />
+      ) : (
+        <WorkoutExerciseSetTarget set={props.set} setType={props.setType} isBodyweight={isBodyweight} />
+      );
     }
     case "lasttime": {
       return <WorkoutExerciseLastSet set={props.lastSet} />;

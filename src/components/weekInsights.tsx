@@ -18,6 +18,7 @@ import { Thunk_pushScreen } from "../ducks/thunks";
 import { DateUtils_firstDayOfWeekTimestamp, DateUtils_formatRange } from "../utils/date";
 import { Muscle_getMuscleGroupName } from "../models/muscle";
 import { navigationRef } from "../navigation/navigationRef";
+import { PersonalFork_unlocksLocalPremiumFeature } from "../utils/personalFork";
 
 interface IWeekInsightsProps {
   prs: IPersonalRecords;
@@ -41,7 +42,7 @@ export function WeekInsights(props: IWeekInsightsProps): JSX.Element {
     return <div />;
   }
 
-  if (!Subscriptions_hasSubscription(props.subscription)) {
+  if (!Subscriptions_hasSubscription(props.subscription) && !PersonalFork_unlocksLocalPremiumFeature("weekInsights")) {
     return (
       <section
         className="fixed left-0 z-10 w-full px-3 py-2 border top-16 border-border-cardyellow bg-background-cardyellow rounded-b-xl"

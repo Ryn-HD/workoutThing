@@ -5,6 +5,7 @@ import {
   Exercise_getWarmupSets,
   Exercise_toKey,
 } from "./exercise";
+import { Bodyweight_isExercise, Bodyweight_zeroAddedLoad } from "./bodyweight";
 import {
   Reps_findNextEntryAndSet,
   Reps_isEmptyOrFinished,
@@ -1153,6 +1154,7 @@ export function Progress_completeAmrapSet(
 ): IHistoryRecord {
   const entry = progress.entries[entryIndex];
   const isUnilateral = Exercise_getIsUnilateral(entry.exercise, settings);
+  const isBodyweight = Bodyweight_isExercise(settings, entry.exercise);
   return lf(progress)
     .p("entries")
     .i(entryIndex)
@@ -1164,7 +1166,10 @@ export function Progress_completeAmrapSet(
         timestamp: !progressSet.isCompleted ? Date.now() : progressSet.timestamp,
         completedRepsLeft: isUnilateral ? (progressSet.completedRepsLeft ?? progressSet.reps) : undefined,
         completedReps: progressSet.completedReps ?? progressSet.reps,
-        completedWeight: progressSet.completedWeight ?? progressSet.weight,
+        completedWeight:
+          progressSet.completedWeight ??
+          progressSet.weight ??
+          (isBodyweight ? Bodyweight_zeroAddedLoad(settings, entry.exercise) : undefined),
         isCompleted: !progressSet.isCompleted,
       };
     });
@@ -1181,10 +1186,11 @@ export function Progress_shouldShowAmrapModal(
   const shouldLogRpe = !!set?.logRpe;
   const shouldPromptUserVars = hasUserPromptedVars && Progress_hasLastUnfinishedSet(entry);
   const isUnilateral = Exercise_getIsUnilateral(entry.exercise, settings);
+  const isBodyweight = Bodyweight_isExercise(settings, entry.exercise);
   const isAmrap =
     (set?.completedReps == null || (isUnilateral && set?.completedRepsLeft == null)) &&
     (!!set?.isAmrap || set.reps == null);
-  const shouldAskWeight = set?.completedWeight == null && (!!set?.askWeight || set.weight == null);
+  const shouldAskWeight = !isBodyweight && set?.completedWeight == null && (!!set?.askWeight || set.weight == null);
   return !set.isCompleted && (shouldLogRpe || shouldPromptUserVars || isAmrap || shouldAskWeight);
 }
 
@@ -1201,10 +1207,11 @@ export function Progress_completeSet(
   const shouldLogRpe = !!set?.logRpe;
   const shouldPromptUserVars = hasUserPromptedVars && Progress_hasLastUnfinishedSet(entry);
   const isUnilateral = Exercise_getIsUnilateral(entry.exercise, settings);
+  const isBodyweight = Bodyweight_isExercise(settings, entry.exercise);
   const isAmrap =
     (set?.completedReps == null || (isUnilateral && set?.completedRepsLeft == null)) &&
     (!!set?.isAmrap || set.reps == null);
-  const shouldAskWeight = set?.completedWeight == null && (!!set?.askWeight || set.weight == null);
+  const shouldAskWeight = !isBodyweight && set?.completedWeight == null && (!!set?.askWeight || set.weight == null);
   if (mode === "warmup") {
     return lf(progress)
       .p("entries")
@@ -1217,7 +1224,10 @@ export function Progress_completeSet(
           timestamp: !progressSet.isCompleted ? Date.now() : progressSet.timestamp,
           completedRepsLeft: isUnilateral ? (progressSet.completedRepsLeft ?? progressSet.reps) : undefined,
           completedReps: progressSet.completedReps ?? progressSet.reps,
-          completedWeight: progressSet.completedWeight ?? progressSet.weight,
+          completedWeight:
+            progressSet.completedWeight ??
+            progressSet.weight ??
+            (isBodyweight ? Bodyweight_zeroAddedLoad(settings, entry.exercise) : undefined),
           isCompleted: !progressSet.isCompleted,
         };
       });

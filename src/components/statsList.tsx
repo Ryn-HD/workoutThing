@@ -29,6 +29,7 @@ import { updateSettings } from "../models/state";
 import { lb } from "lens-shmens";
 import { Subscriptions_hasSubscription } from "../utils/subscriptions";
 import { ImagePreloader_dynoflex } from "../utils/imagePreloader";
+import { PersonalFork_unlocksLocalPremiumFeature } from "../utils/personalFork";
 
 interface IProps {
   stats: IStats;
@@ -132,7 +133,7 @@ export function StatsList(props: IProps): JSX.Element {
           setSelectedKey(value as IStatsKey);
         }}
       />
-      {Subscriptions_hasSubscription(props.subscription) && (
+      {(Subscriptions_hasSubscription(props.subscription) || PersonalFork_unlocksLocalPremiumFeature("graphs")) && (
         <MenuItemEditable
           name="Moving Average Window Size"
           type="select"
