@@ -12,7 +12,8 @@ export function ProgramSet_group(sets: IProgramSet[]): IProgramSet[][] {
         last != null &&
         (last.weightExpr !== set.weightExpr ||
           last.repsExpr !== set.repsExpr ||
-          last.isAmrap !== set.isAmrap ||
+          (last.setType ?? (last.isAmrap ? "amrap" : "normal")) !==
+            (set.setType ?? (set.isAmrap ? "amrap" : "normal")) ||
           last.rpeExpr !== set.rpeExpr ||
           last.logRpe !== set.logRpe)
       ) {

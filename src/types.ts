@@ -459,6 +459,19 @@ export type IPercentageUnit = t.TypeOf<typeof TPercentageUnit>;
 export const TPercentage = t.type({ value: t.number, unit: TPercentageUnit }, "TPercentage");
 export type IPercentage = t.TypeOf<typeof TPercentage>;
 
+export const setTypes = ["normal", "amrap", "myoActivation", "myoMini", "dropSet"] as const;
+export const TSetType = t.keyof(
+  setTypes.reduce<Record<IArrayElement<typeof setTypes>, null>>(
+    (memo, setType) => {
+      memo[setType] = null;
+      return memo;
+    },
+    {} as Record<IArrayElement<typeof setTypes>, null>
+  ),
+  "TSetType"
+);
+export type ISetType = t.TypeOf<typeof TSetType>;
+
 export const TSet = t.intersection(
   [
     t.interface({
@@ -474,6 +487,7 @@ export const TSet = t.intersection(
       rpe: t.number,
       logRpe: t.boolean,
       timestamp: t.number,
+      setType: TSetType,
       isAmrap: t.boolean,
       label: t.string,
       timer: t.number,
@@ -537,6 +551,7 @@ export const TProgramSet = t.intersection(
       weightExpr: t.string,
     }),
     t.partial({
+      setType: TSetType,
       isAmrap: t.boolean,
       rpeExpr: t.string,
       minRepsExpr: t.string,

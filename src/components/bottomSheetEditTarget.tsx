@@ -11,6 +11,7 @@ import { lb } from "lens-shmens";
 import { updateProgress } from "../models/state";
 import { Weight_build, Weight_evaluateWeight, Weight_roundConvertTo } from "../models/weight";
 import { Button } from "./button";
+import { Reps_isAmrap } from "../models/set";
 
 interface IBottomSheetEditTargetProps {
   isHidden: boolean;
@@ -94,12 +95,17 @@ export function BottomSheetEditTargetContent(props: IBottomSheetEditTargetConten
               <label className="leading-none">
                 <span className="text-xs">AMRAP? </span>
                 <input
-                  checked={set.isAmrap}
+                  checked={Reps_isAmrap(set)}
                   data-cy="edit-target-amrap"
                   className="block align-middle checkbox text-text-link"
                   type="checkbox"
                   onChange={(e) => {
-                    updateProgress(props.dispatch, [lbSet.p("isAmrap").record(!set.isAmrap)], "amrap-checkbox");
+                    const isAmrap = !Reps_isAmrap(set);
+                    updateProgress(
+                      props.dispatch,
+                      [lbSet.p("isAmrap").record(isAmrap), lbSet.p("setType").record(isAmrap ? "amrap" : "normal")],
+                      "amrap-checkbox"
+                    );
                   }}
                 />
               </label>

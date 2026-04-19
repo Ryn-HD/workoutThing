@@ -3,7 +3,7 @@ import { Exercise_get, Exercise_fullName } from "../models/exercise";
 import { Weight_print } from "../models/weight";
 import { emptyProgramId, Program_evaluate, Program_isEmpty } from "../models/program";
 import { n } from "../utils/math";
-import { Reps_groupConsecutive, Reps_completedSetKey, Reps_targetSetKey } from "../models/set";
+import { Reps_groupConsecutive, Reps_completedSetKey, Reps_targetSetKey, Reps_isAmrap } from "../models/set";
 import { History_workoutTime } from "../models/history";
 
 export function LiftohistorySerializer_serialize(
@@ -152,7 +152,7 @@ function formatTargetSet(set: ISet, count: number): string {
     str += `${set.minReps}-`;
   }
   str += `${reps}`;
-  if (set.isAmrap) {
+  if (Reps_isAmrap(set)) {
     str += "+";
   }
   if (set.weight) {

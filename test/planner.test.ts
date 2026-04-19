@@ -19,6 +19,34 @@ import { ObjectUtils_clone } from "../src/utils/object";
 import { Stats_getEmpty } from "../src/models/stats";
 
 describe("Planner", () => {
+  it("round trips explicit set types through Liftoscript", () => {
+    const programText = `# Week 1
+## Day 1
+Hammer Curl / 1x12 type[myoActivation], 3x5 type[myoMini], 1x8 type[dropSet]
+`;
+    const planner: IPlannerProgram = {
+      vtype: "planner",
+      name: "MyProgram",
+      weeks: PlannerProgram_evaluateText(programText),
+    };
+    const evaluatedWeeks = PlannerProgram_evaluate(planner, Settings_build()).evaluatedWeeks;
+    const evaluatedExercise = evaluatedWeeks[0][0].success ? evaluatedWeeks[0][0].data[0] : undefined;
+
+    expect(evaluatedExercise?.evaluatedSetVariations[0].sets.map((set) => set.setType)).to.deep.equal([
+      "myoActivation",
+      "myoMini",
+      "myoMini",
+      "myoMini",
+      "dropSet",
+    ]);
+    expect(PlannerProgram_generateFullText(planner.weeks)).to.equal(`# Week 1
+## Day 1
+Hammer Curl / 1x12 type[myoActivation], 3x5 type[myoMini], 1x8 type[dropSet]
+
+
+`);
+  });
+
   it("updates weight after completing", () => {
     const programText = `# Week 1
 ## Day 1

@@ -3,7 +3,7 @@ import { ExerciseImageUtils_url } from "../models/exerciseImage";
 import { Program_evaluate, Program_getProgramExercise } from "../models/program";
 import { ProgramExercise_hasUserPromptedVars } from "../models/programExercise";
 import { Progress_shouldShowAmrapModal, Progress_getNextEntry } from "../models/progress";
-import { ISetsStatus, Reps_setsStatus, Reps_findNextSetIndex } from "../models/set";
+import { ISetsStatus, Reps_isAmrap, Reps_setsStatus, Reps_findNextSetIndex } from "../models/set";
 import { Weight_calculatePlates, Weight_print, Weight_formatOneSide } from "../models/weight";
 import { IPlannerProgramExercise } from "../pages/planner/models/types";
 import { IHistoryRecord, IProgram, ISettings, ISubscription } from "../types";
@@ -106,7 +106,7 @@ export function LiveActivityManager_getLiveActivityEntry(
       status: Reps_setsStatus([s]),
       isWarmup: i < entry.warmupSets.length,
     })),
-    targetReps: set.reps ? `${n(set.reps)}${set.isAmrap ? "+" : ""}` : undefined,
+    targetReps: set.reps ? `${n(set.reps)}${Reps_isAmrap(set) ? "+" : ""}` : undefined,
     targetWeight: set.weight ? `${Weight_print(set.weight)}${set.askWeight ? "+" : ""}` : undefined,
     targetRPE: set.rpe != null ? `${n(set.rpe)}${set.logRpe ? "+" : ""}` : undefined,
     targetTimer: set.timer != null ? set.timer.toString() : undefined,

@@ -50,7 +50,7 @@ export function EditProgramExerciseAcrossAllWeeks(props: IEditProgramExerciseAcr
           plannerExercise={props.plannerExercise}
           plannerDispatch={props.plannerDispatch}
           settings={props.settings}
-          getKey={(set) => `${set.minrep}-${set.maxrep}-${set.isAmrap}`}
+          getKey={(set) => `${set.minrep}-${set.maxrep}-${set.setType ?? (set.isAmrap ? "amrap" : "normal")}`}
           getRightSide={(group, set) => (
             <RepsValue
               exerciseType={props.plannerExercise.exerciseType}
@@ -364,7 +364,9 @@ function RepsValue(props: IValueProps): JSX.Element {
             name="set-reps"
             onBlur={(value) => change(group, (s) => (s.maxrep = value))}
             after={() => {
-              return set.isAmrap ? <span className="text-xs text-text-secondary">+</span> : undefined;
+              return (set.setType ?? (set.isAmrap ? "amrap" : "normal")) === "amrap" ? (
+                <span className="text-xs text-text-secondary">+</span>
+              ) : undefined;
             }}
             keyboardAddon={
               <div className="py-2">
@@ -372,7 +374,10 @@ function RepsValue(props: IValueProps): JSX.Element {
                   label="Is AMRAP?"
                   value={set.isAmrap}
                   onChange={(value) => {
-                    change(group, (s) => (s.isAmrap = value));
+                    change(group, (s) => {
+                      s.setType = value ? "amrap" : "normal";
+                      s.isAmrap = value;
+                    });
                   }}
                 />
               </div>
@@ -445,7 +450,7 @@ function RpeValue(props: IValueProps): JSX.Element {
             <div className="py-2">
               <InputNumberAddOn
                 label="Log RPE?"
-                value={set.isAmrap}
+                value={set.logRpe}
                 onChange={(value) => {
                   change(group, (s) => (s.logRpe = value));
                 }}

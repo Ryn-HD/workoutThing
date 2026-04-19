@@ -283,6 +283,7 @@ function Set(props: ISetProps): JSX.Element {
   if (!repRange) {
     return <div />;
   }
+  const setType = repRange.setType ?? (repRange.isAmrap ? "amrap" : "normal");
   return (
     <div className="text-base leading-4 text-right whitespace-nowrap text-text-secondary">
       {repRange.numberOfSets > 1 && (
@@ -299,7 +300,7 @@ function Set(props: ISetProps): JSX.Element {
           <span className="font-semibold text-text-primary">{repRange.maxrep}</span>
         </span>
       )}
-      {repRange.isAmrap && <span className="font-semibold text-text-primary">+</span>}
+      {setType === "amrap" && <span className="font-semibold text-text-primary">+</span>}
       {set.weight ? (
         <span>
           {" "}

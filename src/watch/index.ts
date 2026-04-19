@@ -29,7 +29,13 @@ import {
   History_collectMuscleGroups,
   History_calories,
 } from "../models/history";
-import { Reps_setWarmupStatus, Reps_setsStatus, Reps_findNextEntryAndSetIndex, Reps_addSet } from "../models/set";
+import {
+  Reps_isAmrap,
+  Reps_setWarmupStatus,
+  Reps_setsStatus,
+  Reps_findNextEntryAndSetIndex,
+  Reps_addSet,
+} from "../models/set";
 import { IStorageUpdate2, Sync_getStorageUpdate2 } from "../utils/sync";
 import {
   IStorage,
@@ -216,7 +222,7 @@ function setToWatchSet(
     minReps: set.minReps,
     weight: set.weight,
     originalWeight: set.originalWeight,
-    isAmrap: set.isAmrap,
+    isAmrap: Reps_isAmrap(set),
     askWeight: set.askWeight,
     rpe: set.rpe,
     timer: set.timer,

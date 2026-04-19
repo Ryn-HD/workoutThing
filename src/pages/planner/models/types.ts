@@ -7,6 +7,7 @@ import {
   IProgram,
   IProgramState,
   IProgramStateMetadata,
+  ISetType,
   IShortDayData,
 } from "../../../types";
 import { IPlannerSyntaxPointer, PlannerSyntaxError } from "../plannerExerciseEvaluator";
@@ -94,6 +95,7 @@ export interface IPlannerProgramExerciseEvaluatedSet {
   rpe?: number;
   logRpe: boolean;
   label?: string;
+  setType: ISetType;
   isAmrap: boolean;
   isQuickAddSet: boolean;
   askWeight: boolean;
@@ -107,6 +109,7 @@ export interface IPlannerProgramExerciseSet {
   percentage?: number;
   weight?: IWeight;
   label?: string;
+  setType?: ISetType;
   askWeight?: boolean;
 }
 
@@ -180,6 +183,7 @@ export interface IPlannerProgramExerciseRepRange {
   numberOfSets: number;
   maxrep?: number;
   minrep?: number;
+  setType?: ISetType;
   isAmrap: boolean;
   isQuickAddSet: boolean;
 }

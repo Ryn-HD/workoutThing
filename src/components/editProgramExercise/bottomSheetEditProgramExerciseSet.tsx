@@ -4,7 +4,7 @@ import {
   IPlannerExerciseUi,
   IPlannerProgramExerciseEvaluatedSet,
 } from "../../pages/planner/models/types";
-import { ISettings } from "../../types";
+import { ISetType, ISettings } from "../../types";
 import { ILensDispatch } from "../../utils/useLensReducer";
 import { lb } from "lens-shmens";
 
@@ -12,6 +12,18 @@ import { MenuItemEditable } from "../menuItemEditable";
 import { IEvaluatedProgram } from "../../models/program";
 import { EditProgramUiHelpers_changeCurrentInstance2 } from "../editProgram/editProgramUi/editProgramUiHelpers";
 import { Weight_build } from "../../models/weight";
+
+const setTypeOptions: [ISetType, string][] = [
+  ["normal", "Normal"],
+  ["amrap", "AMRAP"],
+  ["myoActivation", "Myo activation"],
+  ["myoMini", "Myo mini"],
+  ["dropSet", "Drop set"],
+];
+
+function setTypeForSet(set: IPlannerProgramExerciseEvaluatedSet): ISetType {
+  return set.setType ?? (set.isAmrap ? "amrap" : "normal");
+}
 
 interface IBottomSheetEditProgramExerciseSetProps {
   ui: IPlannerExerciseUi;
@@ -67,6 +79,19 @@ export function BottomSheetEditProgramExerciseSetContent(props: IBottomSheetEdit
               onChange={(value) => {
                 changeSet((s) => {
                   s.label = value;
+                });
+              }}
+            />
+            <MenuItemEditable
+              type="select"
+              name="Set Type"
+              value={setTypeForSet(set)}
+              values={setTypeOptions}
+              onChange={(value) => {
+                changeSet((s) => {
+                  const setType = (value || "normal") as ISetType;
+                  s.setType = setType;
+                  s.isAmrap = setType === "amrap";
                 });
               }}
             />

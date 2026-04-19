@@ -176,6 +176,7 @@ export function ProgramExercise_applyVariables(
                   maxrep: 1,
                   weight: Weight_build(100, "lb"),
                   logRpe: false,
+                  setType: "normal",
                   isAmrap: false,
                   isQuickAddSet: false,
                   askWeight: false,
@@ -206,6 +207,7 @@ export function ProgramExercise_applyVariables(
                   operation(exercise, sets[setIndex], settings, "weight", value.value, value.op);
                 } else if (key === "amraps") {
                   operation(exercise, sets[setIndex], settings, "isAmrap", value.value, value.op);
+                  sets[setIndex].setType = sets[setIndex].isAmrap ? "amrap" : "normal";
                 } else if (key === "logrpes") {
                   operation(exercise, sets[setIndex], settings, "logRpe", value.value, value.op);
                 } else if (key === "askweights") {
@@ -280,6 +282,9 @@ function operation(
       set[key] = value;
     } else if (typeof value === "number" && (key === "askWeight" || key === "isAmrap" || key === "logRpe")) {
       set[key] = value !== 0;
+      if (key === "isAmrap") {
+        set.setType = set.isAmrap ? "amrap" : "normal";
+      }
     }
   } else {
     const onerm = Exercise_onerm(programExercise.exerciseType, settings);
@@ -298,6 +303,9 @@ function operation(
       set[key] = newValue;
     } else if (typeof newValue === "number" && (key === "askWeight" || key === "isAmrap" || key === "logRpe")) {
       set[key] = newValue !== 0;
+      if (key === "isAmrap") {
+        set.setType = set.isAmrap ? "amrap" : "normal";
+      }
     }
   }
 }

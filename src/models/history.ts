@@ -42,6 +42,7 @@ import {
   Reps_isStarted,
   Reps_setVolume,
   Reps_isFinishedSet,
+  Reps_isAmrap,
 } from "./set";
 import { ProgramExercise_isUsingVariable } from "./programExercise";
 import { IState, updateState } from "./state";
@@ -611,7 +612,7 @@ export function History_getHistoricalAmrapSets(
   currentEntry: IHistoryEntry,
   nextSet?: ISet
 ): { last: [ISet, number]; max: [ISet, number] } | undefined {
-  if (!nextSet?.isAmrap) {
+  if (!nextSet || !Reps_isAmrap(nextSet)) {
     return undefined;
   }
   let last: [ISet, number] | undefined;
@@ -621,7 +622,7 @@ export function History_getHistoricalAmrapSets(
       if (Exercise_eq(currentEntry.exercise, entry.exercise)) {
         for (const set of entry.sets) {
           if (
-            set.isAmrap &&
+            Reps_isAmrap(set) &&
             set.reps === nextSet.reps &&
             Weight_eq(set.weight ?? Weight_build(0, "lb"), nextSet.weight ?? Weight_build(0, "lb"))
           ) {
@@ -677,7 +678,7 @@ export function History_exportAsCSV(history: IHistoryRecord[], settings: ISettin
           1,
           warmupSet.reps ?? null,
           warmupSet.completedReps ?? null,
-          warmupSet.isAmrap ? 1 : 0,
+          Reps_isAmrap(warmupSet) ? 1 : 0,
           warmupSet.rpe ?? null,
           warmupSet.completedRpe ?? null,
           warmupSet.logRpe ? 1 : 0,
@@ -701,7 +702,7 @@ export function History_exportAsCSV(history: IHistoryRecord[], settings: ISettin
           0,
           set.reps ?? null,
           set.completedReps ?? null,
-          set.isAmrap ? 1 : 0,
+          Reps_isAmrap(set) ? 1 : 0,
           set.rpe ?? null,
           set.completedRpe ?? null,
           set.logRpe ? 1 : 0,

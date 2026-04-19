@@ -19,7 +19,7 @@ import { Mobile_isMobileFromWindow, Mobile_isPlaywrightFromWindow } from "../../
 import { IPlannerProgramExercise } from "../pages/planner/models/types";
 import { IByExercise } from "../pages/planner/plannerEvaluator";
 import { EditProgressEntry_showEditSetModal } from "../models/editProgressEntry";
-import { Reps_enforceCompletedSet, Reps_setsStatus, Reps_avgUnilateralCompletedReps } from "../models/set";
+import { Reps_enforceCompletedSet, Reps_setsStatus, Reps_avgUnilateralCompletedReps, Reps_isAmrap } from "../models/set";
 import {
   Weight_eq,
   Weight_rpeMultiplier,
@@ -59,7 +59,7 @@ interface IWorkoutExerciseSet {
 export function WorkoutExerciseSet(props: IWorkoutExerciseSet): JSX.Element {
   const set = props.set;
   const isBodyweight = Bodyweight_isExercise(props.settings, props.exerciseType);
-  const placeholderReps = `${set.minReps != null ? `${n(set.minReps)}-` : ""}${set.reps != null ? n(set.reps) : ""}${set.reps != null && set.isAmrap ? "+" : ""}`;
+  const placeholderReps = `${set.minReps != null ? `${n(set.minReps)}-` : ""}${set.reps != null ? n(set.reps) : ""}${set.reps != null && Reps_isAmrap(set) ? "+" : ""}`;
   const inputWeight = Bodyweight_displayWeight(set.completedWeight, isBodyweight);
   const inputInitialWeight = Bodyweight_displayWeight(set.weight, isBodyweight);
   const placeholderWeight = isBodyweight
@@ -422,7 +422,7 @@ function WorkoutExerciseSetTarget(props: IWorkoutExerciseSetTargetProps): JSX.El
                 <span className="font-semibold text-syntax-reps">
                   {aSet.minReps != null ? `${n(Math.max(0, aSet.minReps))}-` : null}
                   {n(Math.max(0, aSet.reps))}
-                  {aSet.isAmrap ? "+" : ""}
+                  {Reps_isAmrap(aSet) ? "+" : ""}
                 </span>
               )}
               {aSet.reps != null && aSet.weight != null && <span className="text-text-secondary"> × </span>}
@@ -532,7 +532,7 @@ function RpeWeightHint(props: IRpeWeightHintProps): JSX.Element {
 }
 
 function getDataCy(set: ISet): string {
-  if (set.isAmrap) {
+  if (Reps_isAmrap(set)) {
     if (!set.isCompleted || !set.completedReps) {
       return "set-amrap-nonstarted";
     } else if (set.minReps != null && set.completedReps < set.minReps) {
@@ -595,7 +595,7 @@ function WorkoutExerciseSetTarget2(props: IWorkoutExerciseSetTargetProps): JSX.E
             <span className="font-semibold text-syntax-reps">
               {set.minReps != null ? `${n(Math.max(0, set.minReps))}-` : null}
               {n(Math.max(0, set.reps))}
-              {set.isAmrap ? "+" : ""}
+              {Reps_isAmrap(set) ? "+" : ""}
             </span>
           )}
           {set.reps != null && targetWeight != null && <span className="text-text-secondary"> x </span>}

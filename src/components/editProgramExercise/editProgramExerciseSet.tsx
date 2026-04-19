@@ -222,16 +222,21 @@ export function EditProgramExerciseSet(props: IEditProgramExerciseSetProps): JSX
                     }
                   }}
                   after={() => {
-                    return set.isAmrap ? <span className="text-xs text-text-secondary">+</span> : undefined;
+                    return (set.setType ?? (set.isAmrap ? "amrap" : "normal")) === "amrap" ? (
+                      <span className="text-xs text-text-secondary">+</span>
+                    ) : undefined;
                   }}
                   keyboardAddon={
                     <div className="py-2">
                       <InputNumberAddOn
                         data-cy="keyboard-addon-amrap"
                         label="Is AMRAP?"
-                        value={set.isAmrap}
+                        value={(set.setType ?? (set.isAmrap ? "amrap" : "normal")) === "amrap"}
                         onChange={(value) => {
-                          changeSet((s) => (s.isAmrap = value));
+                          changeSet((s) => {
+                            s.setType = value ? "amrap" : "normal";
+                            s.isAmrap = value;
+                          });
                         }}
                       />
                     </div>

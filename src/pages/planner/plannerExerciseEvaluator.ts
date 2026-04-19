@@ -26,6 +26,8 @@ import {
   IUnit,
   IProgramStateMetadata,
   IAllCustomExercises,
+  ISetType,
+  setTypes,
 } from "../../types";
 import * as W from "../../models/weight";
 import { PlannerNodeName } from "./plannerExerciseStyles";
@@ -251,6 +253,7 @@ export class PlannerExerciseEvaluator {
       numberOfSets: parseInt(numberOfSetsStr, 10),
       minrep: minrepStr != null ? parseInt(minrepStr, 10) : undefined,
       maxrep: parseInt(maxrepStr, 10),
+      setType: isAmrap ? "amrap" : "normal",
       isAmrap: isAmrap,
       isQuickAddSet: numberOfSetsStr.endsWith("+"),
     };
@@ -264,6 +267,18 @@ export class PlannerExerciseEvaluator {
     } else {
       return undefined;
     }
+  }
+
+  private getSetType(expr?: SyntaxNode | null): ISetType | undefined {
+    const value = expr?.getChild(PlannerNodeName.SetTypeValue);
+    const setType = value ? this.getValue(value) : undefined;
+    if (setType == null) {
+      return undefined;
+    }
+    if ((setTypes as readonly string[]).includes(setType)) {
+      return setType as ISetType;
+    }
+    this.error(`Invalid set type '${setType}'`, value!);
   }
 
   private evaluateWarmupSet(expr: SyntaxNode): IPlannerProgramExerciseWarmupSet {
@@ -345,6 +360,7 @@ export class PlannerExerciseEvaluator {
       const percentageNode = expr.getChild(PlannerNodeName.PercentageWithPlus);
       const weightNode = expr.getChild(PlannerNodeName.WeightWithPlus);
       const labelNode = expr.getChild(PlannerNodeName.SetLabel);
+      const explicitSetType = this.getSetType(expr.getChild(PlannerNodeName.SetTypeMarker));
       const askWeightNode = expr.getChild(PlannerNodeName.AskWeight);
       const askWeight =
         askWeightNode != null ||
@@ -367,6 +383,10 @@ export class PlannerExerciseEvaluator {
       if (labelNode && label && label.length > 8) {
         this.error("Label length should be 8 chars max", labelNode);
       }
+      if (repRange != null && explicitSetType != null) {
+        repRange.setType = explicitSetType;
+        repRange.isAmrap = explicitSetType === "amrap";
+      }
       return {
         repRange,
         timer,
@@ -375,6 +395,7 @@ export class PlannerExerciseEvaluator {
         weight,
         percentage,
         label,
+        setType: explicitSetType,
         askWeight,
       };
     } else {

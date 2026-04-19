@@ -29,6 +29,7 @@ export const RepsAndWeight = memo((props: IRepsWeightsProps): JSX.Element => {
       weight,
       originalWeight: set.weight,
       isUnilateral,
+      setType: set.setType,
       isAmrap: set.isAmrap,
     };
   });

@@ -336,6 +336,10 @@ interface IParsedSet {
   label?: string;
 }
 
+function parsedSetType(parsed: IParsedSet): ISet["setType"] {
+  return parsed.isAmrap ? "amrap" : "normal";
+}
+
 function parseExerciseSet(node: SyntaxNode, text: string): IParsedSet {
   const children = getChildren(node);
   const result: IParsedSet = {};
@@ -428,6 +432,7 @@ function deserializeSetsAsCompleted(node: SyntaxNode, text: string): ISet[] {
         completedReps: parsed.reps,
         completedWeight: parsed.weight ? Weight_parse(parsed.weight) : undefined,
         completedRpe: parsed.rpe,
+        setType: parsedSetType(parsed),
         isAmrap: parsed.isAmrap,
         label: parsed.label,
         isUnilateral: parsed.repsLeft != null ? true : undefined,
@@ -456,6 +461,7 @@ function deserializeSetsAsTarget(node: SyntaxNode, text: string): ISet[] {
         askWeight: parsed.askWeight || undefined,
         rpe: parsed.rpe,
         logRpe: parsed.logRpe || undefined,
+        setType: parsedSetType(parsed),
         isAmrap: parsed.isAmrap || undefined,
         timer: parsed.timer,
         label: parsed.label || undefined,
@@ -478,6 +484,7 @@ function mergeSets(completedSets: ISet[], targetSets: ISet[]): ISet[] {
     const completed = i < completedSets.length ? completedSets[i] : undefined;
     const target = i < targetSets.length ? targetSets[i] : undefined;
     if (completed && target) {
+      const setType = target.setType ?? completed.setType ?? (target.isAmrap || completed.isAmrap ? "amrap" : "normal");
       result.push({
         ...completed,
         reps: target.reps,
@@ -486,7 +493,8 @@ function mergeSets(completedSets: ISet[], targetSets: ISet[]): ISet[] {
         askWeight: target.askWeight,
         rpe: target.rpe,
         logRpe: target.logRpe,
-        isAmrap: target.isAmrap || completed.isAmrap,
+        setType,
+        isAmrap: setType === "amrap",
         timer: target.timer,
         label: target.label || completed.label,
       });

@@ -292,6 +292,7 @@ export function Program_nextHistoryEntry(
     const minReps =
       programSet.minrep != null && programSet.minrep !== programSet.maxrep ? programSet.minrep : undefined;
     const weight = ProgramSet_getEvaluatedWeight(programSet, programExercise.exerciseType, settings);
+    const setType = programSet.setType ?? (programSet.isAmrap ? "amrap" : "normal");
     sets.push({
       vtype: "set",
       id: UidFactory_generateUid(6),
@@ -305,7 +306,8 @@ export function Program_nextHistoryEntry(
       logRpe: programSet.logRpe,
       askWeight: programSet.askWeight,
       originalWeight: programSet.weight,
-      isAmrap: programSet.isAmrap,
+      setType,
+      isAmrap: setType === "amrap",
       label: programSet.label,
       isCompleted: false,
       programSetIndex: i,
@@ -695,6 +697,7 @@ export function Program_createVariation(useStateWeight?: boolean): IProgramExerc
       {
         repsExpr: "5",
         weightExpr: useStateWeight ? "state.weight" : "0lb",
+        setType: "normal",
         isAmrap: false,
       },
     ],

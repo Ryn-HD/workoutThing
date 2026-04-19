@@ -12,6 +12,7 @@ import {
   Reps_isCompleted,
   Reps_isEmpty,
   Reps_isFinished,
+  Reps_isAmrap,
 } from "./set";
 import {
   Weight_build,
@@ -346,7 +347,7 @@ export function Progress_createScriptBindings(
     bindings.completedRPE.push(set.completedRpe);
     bindings.completedWeights.push(set.completedWeight);
     bindings.RPE.push(set.rpe);
-    bindings.amraps.push(set.isAmrap ? 1 : undefined);
+    bindings.amraps.push(Reps_isAmrap(set) ? 1 : undefined);
     bindings.logrpes.push(set.logRpe ? 1 : undefined);
     bindings.askweights.push(set.askWeight ? 1 : undefined);
     bindings.timers.push(set.timer);
@@ -539,7 +540,7 @@ export function Progress_startTimer(
         subtitleHeader = "Next Set";
         subtitle = CollectionUtils_compact([
           exercise.name,
-          aSet.reps != null ? `${aSet.reps}${aSet.isAmrap ? "+" : ""} reps` : undefined,
+          aSet.reps != null ? `${aSet.reps}${Reps_isAmrap(aSet) ? "+" : ""} reps` : undefined,
           aSet.weight != null ? Weight_display(aSet.weight) : undefined,
         ]).join(", ");
         if (aSet.weight != null) {
@@ -1108,6 +1109,7 @@ export function Progress_applyBindings(
           weight: Weight_build(0, "lb"),
           originalWeight: Weight_build(0, "lb"),
           askWeight: false,
+          setType: "normal",
           isCompleted: false,
         };
       }
@@ -1130,6 +1132,7 @@ export function Progress_applyBindings(
         } else if (key === "amraps") {
           const value = bindings.amraps[i];
           entry.sets[i].isAmrap = !!value;
+          entry.sets[i].setType = value ? "amrap" : "normal";
         } else if (key === "logrpes") {
           const value = bindings.logrpes[i];
           entry.sets[i].logRpe = !!value;
@@ -1189,7 +1192,7 @@ export function Progress_shouldShowAmrapModal(
   const isBodyweight = Bodyweight_isExercise(settings, entry.exercise);
   const isAmrap =
     (set?.completedReps == null || (isUnilateral && set?.completedRepsLeft == null)) &&
-    (!!set?.isAmrap || set.reps == null);
+    (Reps_isAmrap(set) || set.reps == null);
   const shouldAskWeight = !isBodyweight && set?.completedWeight == null && (!!set?.askWeight || set.weight == null);
   return !set.isCompleted && (shouldLogRpe || shouldPromptUserVars || isAmrap || shouldAskWeight);
 }
@@ -1210,7 +1213,7 @@ export function Progress_completeSet(
   const isBodyweight = Bodyweight_isExercise(settings, entry.exercise);
   const isAmrap =
     (set?.completedReps == null || (isUnilateral && set?.completedRepsLeft == null)) &&
-    (!!set?.isAmrap || set.reps == null);
+    (Reps_isAmrap(set) || set.reps == null);
   const shouldAskWeight = !isBodyweight && set?.completedWeight == null && (!!set?.askWeight || set.weight == null);
   if (mode === "warmup") {
     return lf(progress)
@@ -1430,6 +1433,7 @@ export function Progress_applyProgramExercise(
       } else if (programSet != null) {
         const originalWeight = programSet.weight;
         const weight = ProgramSet_getEvaluatedWeight(programSet, programExercise.exerciseType, settings);
+        const setType = programSet.setType ?? (programSet.isAmrap ? "amrap" : "normal");
         newSets.push({
           ...progressSet,
           id: progressSet?.id ?? UidFactory_generateUid(6),
@@ -1441,7 +1445,8 @@ export function Progress_applyProgramExercise(
           isUnilateral: Exercise_getIsUnilateral(programExercise.exerciseType, settings),
           originalWeight,
           weight,
-          isAmrap: programSet.isAmrap,
+          setType,
+          isAmrap: setType === "amrap",
           logRpe: programSet.logRpe,
           label: programSet.label,
         });
@@ -1474,6 +1479,7 @@ export function Progress_applyProgramExercise(
   } else {
     const newSets = sets.map((set, i) => {
       const weight = ProgramSet_getEvaluatedWeight(set, programExercise.exerciseType, settings);
+      const setType = set.setType ?? (set.isAmrap ? "amrap" : "normal");
       return {
         vtype: "set" as const,
         id: UidFactory_generateUid(6),
@@ -1485,7 +1491,8 @@ export function Progress_applyProgramExercise(
         weight,
         rpe: set.rpe,
         logRpe: set.logRpe,
-        isAmrap: set.isAmrap,
+        setType,
+        isAmrap: setType === "amrap",
         label: set.label,
       };
     });

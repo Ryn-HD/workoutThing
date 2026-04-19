@@ -31,6 +31,7 @@ import {
   IProgramState,
   IProgramStateMetadata,
   ISettings,
+  ISetType,
   IWeight,
 } from "../../../types";
 import {
@@ -162,6 +163,7 @@ export function PlannerProgramExercise_evaluateSetVariations(
         continue;
       }
       for (let j = 0; j < aSet.repRange.numberOfSets; j++) {
+        const setType = PlannerProgramExercise_setTypeForSet(aSet);
         evaluatedSets.push({
           maxrep: aSet.repRange.maxrep,
           minrep: aSet.repRange.minrep,
@@ -170,7 +172,8 @@ export function PlannerProgramExercise_evaluateSetVariations(
           rpe: aSet.rpe,
           logRpe: !!aSet.logRpe,
           label: aSet.label,
-          isAmrap: !!aSet.repRange.isAmrap,
+          setType,
+          isAmrap: setType === "amrap",
           isQuickAddSet: !!aSet.repRange.isQuickAddSet,
           askWeight: !!aSet.askWeight,
         });
@@ -289,7 +292,11 @@ export function PlannerProgramExercise_uniqueKey(exercise: IPlannerProgramExerci
 }
 
 export function PlannerProgramExercise_uniqueSetKey(set: IPlannerProgramExerciseEvaluatedSet): string {
-  return `${set.minrep}-${set.maxrep}-${set.isAmrap}-${set.weight?.value}${set.weight?.unit}${set.askWeight}-${set.rpe}${set.logRpe}-${set.timer}`;
+  return `${set.minrep}-${set.maxrep}-${set.setType}-${set.weight?.value}${set.weight?.unit}${set.askWeight}-${set.rpe}${set.logRpe}-${set.timer}`;
+}
+
+function PlannerProgramExercise_setTypeForSet(set: IPlannerProgramExerciseSet): ISetType {
+  return set.setType ?? set.repRange?.setType ?? (set.repRange?.isAmrap ? "amrap" : "normal");
 }
 
 export function PlannerProgramExercise_evaluatedSetsToDisplaySets(
@@ -305,7 +312,7 @@ export function PlannerProgramExercise_evaluatedSetsToDisplaySets(
       dimRpe: !set.logRpe,
       dimWeight: !set.weight,
       dimTimer: set.timer == null,
-      reps: `${set.minrep != null ? `${set.minrep}-${set.maxrep}` : `${set.maxrep}`}${set.isAmrap ? "+" : ""}`,
+      reps: `${set.minrep != null ? `${set.minrep}-${set.maxrep}` : `${set.maxrep}`}${set.setType === "amrap" ? "+" : ""}`,
       rpe: set.rpe?.toString(),
       weight,
       unit,
@@ -339,7 +346,7 @@ export function PlannerProgramExercise_setsToDisplaySets(
         dimRpe: !hasCurrentSets && globals.rpe == null,
         dimWeight: !hasCurrentSets && globals.weight == null && globals.percentage == null,
         dimTimer: !hasCurrentSets && globals.timer == null,
-        reps: `${minReps != null ? `${minReps}-` : ""}${maxReps}${set.repRange?.isAmrap ? "+" : ""}`,
+        reps: `${minReps != null ? `${minReps}-` : ""}${maxReps}${PlannerProgramExercise_setTypeForSet(set) === "amrap" ? "+" : ""}`,
         rpe: set.rpe?.toString(),
         weight: weight,
         unit,
@@ -398,12 +405,14 @@ export function PlannerProgramExercise_addSet(
     const originalSets = PlannerProgramExercise_sets(ex, setVariationIndex);
     const lastSet = originalSets[originalSets.length - 1];
     if (lastSet) {
+      const setType = PlannerProgramExercise_setTypeForSet(lastSet);
       lastEvaluatedSet = {
         maxrep: lastSet.repRange?.maxrep || 1,
         minrep: lastSet.repRange?.minrep,
         weight: lastSet.weight || Weight_zero,
         logRpe: lastSet.logRpe || false,
-        isAmrap: lastSet.repRange?.isAmrap || false,
+        setType,
+        isAmrap: setType === "amrap",
         isQuickAddSet: lastSet.repRange?.isQuickAddSet || false,
         askWeight: lastSet.askWeight || false,
         rpe: lastSet.rpe,
@@ -417,6 +426,7 @@ export function PlannerProgramExercise_addSet(
         {
           maxrep: 5,
           weight: Weight_build(100, settings.units),
+          setType: "normal",
           isAmrap: false,
           logRpe: false,
           askWeight: false,
@@ -803,21 +813,26 @@ export function PlannerProgramExercise_createExerciseFromEntry(
   const setVariations: IPlannerProgramExerciseSetVariation[] = [
     {
       isCurrent: false,
-      sets: entry.sets.map((set) => ({
-        repRange: {
-          numberOfSets: 1,
-          maxrep: set.completedReps ?? set.reps,
-          minrep: set.minReps,
-          isAmrap: !!set.isAmrap,
-          isQuickAddSet: false,
-        },
-        timer: set.timer,
-        rpe: set.rpe,
-        logRpe: set.logRpe,
-        percentage: Weight_isPct(set.originalWeight) ? set.originalWeight.value : undefined,
-        weight: !Weight_isPct(set.originalWeight) ? (set.completedWeight ?? set.weight) : undefined,
-        askWeight: set.askWeight,
-      })),
+      sets: entry.sets.map((set) => {
+        const setType = set.setType ?? (set.isAmrap ? "amrap" : "normal");
+        return {
+          repRange: {
+            numberOfSets: 1,
+            maxrep: set.completedReps ?? set.reps,
+            minrep: set.minReps,
+            setType,
+            isAmrap: setType === "amrap",
+            isQuickAddSet: false,
+          },
+          timer: set.timer,
+          rpe: set.rpe,
+          logRpe: set.logRpe,
+          percentage: Weight_isPct(set.originalWeight) ? set.originalWeight.value : undefined,
+          weight: !Weight_isPct(set.originalWeight) ? (set.completedWeight ?? set.weight) : undefined,
+          askWeight: set.askWeight,
+          setType,
+        };
+      }),
     },
   ];
   const groupedWarmupSets = CollectionUtils_compact(
