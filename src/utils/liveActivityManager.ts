@@ -2,7 +2,7 @@ import { Exercise_get, Exercise_getIsUnilateral, Exercise_fullName } from "../mo
 import { ExerciseImageUtils_url } from "../models/exerciseImage";
 import { Program_evaluate, Program_getProgramExercise } from "../models/program";
 import { ProgramExercise_hasUserPromptedVars } from "../models/programExercise";
-import { Progress_shouldShowAmrapModal, Progress_getNextEntry } from "../models/progress";
+import { Progress_shouldShowAmrapModal, Progress_getNextEntry, Progress_getNextWorkoutStep } from "../models/progress";
 import { ISetsStatus, Reps_isAmrap, Reps_setsStatus, Reps_findNextSetIndex } from "../models/set";
 import { Weight_calculatePlates, Weight_print, Weight_formatOneSide } from "../models/weight";
 import { IPlannerProgramExercise } from "../pages/planner/models/types";
@@ -198,9 +198,15 @@ export function LiveActivityManager_updateLiveActivityForNextEntry(
   if (!currentEntry) {
     return;
   }
-  const nextEntry = Progress_getNextEntry(progress, currentEntry, mode, true);
-  const nextEntryIndex = nextEntry ? progress.entries.indexOf(nextEntry) : undefined;
-  const nextSetIndex = nextEntry ? Reps_findNextSetIndex(nextEntry) : undefined;
+  const nextWorkoutStep =
+    mode === "workout" && progress.timerEntryIndex != null && progress.timerSetIndex != null
+      ? Progress_getNextWorkoutStep(progress, progress.timerEntryIndex, progress.timerSetIndex)
+      : undefined;
+  const nextEntry = nextWorkoutStep == null ? Progress_getNextEntry(progress, currentEntry, mode, true) : undefined;
+  const nextEntryIndex =
+    nextWorkoutStep != null ? nextWorkoutStep.entryIndex : nextEntry ? progress.entries.indexOf(nextEntry) : undefined;
+  const nextSetIndex =
+    nextWorkoutStep != null ? nextWorkoutStep.setIndex : nextEntry ? Reps_findNextSetIndex(nextEntry) : undefined;
   LiveActivityManager_updateLiveActivity(
     progress,
     nextEntryIndex,

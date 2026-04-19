@@ -20,7 +20,7 @@
       "purpose": "any maskable"
     }
   ],
-  "start_url": "/app/",
+  "start_url": "/app/index.html?skipintro=1&nosync=true",
   "background_color": "#ffffff",
   "display": "fullscreen",
   "scope": "/",

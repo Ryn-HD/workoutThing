@@ -13,7 +13,7 @@ import {
 import { ISet, IHistoryRecord, IHistoryEntry, IWeight, IUnit, ISettings, ISetType } from "../types";
 import { ObjectUtils_clone } from "../utils/object";
 import { UidFactory_generateUid } from "../utils/generator";
-import { Progress_getNextEntry } from "./progress";
+import { Progress_getNextEntry, Progress_getNextWorkoutStep } from "./progress";
 
 export type IProgramReps = number;
 
@@ -315,6 +315,16 @@ export function Reps_findNextEntryAndSet(
   if (entry == null) {
     return undefined;
   }
+  const nextWorkoutStep =
+    mode === "workout" && historyRecord.timerEntryIndex != null && historyRecord.timerSetIndex != null
+      ? Progress_getNextWorkoutStep(historyRecord, historyRecord.timerEntryIndex, historyRecord.timerSetIndex)
+      : undefined;
+  if (nextWorkoutStep != null) {
+    const nextEntry = historyRecord.entries[nextWorkoutStep.entryIndex];
+    const nextSet = nextEntry?.sets[nextWorkoutStep.setIndex];
+    return nextEntry && nextSet ? { entry: nextEntry, set: nextSet } : undefined;
+  }
+
   const nextEntry = Progress_getNextEntry(historyRecord, entry, mode, true);
   if (nextEntry == null) {
     return undefined;
@@ -342,6 +352,14 @@ export function Reps_findNextEntryAndSetIndex(
   if (entry == null) {
     return undefined;
   }
+  const nextWorkoutStep =
+    mode === "workout" && historyRecord.timerEntryIndex != null && historyRecord.timerSetIndex != null
+      ? Progress_getNextWorkoutStep(historyRecord, historyRecord.timerEntryIndex, historyRecord.timerSetIndex)
+      : undefined;
+  if (nextWorkoutStep != null) {
+    return { entryIndex: nextWorkoutStep.entryIndex, setIndex: nextWorkoutStep.setIndex };
+  }
+
   const nextEntry = Progress_getNextEntry(historyRecord, entry, mode, true);
   if (nextEntry == null) {
     return undefined;

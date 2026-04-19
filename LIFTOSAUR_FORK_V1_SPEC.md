@@ -11,7 +11,7 @@
 2. **Double progression as the default model.** Weight increases are triggered by hitting a rep ceiling on the working set (not by volume aggregates or periodization math).
 3. **Minimal friction during a workout.** Tap checkmark → advance. No unnecessary inputs (no "0 lb" on bodyweight exercises, no L/R split when both sides match).
 4. **Store everything, display selectively.** All set data is persisted (myo minis, drop sets, skipped sets). The UI and graphs filter what's shown based on context.
-5. **Local-first, export-everything.** No backend. Full data export (JSON + CSV) for device migration.
+5. **PWA-first, local-first, export-everything.** V1 ships as a hosted Progressive Web App that can be added to the iPhone home screen. No Mac, Xcode, Apple Developer account, or App Store release is required for v1. Full data export (JSON + CSV) covers backup and device migration.
 
 ---
 
@@ -182,14 +182,14 @@ When creating or editing an exercise, if equipment is set to **Bodyweight**, the
 
 - **Default state:** Weight field is empty/blank. No placeholder "0 lb." No requirement to enter a value.
 - **Placeholder text:** `"+ added load"` to indicate that any entered value means weight added *on top of* bodyweight.
-- **If blank:** The set is recorded as bodyweight (no external load). Volume calculations that need a weight value pull bodyweight from Apple Health (if available) or treat load as bodyweight without a specific number.
+- **If blank:** The set is recorded as bodyweight with `0` added load. Volume calculations that need a bodyweight value use the manual bodyweight value in app settings when available. If no bodyweight is available, those exercises can be tracked by reps/added load without a bodyweight-derived volume number.
 - **If a value is entered (e.g., 5):** This means bodyweight + 5 lb. The stored value is the added load only (5), with a flag indicating equipment = bodyweight.
 
 ### 6.2 Graph Behavior for Bodyweight Exercises
 
 - **Weight graph:** Shows added load over time. An unweighted pull-up shows as 0 (or baseline). Adding a 5 lb plate shows as +5. Bodyweight fluctuations from bulking/cutting do NOT move this graph.
 - **Reps graph:** Primary progression view for bodyweight exercises. Week-over-week rep count is the main signal.
-- **Total load view (optional, secondary):** If Apple Health bodyweight is available, a toggle can show total estimated load (bodyweight + added). This is a nice-to-have, not the default view.
+- **Total load view (optional, secondary):** If the user has entered a manual bodyweight value, a toggle can show total estimated load (bodyweight + added). This is a nice-to-have, not the default view.
 
 ### 6.3 Historical Migration
 
@@ -219,7 +219,7 @@ Calculated using `maxEffort` sets only. Standard formula (Epley, Brzycki, or use
 
 Total volume = sum of (reps × weight) across all completed sets of all types. This includes myo minis and drop sets. Volume is a measure of total work, not just hard sets.
 
-For exercises where weight = bodyweight (blank), volume requires Apple Health bodyweight to calculate. If unavailable, volume for those exercises is tracked as reps only (no weight component).
+For exercises where weight = bodyweight (blank), volume uses the manual bodyweight setting when available. If unavailable, volume for those exercises is tracked as reps only (no bodyweight component).
 
 ---
 
@@ -242,7 +242,7 @@ These are the graphs that answer "am I improving?" for a double-progression trai
 - PR timeline
 - Workout duration trends
 - Frequency / calendar heatmap
-- Bodyweight overlay (from Apple Health)
+- Bodyweight overlay (from the manual bodyweight setting)
 
 ### 8.3 History Display
 
@@ -320,34 +320,63 @@ Whether the program is stored as Liftoscript text or a structured JSON/object mo
 
 ---
 
-## 11. Apple Ecosystem Integration (Phase 2)
+## 11. PWA Delivery And Optional Apple Native Later
 
-> This section is deferred — it requires a Mac, Xcode, and Apple Developer account. Document requirements here so they're ready when the toolchain is.
+V1 target is the PWA. The app should be deployable to a normal web host, opened in Safari on iPhone, and installed with **Add to Home Screen**. This is the primary path, not a fallback.
 
-### 11.1 Apple Health (HealthKit)
+### 11.1 V1 PWA Target
 
-**Two-way sync:**
+Works without paid Apple tooling:
 
-- **App → Health:** Completed strength workout (duration, calories if estimable, heart rate if Watch is active).
-- **Health → App:** Bodyweight (for bodyweight exercise volume calculations and total-load graph). Body composition data (fat %, waist) is read-only context, not used in core calculations.
+- hosted on Vercel, Netlify, Cloudflare Pages, Railway, or similar
+- opened in Safari on iPhone
+- installed from Safari via Add to Home Screen
+- full-screen PWA with home-screen icon
+- offline-first behavior through the existing service worker/local storage model
+- local graphs, workout logging, planner, export/import, and personal analytics all work without native iOS code
 
-### 11.2 Apple Watch
+Preferred v1 hosting options:
 
-- Companion mode only (requires phone nearby).
-- Displays current exercise name, set number, target reps, and weight.
-- Checkmark button to complete the current set from the wrist.
-- Timer display for rest periods.
-- Heart rate capture during workout.
+1. **Vercel** - easiest GitHub auto-deploy path.
+2. **Cloudflare Pages** - strong free static hosting option.
+3. **Netlify** - also fine for a static/PWA deployment.
 
-### 11.3 Development Path
+### 11.2 What PWA Keeps
 
-Options for native build (in order of recommendation):
+- full workout tracking
+- full program editor/planner
+- local storage and offline use
+- graphs/history/analytics
+- export/import
+- home-screen launch on iPhone
+- no App Store review or Apple Developer Program fee
 
-1. **Mac Mini (M1 used, ~$400–500)** + Xcode + Apple Developer Account ($99/year). Build natively with Swift/SwiftUI or Capacitor wrapper around the existing web app.
-2. **Cloud Mac rental** (MacStadium, AWS EC2 Mac) for build/deploy only. Develop on Windows, build remotely.
-3. **PWA-first** — ship the web app to the home screen. No HealthKit, no Watch, but all other features work. Add native later.
+### 11.3 What PWA Does Not Get
 
-Recommendation: Start with option 3 (PWA). All workout logic, graphs, program editor, and data model work without Apple-native code. Add HealthKit/Watch as a dedicated phase once the Mac toolchain is set up.
+- HealthKit integration
+- Apple Watch companion app
+- native iOS push behavior beyond what iOS Safari PWAs support
+- native background execution or native sensors
+
+### 11.4 Manual Bodyweight Instead Of HealthKit
+
+For v1, bodyweight context comes from a simple manual bodyweight field in settings. The user updates it occasionally. This covers bodyweight exercise total-load estimates without requiring HealthKit.
+
+### 11.5 Optional Native Apple Phase
+
+Native Apple integration is optional and deferred until the hardware/cost tradeoff is worth it.
+
+Future native goals:
+
+- **HealthKit:** write completed strength workouts; read bodyweight/body metrics.
+- **Apple Watch:** companion controller for current set, checkmark, timer, and heart-rate context.
+
+Future native requirements:
+
+- Mac or cloud Mac access
+- Xcode
+- Apple Developer account
+- iOS signing/capability setup
 
 ---
 
@@ -406,12 +435,14 @@ Format: JSON (primary, machine-readable for re-import) + CSV (secondary, for spr
 - [ ] Workout finish screen with totals and PR highlights
 - [ ] Historical data migration (L/R averaging, 0 lb → bodyweight display)
 
-### Phase 4: Apple Ecosystem
+### Phase 4: PWA Deployment And iPhone Testing
 
-- [ ] Set up Mac + Xcode + Developer Account
-- [ ] HealthKit integration (two-way sync)
-- [ ] Apple Watch companion app
-- [ ] Native app wrapper (Capacitor or SwiftUI)
+- [ ] Production static/PWA build works locally
+- [ ] Deploy to Vercel or Cloudflare Pages from GitHub
+- [ ] Confirm Safari Add to Home Screen install
+- [ ] Confirm home-screen launch opens full-screen app
+- [ ] Confirm offline launch and core logging behavior
+- [ ] Confirm export/import backup flow on iPhone
 
 ### Phase 5: Polish & Secondary Features
 
@@ -420,7 +451,15 @@ Format: JSON (primary, machine-readable for re-import) + CSV (secondary, for spr
 - [ ] Secondary graphs (volume trends, muscle group, PR timeline, etc.)
 - [ ] Mid-workout long-press UX refinements (dial picker, etc.)
 - [ ] Drop set auto-decrement option (optional convenience)
-- [ ] Bodyweight total-load graph toggle (requires HealthKit bodyweight)
+- [ ] Bodyweight total-load graph toggle (uses manual bodyweight setting)
+
+### Phase 6: Optional Apple Native Ecosystem
+
+- [ ] Decide whether native Apple investment is worth it
+- [ ] Set up Mac or cloud Mac + Xcode + Apple Developer account
+- [ ] HealthKit integration
+- [ ] Apple Watch companion app
+- [ ] Native app wrapper if needed
 
 ---
 
@@ -433,7 +472,8 @@ These are decisions deferred to implementation or future iterations:
 3. **Auto-progression suggestions.** V1 tracks and displays progression signals. Whether the app should auto-suggest "increase weight next session" or just highlight the data is a UX decision. Start with display-only.
 4. **AMRAP within a myo cluster.** The activation set is effectively AMRAP-style ("as many good reps as possible within the target"). Functionally they're separate types. If a use case emerges where a single set needs both flags, revisit the type system. For now, one type per set.
 5. **Rest timer per-set-type overrides.** V1 uses per-exercise and per-superset-group timers. Per-set-type timers (e.g., longer rest after AMRAP than after normal) could be added later if needed.
-6. **Stitch-generated UI mockups.** Use Google Stitch to explore visual design for: the program editor template picker, the myo rep cluster in-workout display, the bodyweight exercise input, the long-press context menu, and the workout finish screen. Generate as design references, implement in the actual codebase.
+6. **PWA hosting choice.** Vercel is the default recommendation for GitHub auto-deploy, with Cloudflare Pages as the likely second choice. Final choice can wait until the production build path is verified.
+7. **Stitch-generated UI mockups.** Use Google Stitch to explore visual design for: the program editor template picker, the myo rep cluster in-workout display, the bodyweight exercise input, the long-press context menu, and the workout finish screen. Generate as design references, implement in the actual codebase.
 
 ---
 
@@ -448,6 +488,6 @@ Before implementation begins, the following must be mapped in the Liftosaur sour
 - [ ] Where is the subscription/paywall logic? What feature flags control it?
 - [ ] Where is the graph rendering code? What data queries feed it?
 - [ ] Where is the unilateral L/R logic? How deep does it go (UI only, or data model)?
-- [ ] What is the Apple Health / Watch integration surface? Is there a native iOS project, or just the web app + compiled Watch bundle?
+- [ ] For optional native Apple later: what is the HealthKit / Watch integration surface, and is there a native iOS project or just the web app plus compiled Watch bundle?
 - [ ] How is exercise equipment type stored? Is "bodyweight" already a distinct type?
 - [ ] What is the export/import format and where is it implemented?

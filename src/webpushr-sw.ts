@@ -1,12 +1,12 @@
 import { UrlUtils_build } from "./utils/url";
 
 declare let __COMMIT_HASH__: string;
-const cacheName = `liftosaur-sw-${__COMMIT_HASH__}`;
+const cacheName = `workoutthing-sw-${__COMMIT_HASH__}`;
+const appShellCacheKey = "/app/index.html";
 
 const filesToCache = [
-  `/main.css?version=${__COMMIT_HASH__}`,
-  `/main.js?version=${__COMMIT_HASH__}`,
-  `/vendors.css?vendor=${__COMMIT_HASH__}`,
+  `/app.css?version=${__COMMIT_HASH__}`,
+  `/app.js?version=${__COMMIT_HASH__}`,
   `/vendors.js?vendor=${__COMMIT_HASH__}`,
   `/images/back-muscles.svg`,
   `/images/front-muscles.svg`,
@@ -14,44 +14,49 @@ const filesToCache = [
   `/images/svgs/musclegroups-combined.svg`,
   /\/fonts\/.*/,
   /\/externalimages\/exercises\//,
-  "/",
-  "/index.html",
-  "/app",
-  "/app/index.html",
+  appShellCacheKey,
   "/icons/icon192.png",
   "/icons/icon512.png",
+  "/icons/maskable_icon_512.png",
   "/notification.m4r",
 ];
 
-function cacheRequest(request: Request, response: Response): Promise<Response> {
+function cacheRequest(request: RequestInfo, response: Response): Promise<Response> {
   return caches.open(cacheName).then((cache) => {
-    console.log("[Service Worker] Caching new resource: " + request.url);
+    console.log("[Service Worker] Caching new resource: " + request.toString());
 
     cache.put(request, response.clone());
     return response;
   });
 }
 
+function isAppShellPath(pathname: string): boolean {
+  return pathname === "/app" || pathname === "/app/" || pathname === appShellCacheKey;
+}
+
 function initialize(service: ServiceWorkerGlobalScope): void {
   service.addEventListener("install", (event) => {
     event.waitUntil(
       caches.open(cacheName).then((cache) => {
-        return cache.addAll(filesToCache.filter((f) => typeof f === "string") as string[]);
+        return Promise.all(
+          (filesToCache.filter((f) => typeof f === "string") as string[]).map((file) => {
+            return cache.add(file).catch((err) => {
+              console.warn("[Service Worker] Failed to cache " + file, err);
+            });
+          })
+        );
       })
     );
   });
 
   service.addEventListener("fetch", (e) => {
     const url = UrlUtils_build(e.request.url);
-    if (
-      e.request.method === "GET" &&
-      (url.pathname === "/" || url.pathname === "index.html" || url.pathname === "/app")
-    ) {
+    if (e.request.method === "GET" && isAppShellPath(url.pathname)) {
       console.log("[Service Worker] Fetching " + e.request.url);
       e.respondWith(
-        caches.match(e.request).then((r) => {
+        caches.match(appShellCacheKey).then((r) => {
           return fetch(e.request)
-            .then((response) => cacheRequest(e.request, response))
+            .then((response) => cacheRequest(appShellCacheKey, response))
             .catch((err) => {
               if (r != null) {
                 console.log("[Service Worker] Can't fetch, so using cache for: " + e.request.url);

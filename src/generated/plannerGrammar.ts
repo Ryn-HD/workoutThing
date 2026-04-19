@@ -14,7 +14,7 @@ WarmupExerciseSets { (WarmupExerciseSet ("," WarmupExerciseSet)*) }
 ExerciseSection {  (ExerciseProperty | ExerciseSets | ReuseSectionWithWeekDay | Superset ) ("\\\\" linebreak)? }
 ReuseSectionWithWeekDay { ReuseSection WeekDay? }
 ReuseSection { "..." ExerciseName }
-ExerciseSet { (Rpe | Timer | SetPart | WeightWithPlus | PercentageWithPlus | SetLabel | AskWeight)+ }
+ExerciseSet { (Rpe | Timer | SetPart | WeightWithPlus | PercentageWithPlus | SetLabel | SetTypeMarker | AskWeight)+ }
 WarmupExerciseSet { (WarmupSetPart | Weight | Percentage)+ }
 Superset { SupersetKeyword ":" ExerciseName }
 ExerciseProperty { ExercisePropertyName ":" (FunctionExpression | WarmupExerciseSets | None ) }
@@ -46,6 +46,9 @@ Timer { Int "s" }
 SetPart { Rep Plus? "x" (RepRange | Rep) Plus? }
 KeyValue { Keyword Plus? ":" (Number | Weight | Percentage) }
 SetLabel { "(" NonSeparator+ ")" }
+SetTypeMarker { SetTypeKeyword "[" SetTypeValue "]" }
+SetTypeKeyword { @specialize<Keyword, "type"> }
+SetTypeValue { Keyword }
 
 WarmupSetPart { (Rep "x")? Rep }
 
@@ -77,6 +80,7 @@ WarmupSetPart { (Rep "x")? Rep }
   Keyword { $[a-zA-Z_] $[0-9a-zA-Z_]* }
   Int { @digit+ }
   Float { @digit* "." @digit+ }
-}`;
+}
+`;
 
 export default content;

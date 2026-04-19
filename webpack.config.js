@@ -23,6 +23,16 @@ const local = `https://${localdomain}.liftosaur.com:${localport}/`;
 
 const isDev = process.env.NODE_ENV !== "production";
 
+function productionWebHostExpression() {
+  if (process.env.WORKOUTTHING_HOST) {
+    return JSON.stringify(process.env.WORKOUTTHING_HOST);
+  }
+  if (process.env.WORKOUTTHING_PWA === "true") {
+    return "window.location.origin";
+  }
+  return JSON.stringify(process.env.STAGE ? "https://stage.liftosaur.com" : "https://www.liftosaur.com");
+}
+
 const watchConfig = {
   entry: "./src/watch/index.ts",
   target: "node",
@@ -214,13 +224,10 @@ const mainConfig = {
           : `https://${localstreamingapidomain}.liftosaur.com:${localstreamingapiport}`
       ),
       __ENV__: JSON.stringify(process.env.NODE_ENV === "production" ? "production" : "development"),
-      __HOST__: JSON.stringify(
+      __HOST__:
         process.env.NODE_ENV === "production"
-          ? process.env.STAGE
-            ? "https://stage.liftosaur.com"
-            : "https://www.liftosaur.com"
-          : `https://${localdomain}.liftosaur.com:${localport}`
-      ),
+          ? productionWebHostExpression()
+          : JSON.stringify(`https://${localdomain}.liftosaur.com:${localport}`),
     }),
     new CopyPlugin([
       {

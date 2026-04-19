@@ -14,7 +14,7 @@ Build a personal workout tracker optimized for:
 - no default left/right unilateral logging
 - free local graphs and coach-style analytics
 - full local export/import
-- later Apple Health and Apple Watch companion support
+- PWA-first iPhone use through Safari Add to Home Screen, with no Mac, Xcode, Apple Developer account, or App Store release required for v1
 
 This fork is for personal use, not public distribution.
 
@@ -52,7 +52,7 @@ Graphs and subscription gates:
 - `src/components/weekInsights.tsx`
 - `src/utils/subscriptions.ts`
 
-Health and Watch bridge:
+Deferred native Apple/Watch bridge:
 
 - `src/lib/healthSync.ts`
 - `src/components/screenAppleHealthSettings.tsx`
@@ -121,7 +121,7 @@ normal
 amrap
 myoActivation
 myoMini
-drop
+dropSet
 ```
 
 AMRAP can remain a set property, but myo activation should be modeled separately because it belongs to a myo cluster and drives progression.
@@ -317,23 +317,45 @@ Requirements:
 
 Private backend or cloud sync can wait unless multi-device sync becomes important.
 
-## Apple Health And Apple Watch
+## PWA Delivery And Optional Apple Native Later
 
-V1 is web/PWA first. Native Apple integration is a later phase.
+V1 is PWA-first. This is the primary iPhone path, not a fallback. The fork should be hosted as a web app, opened in Safari, and installed with **Add to Home Screen**.
 
-Goals:
+What works for v1 without paid Apple tooling:
 
-- two-way Apple Health support where useful
-- write completed strength workout duration and intervals/calories if available
-- read bodyweight/body metrics from Health for context/bodyweight overlays
-- Apple Watch as companion controller, not standalone
+- full workout logging
+- planner/program editor
+- local storage and offline use
+- graphs/history/analytics
+- full local export/import
+- home-screen icon and full-screen launch on iPhone
+- GitHub-to-host auto-deploy
 
-Reality:
+Preferred free hosting path:
 
-- HealthKit/watchOS requires Apple capabilities, signing, and native targets through Xcode/Xcode Cloud.
-- This is not a Docker-first Windows build problem.
-- The user is on Windows 11 and does not currently have a Mac, Xcode, or Apple Developer account.
-- Practical route: finish web fork first, then get Apple Developer account plus Mac access or Xcode Cloud path, then build a minimal SwiftUI wrapper/watch companion.
+1. Vercel - default recommendation for the first personal deployment.
+2. Cloudflare Pages - strong static/PWA alternative.
+3. Netlify - acceptable fallback.
+
+What PWA does not get:
+
+- HealthKit
+- Apple Watch companion app
+- native iOS push/background behavior beyond what iOS Safari PWAs support
+
+Bodyweight context for v1:
+
+- Add a manual bodyweight setting in the app.
+- Use that value for optional total-load bodyweight calculations.
+- Do not block bodyweight exercise work on HealthKit.
+
+Optional future native Apple phase:
+
+- HealthKit two-way support where useful.
+- Write completed strength workout duration and intervals/calories if available.
+- Read bodyweight/body metrics from Health for context/bodyweight overlays.
+- Apple Watch as companion controller, not standalone.
+- Requires Mac or cloud Mac access, Xcode, Apple Developer account, signing, and native iOS/watchOS targets.
 
 ## Branding And License
 
@@ -390,7 +412,15 @@ This is not legal advice.
    - double progression views
    - reps/load/volume/PR/frequency analytics
 
-9. Apple planning phase
+9. PWA deployment
+   - production static/PWA build
+   - GitHub auto-deploy to Vercel or Cloudflare Pages
+   - Safari Add to Home Screen testing
+   - offline launch and local-storage smoke test
+   - export/import backup flow on iPhone
+
+10. Optional Apple native planning phase
+   - only if the hardware/account investment becomes worth it
    - native wrapper strategy
    - HealthKit permissions
    - Watch companion architecture
@@ -441,4 +471,3 @@ Myo activation affects progression/e1RM.
 Myo minis contribute to volume but not PR/e1RM.
 Drop sets contribute to volume but not PR/e1RM.
 ```
-
