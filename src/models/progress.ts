@@ -257,6 +257,52 @@ function Progress_myoSupersetSteps(
   return steps;
 }
 
+function Progress_allMyoSupersetSteps(progress: IHistoryRecord, entryIndexes: number[]): IProgressWorkoutStep[] {
+  const steps: IProgressWorkoutStep[] = [];
+  const miniSetIndexesByEntryIndex: Record<number, number[]> = {};
+  const usedMyoSetIndexesByEntryIndex: Record<number, Set<number>> = {};
+
+  for (const entryIndex of entryIndexes) {
+    const entry = progress.entries[entryIndex];
+    const activationSetIndex = entry.sets.findIndex((set) => Reps_setType(set) === "myoActivation");
+    const miniSetIndexes = entry.sets
+      .map((set, setIndex) => ({ set, setIndex }))
+      .filter(({ set }) => Reps_setType(set) === "myoMini")
+      .map(({ setIndex }) => setIndex);
+
+    miniSetIndexesByEntryIndex[entryIndex] = miniSetIndexes;
+    usedMyoSetIndexesByEntryIndex[entryIndex] = new Set([
+      ...(activationSetIndex !== -1 ? [activationSetIndex] : []),
+      ...miniSetIndexes,
+    ]);
+
+    if (activationSetIndex !== -1) {
+      steps.push({ entryIndex, setIndex: activationSetIndex });
+    }
+  }
+
+  const maxMiniSets = Math.max(...entryIndexes.map((entryIndex) => miniSetIndexesByEntryIndex[entryIndex]?.length ?? 0));
+  for (let miniSetIndex = 0; miniSetIndex < maxMiniSets; miniSetIndex += 1) {
+    for (const entryIndex of entryIndexes) {
+      const setIndex = miniSetIndexesByEntryIndex[entryIndex]?.[miniSetIndex];
+      if (setIndex != null) {
+        steps.push({ entryIndex, setIndex });
+      }
+    }
+  }
+
+  for (const entryIndex of entryIndexes) {
+    const entry = progress.entries[entryIndex];
+    for (let setIndex = 0; setIndex < entry.sets.length; setIndex += 1) {
+      if (!usedMyoSetIndexesByEntryIndex[entryIndex]?.has(setIndex)) {
+        steps.push({ entryIndex, setIndex });
+      }
+    }
+  }
+
+  return steps;
+}
+
 function Progress_normalSupersetSteps(progress: IHistoryRecord, entryIndexes: number[]): IProgressWorkoutStep[] {
   const maxSets = Math.max(...entryIndexes.map((entryIndex) => progress.entries[entryIndex].sets.length));
   const steps: IProgressWorkoutStep[] = [];
@@ -304,6 +350,8 @@ function Progress_buildWorkoutSequence(progress: IHistoryRecord): IProgressWorko
       const myoEntryIndex = myoEntryIndexes[0];
       const normalEntryIndex = entryIndexes.find((i) => i !== myoEntryIndex)!;
       steps.push(...Progress_myoSupersetSteps(progress, normalEntryIndex, myoEntryIndex));
+    } else if (myoEntryIndexes.length === entryIndexes.length) {
+      steps.push(...Progress_allMyoSupersetSteps(progress, entryIndexes));
     } else {
       steps.push(...Progress_normalSupersetSteps(progress, entryIndexes));
     }
@@ -342,8 +390,16 @@ function Progress_shouldStartTimerBetween(
   }
 
   if (Progress_isSameSupersetGroup(progress, currentStep, nextStep)) {
-    if (nextSetType === "myoActivation" || nextSetType === "myoMini") {
+    if (nextSetType === "myoActivation") {
       return false;
+    }
+    if (nextSetType === "myoMini") {
+      if (currentSetType === "myoActivation" && currentStep.entryIndex !== nextStep.entryIndex) {
+        return true;
+      }
+      if (currentSetType !== "myoMini") {
+        return false;
+      }
     }
     return currentStep.entryIndex >= nextStep.entryIndex;
   }
