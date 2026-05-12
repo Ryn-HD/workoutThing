@@ -30,7 +30,7 @@ import {
   Weight_getOneRepMax,
 } from "../models/weight";
 import { Exercise_getIsUnilateral, Exercise_onerm } from "../models/exercise";
-import { Bodyweight_displayWeight, Bodyweight_isExercise } from "../models/bodyweight";
+import { Bodyweight_displayWeight, Bodyweight_isExercise, Bodyweight_zeroAddedLoad } from "../models/bodyweight";
 
 interface IWorkoutExerciseSet {
   exerciseType: IExerciseType;
@@ -237,7 +237,10 @@ export function WorkoutExerciseSet(props: IWorkoutExerciseSet): JSX.Element {
                       props.dispatch,
                       [
                         props.lbSet.recordModify((s) => {
-                          const newSet = { ...s, completedWeight: value };
+                          const completedWeight =
+                            value ??
+                            (isBodyweight ? Bodyweight_zeroAddedLoad(props.settings, props.exerciseType) : undefined);
+                          const newSet = { ...s, completedWeight };
                           return Reps_enforceCompletedSet(newSet);
                         }),
                       ],
