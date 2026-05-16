@@ -58,6 +58,8 @@ export function Workout(props: IWorkoutViewProps): JSX.Element {
   const description = props.programDay?.description;
   const screensRef = useRef<HTMLDivElement>(null);
   const forceUpdateEntryIndex = !!props.progress.ui?.forceUpdateEntryIndex;
+  const currentEntryIndex = props.progress.ui?.currentEntryIndex ?? 0;
+  const previousEntryIndexRef = useRef(currentEntryIndex);
 
   useEffect(() => {
     ImagePreloader_preload(ImagePreloader_dynohappy);
@@ -72,10 +74,17 @@ export function Workout(props: IWorkoutViewProps): JSX.Element {
 
   useEffect(() => {
     screensRef.current?.scrollTo({
-      left: (props.progress.ui?.currentEntryIndex ?? 0) * window.innerWidth,
+      left: currentEntryIndex * window.innerWidth,
       behavior: "instant",
     });
-  }, [forceUpdateEntryIndex]);
+  }, [forceUpdateEntryIndex, currentEntryIndex]);
+
+  useEffect(() => {
+    if (previousEntryIndexRef.current !== currentEntryIndex) {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      previousEntryIndexRef.current = currentEntryIndex;
+    }
+  }, [currentEntryIndex]);
 
   return (
     <section className="pb-8">
@@ -118,7 +127,7 @@ export function Workout(props: IWorkoutViewProps): JSX.Element {
               const scrollLeft = screensRef.current?.scrollLeft ?? 0;
               const windowWidth = window.innerWidth;
               const selectedIndex = Math.floor((scrollLeft + windowWidth / 2) / windowWidth);
-              if (selectedIndex !== (props.progress.ui?.currentEntryIndex ?? 0)) {
+              if (selectedIndex !== currentEntryIndex) {
                 if (!props.progress.ui?.isExternal) {
                   updateProgress(
                     props.dispatch,
@@ -343,6 +352,7 @@ interface IWorkoutListOfExercisesProps {
 function WorkoutListOfExercises(props: IWorkoutListOfExercisesProps): JSX.Element {
   const [enableReorder, setEnableReorder] = useState(false);
   const colorToSupersetGroup = Progress_getColorToSupersetGroup(props.progress);
+  const currentEntryIndex = props.progress.ui?.currentEntryIndex ?? 0;
   return (
     <>
       <div className="mr-2 leading-none text-right safe-area-inset-top-compensate">
@@ -375,7 +385,7 @@ function WorkoutListOfExercises(props: IWorkoutListOfExercisesProps): JSX.Elemen
                       }}
                       handleTouchStart={handleTouchStart}
                       shouldShowProgress={true}
-                      selectedIndex={props.progress.ui?.currentEntryIndex ?? 0}
+                      selectedIndex={currentEntryIndex}
                       key={entryIndex}
                       progress={props.progress}
                       settings={props.settings}
