@@ -1643,15 +1643,35 @@ async function handleLogin(
       }
       if (oldUserId === result.user_id) {
         dispatch(Thunk_postevent("login-same-user"));
-        updateState(dispatch, [lb<IState>().p("lastSyncedStorage").record(storage)], "Set last synced on login");
+        // Merge this device's local data with the server copy so a first sign-in seeds the
+        // (empty) cloud from local, and later sign-ins on other devices pull the cloud while
+        // keeping any local-only changes. Both the working copy and the sync baseline get
+        // tempUserId = result.user_id so the forced Thunk_sync2 takes the diff-push path; a
+        // mismatch routes it to the empty "fetch-last-synced" request, which the single-row
+        // backend answers with a no-op, so the server would never get seeded.
+        const localStorage = window.state?.storage;
+        const deviceId = window.state?.deviceId || (await DeviceId_get());
+        const mergedStorage = localStorage ? Storage_mergeStorage(localStorage, storage, deviceId) : storage;
+        mergedStorage.tempUserId = result.user_id;
+        mergedStorage.email = result.email;
+        mergedStorage.subscription.key = result.key;
+        // On a brand-new account, clear the baseline versions so the diff covers the entire
+        // local dataset; a fresh server default's versions could otherwise shadow older local
+        // data and nothing would get pushed.
+        const baseline: IStorage = {
+          ...storage,
+          tempUserId: result.user_id,
+          _versions: result.is_new_user ? {} : storage._versions,
+        };
+        updateState(
+          dispatch,
+          [
+            lb<IState>().p("storage").record(mergedStorage),
+            lb<IState>().p("lastSyncedStorage").record(baseline),
+          ],
+          "Merge local and server storage on login"
+        );
         dispatch({ type: "Login", email: result.email, userId: result.user_id });
-        if (storage.subscription.key !== result.key) {
-          updateState(
-            dispatch,
-            [lb<IState>().p("storage").p("subscription").p("key").record(result.key)],
-            "Set subscription key from login"
-          );
-        }
       } else {
         dispatch(Thunk_postevent("login-different-user"));
         storage.subscription.key = result.key;
