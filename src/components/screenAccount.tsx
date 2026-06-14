@@ -2,8 +2,7 @@ import { JSX, useEffect, useState } from "react";
 import { IDispatch } from "../ducks/types";
 import {
   Thunk_logOut,
-  Thunk_googleSignIn,
-  Thunk_appleSignIn,
+  Thunk_passwordSignIn,
   Thunk_switchAccount,
   Thunk_deleteAccount,
   Thunk_createAccount,
@@ -18,12 +17,8 @@ import { GroupHeader } from "./groupHeader";
 import { MenuItem } from "./menuItem";
 import { IconDoc } from "./icons/iconDoc";
 import { IconDumbbell } from "./icons/iconDumbbell";
-import { IconGoogle } from "./icons/iconGoogle";
 import { LinkButton } from "./linkButton";
 import { IconTrash } from "./icons/iconTrash";
-import { IconApple } from "./icons/iconApple";
-
-declare let __HOST__: string;
 
 interface IProps {
   email?: string;
@@ -47,12 +42,6 @@ export function ScreenAccount(props: IProps): JSX.Element {
 
   useEffect(() => {
     refetchAccounts();
-    window.AppleID?.auth.init({
-      clientId: "com.liftosaur.www.signinapple", // This is the service ID we created.
-      scope: "email", // To tell apple we want the user name and emails fields in the response it sends us.
-      redirectURI: `${__HOST__}/appleauthcallback.html`, // As registered along with our service ID
-      usePopup: true, // Important if we want to capture the data apple sends on the client side.
-    });
   }, []);
 
   useNavOptions({ navTitle: "Account", navHelpContent: <HelpAccount /> });
@@ -112,33 +101,21 @@ export function ScreenAccount(props: IProps): JSX.Element {
                 </Button>
               </div>
             ) : (
-              <div>
-                <div>
-                  <button
-                    className="flex items-center w-full px-4 py-2 mt-2 rounded-lg nm-sign-in-with-google"
-                    style={{ boxShadow: "0 1px 4px 0 rgba(0,0,0,0.1)" }}
-                    data-cy="menu-item-login"
-                    onClick={() => props.dispatch(Thunk_googleSignIn())}
-                  >
-                    <span className="">
-                      <IconGoogle />
-                    </span>
-                    <span className="flex-1">Sign in with Google</span>
-                  </button>
-                </div>
-                <div>
-                  <button
-                    className="flex items-center w-full px-4 py-3 mt-2 bg-black rounded-lg text-text-alwayswhite nm-sign-in-with-apple"
-                    onClick={async () => {
-                      props.dispatch(Thunk_appleSignIn());
-                    }}
-                  >
-                    <span style={{ marginTop: "-3px" }}>
-                      <IconApple />
-                    </span>
-                    <span className="flex-1">Sign in with Apple</span>
-                  </button>
-                </div>
+              <div className="text-center">
+                <Button
+                  name="account-enable-sync"
+                  kind="purple"
+                  data-cy="menu-item-login"
+                  className="ls-enable-sync"
+                  onClick={() => {
+                    const password = prompt("Enter your sync password to enable cross-device sync.");
+                    if (password) {
+                      props.dispatch(Thunk_passwordSignIn(password, () => refetchAccounts()));
+                    }
+                  }}
+                >
+                  Enable Sync
+                </Button>
               </div>
             )}
           </>

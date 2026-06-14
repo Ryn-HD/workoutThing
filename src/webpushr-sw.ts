@@ -23,8 +23,6 @@ const filesToCache = [
 
 function cacheRequest(request: RequestInfo, response: Response): Promise<Response> {
   return caches.open(cacheName).then((cache) => {
-    console.log("[Service Worker] Caching new resource: " + request.toString());
-
     cache.put(request, response.clone());
     return response;
   });
@@ -35,6 +33,13 @@ function isAppShellPath(pathname: string): boolean {
 }
 
 function initialize(service: ServiceWorkerGlobalScope): void {
+  const selfOrigin = service.location.origin;
+  // Runtime-cache same-origin JS/CSS so webpack code-split chunks (loaded via dynamic import())
+  // are available offline, even though they are not in the static filesToCache list above.
+  function isRuntimeCacheableAsset(url: URL): boolean {
+    return url.origin === selfOrigin && /\.(js|css)$/.test(url.pathname);
+  }
+
   service.addEventListener("install", (event) => {
     event.waitUntil(
       caches.open(cacheName).then((cache) => {
@@ -52,15 +57,12 @@ function initialize(service: ServiceWorkerGlobalScope): void {
   service.addEventListener("fetch", (e) => {
     const url = UrlUtils_build(e.request.url);
     if (e.request.method === "GET" && isAppShellPath(url.pathname)) {
-      console.log("[Service Worker] Fetching " + e.request.url);
       e.respondWith(
         caches.match(appShellCacheKey).then((r) => {
           return fetch(e.request)
             .then((response) => cacheRequest(appShellCacheKey, response))
-            .catch((err) => {
+            .catch(() => {
               if (r != null) {
-                console.log("[Service Worker] Can't fetch, so using cache for: " + e.request.url);
-                console.error(err);
                 return r;
               } else {
                 throw e;
@@ -69,28 +71,23 @@ function initialize(service: ServiceWorkerGlobalScope): void {
         })
       );
     } else {
-      console.log("[Service Worker] Checking the resource in cache: " + e.request.url);
-
       e.respondWith(
         caches.match(e.request).then((r) => {
           if (r) {
-            console.log("[Service Worker] Returning from cache: " + e.request.url);
             return r;
           } else {
-            console.log("[Service Worker] Missing from cache, fetching resource: " + e.request.url);
             return fetch(e.request).then((response) => {
-              if (
+              const shouldCache =
                 e.request.method === "GET" &&
-                filesToCache.some((f) => {
-                  if (typeof f === "string") {
-                    const u = UrlUtils_build(e.request.url);
-                    return `${u.pathname}${u.search}` === f;
-                  } else {
-                    const u = UrlUtils_build(e.request.url);
-                    return f.test(`${u.pathname}${u.search}`);
-                  }
-                })
-              ) {
+                (isRuntimeCacheableAsset(url) ||
+                  filesToCache.some((f) => {
+                    if (typeof f === "string") {
+                      return `${url.pathname}${url.search}` === f;
+                    } else {
+                      return f.test(`${url.pathname}${url.search}`);
+                    }
+                  }));
+              if (shouldCache) {
                 return cacheRequest(e.request, response);
               } else {
                 return response;

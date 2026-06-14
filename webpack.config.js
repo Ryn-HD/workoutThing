@@ -33,6 +33,18 @@ function productionWebHostExpression() {
   return JSON.stringify(process.env.STAGE ? "https://stage.liftosaur.com" : "https://www.liftosaur.com");
 }
 
+function apiHostExpression() {
+  // WorkoutThing PWA serves its API as same-origin Vercel functions under /api/*,
+  // so cookies and credentials:"include" work without CORS.
+  if (process.env.WORKOUTTHING_PWA === "true") {
+    return "window.location.origin";
+  }
+  if (process.env.NODE_ENV === "production") {
+    return JSON.stringify(process.env.STAGE ? "https://api3-dev.liftosaur.com" : "https://api3.liftosaur.com");
+  }
+  return JSON.stringify(`https://${localapidomain}.liftosaur.com:${localapiport}`);
+}
+
 const watchConfig = {
   entry: "./src/watch/index.ts",
   target: "node",
@@ -209,13 +221,7 @@ const mainConfig = {
       __BUNDLE_VERSION_ANDROID__: bundleVersionAndroid,
       __COMMIT_HASH__: JSON.stringify(commitHash),
       __FULL_COMMIT_HASH__: JSON.stringify(fullCommitHash),
-      __API_HOST__: JSON.stringify(
-        process.env.NODE_ENV === "production"
-          ? process.env.STAGE
-            ? "https://api3-dev.liftosaur.com"
-            : "https://api3.liftosaur.com"
-          : `https://${localapidomain}.liftosaur.com:${localapiport}`
-      ),
+      __API_HOST__: apiHostExpression(),
       __STREAMING_API_HOST__: JSON.stringify(
         process.env.NODE_ENV === "production"
           ? process.env.STAGE

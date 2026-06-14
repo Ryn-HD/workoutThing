@@ -1,12 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build:pwa",
-  "installCommand": "npm ci",
+  "installCommand": "npm install --legacy-peer-deps",
   "outputDirectory": "dist",
   "rewrites": [
     {
       "source": "/",
-      "destination": "/app/index.html?skipintro=1&nosync=true"
+      "destination": "/app/index.html?skipintro=1"
     },
     {
       "source": "/app",

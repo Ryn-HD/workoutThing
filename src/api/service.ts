@@ -159,6 +159,25 @@ export class Service {
     return { email: json.email, storage: json.storage, user_id: json.user_id, is_new_user: json.is_new_user };
   }
 
+  public async passwordSignIn(password: string): Promise<IGetStorageResponse | undefined> {
+    const historylimit = 20;
+    const response = await this.client(`${__API_HOST__}/api/signin/password`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+    const json: IGetStorageResponse = await response.json();
+    json.storage.history = await this.getAllHistoryRecords({
+      alreadyFetchedHistory: json.storage.history,
+      historyLimit: historylimit,
+    });
+    return { email: json.email, storage: json.storage, user_id: json.user_id, is_new_user: json.is_new_user };
+  }
+
   public async getAllHistoryRecords(args: {
     alreadyFetchedHistory?: IHistoryRecord[];
     historyLimit?: number;
