@@ -36,3 +36,8 @@ cloudflare.*
 .tmp/
 worktrees/
 logs/
+
+# Local env / secrets (Neon DATABASE_URL, APP_PASSWORD, etc. live in Vercel, never in repo)
+.env
+.env.*
+!.env.example
