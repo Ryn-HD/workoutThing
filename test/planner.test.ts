@@ -47,6 +47,96 @@ Hammer Curl / 1x12 type[myoActivation], 3x5 type[myoMini], 1x8 type[dropSet]
 `);
   });
 
+  it("progresses myo-rep activation reps regardless of mini-set performance", () => {
+    const programText = `# Week 1
+## Day 1
+Hammer Curl / 1x10 type[myoActivation], 3x5 type[myoMini] / 20lb / progress: dp(5lb, 8, 12)`;
+    const { program } = PlannerTestUtils_finish(programText, { completedReps: [[10, 3, 2, 1]] });
+    const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Hammer Curl / 1x11 type[myoActivation], 3x5 type[myoMini] / 20lb / progress: dp(5lb, 8, 12)
+
+
+`);
+  });
+
+  it("increases myo-rep load from the activation set even when mini-sets are unfinished", () => {
+    const programText = `# Week 1
+## Day 1
+Hammer Curl / 1x12 type[myoActivation], 3x5 type[myoMini] / 20lb / progress: dp(5lb, 8, 12)`;
+    const { program } = PlannerTestUtils_finish(programText, { completedReps: [[12]] });
+    const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Hammer Curl / 1x8 type[myoActivation], 3x5 type[myoMini] / 25lb / progress: dp(5lb, 8, 12)
+
+
+`);
+  });
+
+  it("uses only the activation set for ranged myo-rep double progression", () => {
+    const programText = `# Week 1
+## Day 1
+Hammer Curl / 1x8-12 type[myoActivation], 3x5 type[myoMini] / 20lb / progress: dp(5lb, 8, 12)`;
+    const { program } = PlannerTestUtils_finish(programText, { completedReps: [[12, 2, 1, 1]] });
+    const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Hammer Curl / 1x8-12 type[myoActivation], 3x5 type[myoMini] / 25lb / progress: dp(5lb, 8, 12)
+
+
+`);
+  });
+
+  it("progresses myo-reps to one shared next load across activation and mini-sets", () => {
+    const programText = `# Week 1
+## Day 1
+Lateral Raise / 1x12 type[myoActivation], 3x5 type[myoMini] / 5lb / progress: dp(5lb, 8, 12)`;
+    const equipment = ObjectUtils_clone(Settings_defaultEquipment());
+    equipment.dumbbell!.isFixed = true;
+    equipment.dumbbell!.fixed = [Weight_build(5, "lb"), Weight_build(7.5, "lb"), Weight_build(10, "lb")];
+    const settings: ISettings = {
+      ...Settings_build(),
+      gyms: [{ vtype: "gym", id: "default", name: "Main", equipment }],
+      exerciseData: {
+        lateralraise_dumbbell: { equipment: { default: "dumbbell" } },
+      },
+    };
+    const { program } = PlannerTestUtils_finish(programText, { completedReps: [[12, 5, 5, 5]] }, settings);
+    const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Lateral Raise / 1x8 type[myoActivation], 3x5 type[myoMini] / 7.5lb / progress: dp(5lb, 8, 12)
+
+
+`);
+  });
+
+  it("uses the activation-set upper bound to trigger the next myo-rep load progression", () => {
+    const programText = `# Week 1
+## Day 1
+Lateral Raise / 1x12 type[myoActivation], 3x5 type[myoMini] / 5lb / progress: dp(5lb, 8, 12)`;
+    const equipment = ObjectUtils_clone(Settings_defaultEquipment());
+    equipment.dumbbell!.isFixed = true;
+    equipment.dumbbell!.fixed = [Weight_build(5, "lb"), Weight_build(7.5, "lb"), Weight_build(10, "lb")];
+    const settings: ISettings = {
+      ...Settings_build(),
+      gyms: [{ vtype: "gym", id: "default", name: "Main", equipment }],
+      exerciseData: {
+        lateralraise_dumbbell: { equipment: { default: "dumbbell" } },
+      },
+    };
+    const { program } = PlannerTestUtils_finish(programText, { completedReps: [[12]] }, settings);
+    const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Lateral Raise / 1x8 type[myoActivation], 3x5 type[myoMini] / 7.5lb / progress: dp(5lb, 8, 12)
+
+
+`);
+  });
+
   it("updates weight after completing", () => {
     const programText = `# Week 1
 ## Day 1
@@ -768,6 +858,58 @@ Squat / 3x8 / 100lb / progress: dp(5lb, 8, 12)`;
     expect(newText).to.equal(`# Week 1
 ## Day 1
 Squat / 3x8 / 105lb / progress: dp(5lb, 8, 12)
+
+
+`);
+  });
+
+  it("dp without range increases reps before load for straight sets", () => {
+    const programText = `# Week 1
+## Day 1
+Bench Press / 4x8 / 40lb / progress: dp(5lb, 8, 12)`;
+    const { program } = PlannerTestUtils_finish(programText, { completedReps: [[8, 8, 8, 8]] });
+    const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Bench Press / 4x9 / 40lb / progress: dp(5lb, 8, 12)
+
+
+`);
+  });
+
+  it("dp without range increases load only after every set reaches the top of the rep range", () => {
+    const programText = `# Week 1
+## Day 1
+Bench Press, Dumbbell / 4x12 / 40lb / progress: dp(5lb, 8, 12)`;
+    const { program } = PlannerTestUtils_finish(programText, { completedReps: [[12, 12, 11, 12]] });
+    const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Bench Press, Dumbbell / 4x12 / 40lb / progress: dp(5lb, 8, 12)
+
+
+`);
+  });
+
+  it("dp chooses the next available dumbbell step for upper-body work", () => {
+    const programText = `# Week 1
+## Day 1
+Bench Press, Dumbbell / 4x12 / 40lb / progress: dp(5lb, 8, 12)`;
+    const equipment = ObjectUtils_clone(Settings_defaultEquipment());
+    equipment.dumbbell!.isFixed = true;
+    equipment.dumbbell!.fixed = [Weight_build(40, "lb"), Weight_build(42.5, "lb"), Weight_build(45, "lb")];
+    const settings: ISettings = {
+      ...Settings_build(),
+      gyms: [{ vtype: "gym", id: "default", name: "Main", equipment }],
+      exerciseData: {
+        benchpress_dumbbell: { equipment: { default: "dumbbell" } },
+      },
+    };
+    const { program } = PlannerTestUtils_finish(programText, { completedReps: [[12, 12, 12, 12]] }, settings);
+    const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Bench Press, Dumbbell / 4x8 / 42.5lb / progress: dp(5lb, 8, 12)
 
 
 `);

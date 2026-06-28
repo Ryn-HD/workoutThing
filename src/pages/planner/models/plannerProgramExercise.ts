@@ -563,7 +563,19 @@ export function PlannerProgramExercise_getProgressDefaultArgs(type: IProgramExer
   }
 }
 
-function buildDpScript(): string {
+export function PlannerProgramExercise_buildDpScript(useEquipmentStepIncrement: boolean = false): string {
+  const increaseWeights = useEquipmentStepIncrement
+    ? `for (var.i in completedReps) {
+      weights[var.i] = increment(completedWeights[var.i])
+    }`
+    : `for (var.i in completedReps) {
+      var.isInitial = weights[var.i] == 0 && completedWeights[var.i] != 0
+      if (var.isInitial) {
+        weights[var.i] = completedWeights[var.i] + state.increment
+      } else {
+        weights[var.i] += (completedWeights[var.i] - weights[var.i]) + state.increment
+      }
+    }`;
   return `for (var.i in completedReps) {
   if (weights[var.i] == 0 && completedWeights[var.i] != 0) {
     weights[var.i] = completedWeights[var.i]
@@ -572,14 +584,7 @@ function buildDpScript(): string {
 if (completedReps >= reps && completedRPE <= RPE) {
   if (completedReps >= state.maxReps) {
     reps = state.minReps
-    for (var.i in completedReps) {
-      var.isInitial = weights[var.i] == 0 && completedWeights[var.i] != 0
-      if (var.isInitial) {
-        weights[var.i] = completedWeights[var.i] + state.increment
-      } else {
-        weights[var.i] += (completedWeights[var.i] - weights[var.i]) + state.increment
-      }
-    }
+    ${increaseWeights}
   } else {
     for (var.i in completedReps) {
       reps[var.i] = completedReps[var.i] + 1 > state.maxReps ?
@@ -590,7 +595,129 @@ if (completedReps >= reps && completedRPE <= RPE) {
 }`;
 }
 
-export function PlannerProgramExercise_buildDpRangeScript(): string {
+function buildMyoDpScript(
+  sets: IPlannerProgramExerciseEvaluatedSet[],
+  hasRange: boolean,
+  useEquipmentStepIncrement: boolean
+): string {
+  const activationIndexes = sets
+    .map((set, index) => (set.setType === "myoActivation" ? index + 1 : undefined))
+    .filter((index): index is number => index != null);
+  if (activationIndexes.length === 0) {
+    return hasRange
+      ? PlannerProgramExercise_buildDpRangeScript(useEquipmentStepIncrement)
+      : PlannerProgramExercise_buildDpScript(useEquipmentStepIncrement);
+  }
+
+  const completedActivationCondition = activationIndexes
+    .map(
+      (index) =>
+        `isCompleted[${index}] && completedReps[${index}] >= reps[${index}] && completedRPE[${index}] <= RPE[${index}]`
+    )
+    .join(" && ");
+  const maxActivationCondition = activationIndexes
+    .map((index) => `completedReps[${index}] >= state.maxReps`)
+    .join(" && ");
+  const initializeWeights = activationIndexes
+    .map(
+      (index) => `if (weights[${index}] == 0 && completedWeights[${index}] != 0) {
+  weights[${index}] = completedWeights[${index}]
+}`
+    )
+    .join("\n");
+
+  const increaseWeights = activationIndexes
+    .map((activationIndex, activationPosition) => {
+      const nextActivationIndex = activationIndexes[activationPosition + 1] ?? sets.length + 1;
+      const firstSetIndex = activationPosition === 0 ? 1 : activationIndex;
+      const affectedIndexes = Array.from(
+        { length: nextActivationIndex - firstSetIndex },
+        (_, offset) => firstSetIndex + offset
+      );
+      const targetWeightExpr = useEquipmentStepIncrement
+        ? `increment(completedWeights[${activationIndex}])`
+        : `completedWeights[${activationIndex}] + state.increment`;
+      return `var.nextMyoWeight${activationPosition + 1} = ${targetWeightExpr}
+${affectedIndexes.map((index) => `weights[${index}] = var.nextMyoWeight${activationPosition + 1}`).join("\n")}`;
+    })
+    .join("\n");
+
+  if (hasRange) {
+    const resetMinReps = activationIndexes.map((index) => `minReps[${index}] = state.minReps`).join("\n");
+    const narrowMinReps = activationIndexes
+      .map(
+        (index) => `minReps[${index}] = completedReps[${index}] + 1 > reps[${index}] ?
+  reps[${index}] :
+  completedReps[${index}] + 1`
+      )
+      .join("\n");
+    const allActivationsCompleted = activationIndexes.map((index) => `isCompleted[${index}]`).join(" && ");
+    return `${initializeWeights}
+if (${completedActivationCondition}) {
+${resetMinReps}
+${increaseWeights}
+} else if (${allActivationsCompleted}) {
+${narrowMinReps}
+}`;
+  }
+
+  const resetActivationReps = activationIndexes.map((index) => `reps[${index}] = state.minReps`).join("\n");
+  const increaseActivationReps = activationIndexes
+    .map(
+      (index) => `reps[${index}] = completedReps[${index}] + 1 > state.maxReps ?
+  state.maxReps :
+  completedReps[${index}] + 1`
+    )
+    .join("\n");
+  return `${initializeWeights}
+if (${completedActivationCondition}) {
+  if (${maxActivationCondition}) {
+${resetActivationReps}
+${increaseWeights}
+  } else {
+${increaseActivationReps}
+  }
+}`;
+}
+
+export function PlannerProgramExercise_buildMyoAwareDpScript(
+  setVariations: IPlannerProgramExerciseEvaluatedSetVariation[],
+  hasRange: boolean,
+  useEquipmentStepIncrement: boolean = false
+): string {
+  const scripts = setVariations.map((variation) =>
+    buildMyoDpScript(variation.sets, hasRange, useEquipmentStepIncrement)
+  );
+  if (scripts.length <= 1) {
+    return (
+      scripts[0] ??
+      (hasRange
+        ? PlannerProgramExercise_buildDpRangeScript(useEquipmentStepIncrement)
+        : PlannerProgramExercise_buildDpScript(useEquipmentStepIncrement))
+    );
+  }
+  return scripts
+    .map(
+      (script, index) => `${index === 0 ? "if" : "else if"} (setVariationIndex == ${index + 1}) {
+${script}
+}`
+    )
+    .join(" ");
+}
+
+export function PlannerProgramExercise_buildDpRangeScript(useEquipmentStepIncrement: boolean = false): string {
+  const increaseWeights = useEquipmentStepIncrement
+    ? `for (var.i in completedReps) {
+    weights[var.i] = increment(completedWeights[var.i])
+  }`
+    : `for (var.i in completedReps) {
+    var.isInitial = weights[var.i] == 0 && completedWeights[var.i] != 0
+    if (var.isInitial) {
+      weights[var.i] = completedWeights[var.i] + state.increment
+    } else {
+      weights[var.i] += (completedWeights[var.i] - weights[var.i]) + state.increment
+    }
+  }`;
   return `for (var.i in completedReps) {
   if (weights[var.i] == 0 && completedWeights[var.i] != 0) {
     weights[var.i] = completedWeights[var.i]
@@ -598,14 +725,7 @@ export function PlannerProgramExercise_buildDpRangeScript(): string {
 }
 if (completedReps >= reps && completedRPE <= RPE) {
   minReps = state.minReps
-  for (var.i in completedReps) {
-    var.isInitial = weights[var.i] == 0 && completedWeights[var.i] != 0
-    if (var.isInitial) {
-      weights[var.i] = completedWeights[var.i] + state.increment
-    } else {
-      weights[var.i] += (completedWeights[var.i] - weights[var.i]) + state.increment
-    }
-  }
+  ${increaseWeights}
 } else {
   for (var.i in completedReps) {
     minReps[var.i] = completedReps[var.i] + 1 > reps[var.i] ?
@@ -692,7 +812,7 @@ if (state.decrement > 0 && state.failures > 0) {
         minReps: args[1] ? parseInt(args[1], 10) : 0,
         maxReps: args[2] ? parseInt(args[2], 10) : 0,
       };
-      const script = buildDpScript();
+      const script = PlannerProgramExercise_buildDpScript();
       return {
         success: true,
         data: {

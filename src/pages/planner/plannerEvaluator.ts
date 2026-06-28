@@ -16,7 +16,8 @@ import {
 } from "./models/types";
 import { PlannerKey_fromFullName, PlannerKey_fromPlannerExercise } from "./plannerKey";
 import { ObjectUtils_isEqual, ObjectUtils_clone, ObjectUtils_keys, ObjectUtils_values } from "../../utils/object";
-import { Weight_type } from "../../models/weight";
+import { Weight_isPct, Weight_type } from "../../models/weight";
+import { Equipment_getEquipmentDataForExerciseType } from "../../models/equipment";
 import { PlannerProgram_fullToWeekEvalResult, PlannerProgram_generateFullText } from "./models/plannerProgram";
 import { ScriptRunner } from "../../parser";
 import { Progress_createEmptyScriptBindings, Progress_createScriptFunctions } from "../../models/progress";
@@ -26,7 +27,9 @@ import {
   PlannerProgramExercise_evaluateSetVariations,
   PlannerProgramExercise_getExercise,
   PlannerProgramExercise_getState,
+  PlannerProgramExercise_buildDpScript,
   PlannerProgramExercise_buildDpRangeScript,
+  PlannerProgramExercise_buildMyoAwareDpScript,
 } from "./models/plannerProgramExercise";
 
 export type IByTag<T> = Record<number, T>;
@@ -62,12 +65,40 @@ export function PlannerEvaluator_getFirstError(evaluatedWeeks: IPlannerEvalResul
 export function PlannerEvaluator_fillInMetadata(
   exercise: IPlannerProgramExercise,
   metadata: IPlannerEvalMetadata,
-  dayData: Required<IDayData>
+  dayData: Required<IDayData>,
+  settings: ISettings
 ): void {
   if (exercise.progress?.type === "dp") {
     const hasRange = exercise.setVariations.some((sv) => sv.sets.some((s) => s.repRange?.minrep != null));
-    if (hasRange) {
-      exercise.progress = { ...exercise.progress, script: PlannerProgramExercise_buildDpRangeScript() };
+    const evaluatedSetVariations = PlannerProgramExercise_evaluateSetVariations(
+      exercise,
+      PlannerProgramExercise_setVariations(exercise)
+    );
+    const exerciseType = PlannerProgramExercise_getExercise(exercise, settings);
+    const equipmentData = Equipment_getEquipmentDataForExerciseType(settings, exerciseType);
+    const useEquipmentStepIncrement =
+      exerciseType != null &&
+      !Weight_isPct(PlannerProgramExercise_getState(exercise).increment) &&
+      (equipmentData?.isFixed === true || exerciseType.equipment === "dumbbell" || exerciseType.equipment === "cable");
+    const hasMyoActivation = evaluatedSetVariations.some((variation) =>
+      variation.sets.some((set) => set.setType === "myoActivation")
+    );
+    if (hasMyoActivation) {
+      exercise.progress = {
+        ...exercise.progress,
+        script: PlannerProgramExercise_buildMyoAwareDpScript(
+          evaluatedSetVariations,
+          hasRange,
+          useEquipmentStepIncrement
+        ),
+      };
+    } else if (hasRange) {
+      exercise.progress = {
+        ...exercise.progress,
+        script: PlannerProgramExercise_buildDpRangeScript(useEquipmentStepIncrement),
+      };
+    } else if (useEquipmentStepIncrement) {
+      exercise.progress = { ...exercise.progress, script: PlannerProgramExercise_buildDpScript(true) };
     }
   }
   if (metadata.byWeekDayExercise[dayData.week - 1]?.[dayData.dayInWeek - 1]?.[exercise.key] != null) {
@@ -221,7 +252,7 @@ export function PlannerEvaluator_getPerDayEvaluatedWeeks(
         const exercises = result.data;
         for (const exercise of exercises) {
           try {
-            PlannerEvaluator_fillInMetadata(exercise, metadata, dayData);
+            PlannerEvaluator_fillInMetadata(exercise, metadata, dayData, settings);
           } catch (e) {
             if (e instanceof PlannerSyntaxError) {
               return { success: false, error: e };
@@ -278,7 +309,7 @@ export function PlannerEvaluator_getFullEvaluatedWeeks(
           const exercises = day.exercises;
           for (const exercise of exercises) {
             const dayData = { week: weekIndex + 1, dayInWeek: dayInWeekIndex + 1, day: dayIndex + 1 };
-            PlannerEvaluator_fillInMetadata(exercise, metadata, dayData);
+            PlannerEvaluator_fillInMetadata(exercise, metadata, dayData, settings);
           }
           dayIndex += 1;
         }
