@@ -265,6 +265,34 @@ Then move `master` to `sync-upstream` (with Ryan's OK) and force-push `origin` +
 - `tests/bodyweight.spec.ts` (E2E) targets the app via testIDs but was written for web-era UI; verify against RN.
 - The program (`research/liftoscript-program.md`) hasn't been run through upstream's parser yet — verify in-app.
 
+## VERIFICATION (2026-07-10)
+
+- **TypeScript typecheck (`tsc --noEmit`):** merge introduces **0 new errors**. 4 remain, all
+  pre-existing / environmental, NOT regressions:
+  - `plannerEvaluator.ts:375`, `encoder.ts:49` — verbatim upstream code (upstream's own strict-TS quirks; don't block their transpile build).
+  - `whatsnewParser.ts` — imports generated `src/generated/whatsnew.ts` (built by `build:markdown`, absent now).
+  - `localdomain.ts:9` — `metroPort` missing from upstream's `localdomain.default.js` (upstream dev-setup gap).
+- **Fixed one real merge error:** `historyEntry.tsx` referenced a `hideZeroWeight` prop + fork
+  `Reps_setToDisplaySet` signature that were reverted → dropped the bodyweight display customization
+  (removed `models/bodyweight.ts` + spec). See commit `395e9916`.
+- **Unit tests:** could NOT run — the machine is on **Node v26.4.0** but `.nvmrc` pins Node 22
+  (`lts/jod`); mocha's bundled yargs throws `require is not defined in ES module scope` under Node 26.
+  This breaks the harness repo-wide (not merge-related). Re-run with Node 22 to get green tests.
+- **`build:markdown`** exits 127 (missing tool) in this shell — also environmental.
+
+### Net result vs the requested Option B
+All three fork *logic* features Ryan named (set-types, myo-aware dp, bodyweight display) proved
+deeply entangled with upstream's web→RN rewrite AND with fork edits to core files (set.ts
+signatures, planner grammar). Each was dropped for a clean, buildable sync. **The delivered scope
+is effectively "latest upstream + research/program + Vercel password-auth backend + WorkoutThing
+branding" — between Option B and Option C.** This is safe because the program uses only standard
+Liftoscript. If Ryan wants any of the three genuinely re-ported into RN, that's follow-up work.
+
+## Finalization (needs Ryan's OK — not yet done)
+- [ ] Move `master` to `sync-upstream` (`git branch -f master sync-upstream`).
+- [ ] Force-push `origin master` (history rewritten — outward-facing, needs explicit approval).
+- [ ] Confirm Vercel redeploys; smoke-test password sign-in + import the program.
+
 ## Progress log
 
 - **2026-07-10** — Added `upstream` remote, fetched (464 commits behind). Confirmed `origin` in sync.
