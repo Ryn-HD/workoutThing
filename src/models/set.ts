@@ -10,7 +10,7 @@ import {
   Weight_convertTo,
   Weight_add,
 } from "./weight";
-import { ISet, IHistoryRecord, IHistoryEntry, IWeight, IUnit } from "../types";
+import { ISet, IHistoryRecord, IHistoryEntry, IWeight, IUnit, ISetType } from "../types";
 import { ObjectUtils_clone } from "../utils/object";
 import { UidFactory_generateUid } from "../utils/generator";
 import { Progress_getNextEntry } from "./progress";
@@ -36,6 +36,23 @@ export interface IDisplaySet {
   setTimer?: number;
   isOverflowSetTimer?: boolean;
   auto?: boolean;
+}
+
+export function Reps_setType(set: Pick<ISet, "setType" | "isAmrap">): ISetType {
+  return set.setType ?? (set.isAmrap ? "amrap" : "normal");
+}
+
+export function Reps_isAmrap(set: Pick<ISet, "setType" | "isAmrap">): boolean {
+  return Reps_setType(set) === "amrap";
+}
+
+export function Reps_isMaxEffortSet(set: Pick<ISet, "setType" | "isAmrap">): boolean {
+  const setType = Reps_setType(set);
+  return setType === "normal" || setType === "amrap" || setType === "myoActivation";
+}
+
+export function Reps_setTypeToIsAmrap(setType: ISetType): boolean {
+  return setType === "amrap";
 }
 
 export function Reps_display(sets: ISet[], isNext: boolean = false): string {
@@ -130,7 +147,7 @@ export function Reps_isSameSet(set1: ISet, set2: ISet): boolean {
 
 export function Reps_displayReps(set: ISet): string {
   const reps = set.minReps != null ? `${set.minReps}-${set.reps ?? 0}` : `${set.reps ?? 0}`;
-  return set.isAmrap ? `${reps}+` : `${reps}`;
+  return Reps_isAmrap(set) ? `${reps}+` : `${reps}`;
 }
 
 export function Reps_displayCompletedReps(set: ISet): string {
@@ -163,6 +180,7 @@ export function Reps_newSet(isUnilateral: boolean, index: number): ISet {
     weight: undefined,
     isUnilateral,
     reps: undefined,
+    setType: "normal",
     isAmrap: false,
     askWeight: false,
     isCompleted: false,
@@ -236,7 +254,7 @@ export function Reps_isFinishedSet(s: ISet): boolean {
 }
 
 export function Reps_toKey(set: ISet): string {
-  return `${Weight_printNull(set.weight)}-${Weight_printNull(set.completedWeight)}-${set.reps}-${set.minReps}-${set.isAmrap}-${set.rpe}-${set.askWeight}-${set.completedReps}-${set.completedRepsLeft}-${set.completedRpe}-${set.isCompleted}`;
+  return `${Weight_printNull(set.weight)}-${Weight_printNull(set.completedWeight)}-${set.reps}-${set.minReps}-${Reps_setType(set)}-${set.rpe}-${set.askWeight}-${set.completedReps}-${set.completedRepsLeft}-${set.completedRpe}-${set.isCompleted}`;
 }
 
 export function Reps_isInRangeCompleted(sets: ISet[]): boolean {
@@ -289,6 +307,7 @@ export function Reps_group(sets: ISet[], isNext?: boolean): ISet[][] {
           !Weight_eqNull(last.completedWeight, set.completedWeight) ||
           last.askWeight !== set.askWeight ||
           (isNext && last.isAmrap !== set.isAmrap) ||
+          (isNext && Reps_setType(last) !== Reps_setType(set)) ||
           last.rpe !== set.rpe ||
           last.completedRpe !== set.completedRpe ||
           last.setTimer !== set.setTimer ||
@@ -396,10 +415,11 @@ export function Reps_targetSetKey(set: ISet): string {
   const rpe = set.rpe ?? -1;
   const logRpe = set.logRpe ? 1 : 0;
   const timer = set.timer ?? -1;
-  const amrap = set.isAmrap ? 1 : 0;
+  const setType = Reps_setType(set);
+  const amrap = setType === "amrap" ? 1 : 0;
   const label = set.label ?? "";
   const askWeight = set.askWeight ? 1 : 0;
-  return `${reps}-${minReps}-${w}-${askWeight}-${rpe}-${logRpe}-${timer}-${amrap}-${label}`;
+  return `${reps}-${minReps}-${w}-${askWeight}-${rpe}-${logRpe}-${timer}-${setType}-${amrap}-${label}`;
 }
 
 export function Reps_volume(sets: ISet[], unit: IUnit): IWeight {

@@ -11,6 +11,8 @@ import {
   Reps_isCompleted,
   Reps_isEmpty,
   Reps_isFinished,
+  Reps_isAmrap,
+  Reps_setType,
 } from "./set";
 import {
   Weight_build,
@@ -202,6 +204,238 @@ export interface IScriptFunctions {
   ): number;
 }
 
+export interface IProgressWorkoutStep {
+  entryIndex: number;
+  setIndex: number;
+}
+
+export interface IProgressNextWorkoutStep extends IProgressWorkoutStep {
+  shouldStartTimer: boolean;
+}
+
+function Progress_isMyoEntry(entry: IHistoryEntry): boolean {
+  return entry.sets.some((set) => {
+    const setType = Reps_setType(set);
+    return setType === "myoActivation" || setType === "myoMini";
+  });
+}
+
+function Progress_workoutSetSteps(entryIndex: number, entry: IHistoryEntry): IProgressWorkoutStep[] {
+  return entry.sets.map((_, setIndex) => ({ entryIndex, setIndex }));
+}
+
+function Progress_myoSupersetSteps(
+  progress: IHistoryRecord,
+  normalEntryIndex: number,
+  myoEntryIndex: number
+): IProgressWorkoutStep[] {
+  const normalEntry = progress.entries[normalEntryIndex];
+  const myoEntry = progress.entries[myoEntryIndex];
+  const activationSetIndex = myoEntry.sets.findIndex((set) => Reps_setType(set) === "myoActivation");
+  const miniSetIndexes = myoEntry.sets
+    .map((set, setIndex) => ({ set, setIndex }))
+    .filter(({ set }) => Reps_setType(set) === "myoMini")
+    .map(({ setIndex }) => setIndex);
+  const steps: IProgressWorkoutStep[] = [];
+
+  if (normalEntry.sets[0] != null) {
+    steps.push({ entryIndex: normalEntryIndex, setIndex: 0 });
+  }
+  if (activationSetIndex !== -1) {
+    steps.push({ entryIndex: myoEntryIndex, setIndex: activationSetIndex });
+  }
+  for (let setIndex = 1; setIndex < normalEntry.sets.length; setIndex += 1) {
+    steps.push({ entryIndex: normalEntryIndex, setIndex });
+  }
+  for (const setIndex of miniSetIndexes) {
+    steps.push({ entryIndex: myoEntryIndex, setIndex });
+  }
+  for (let setIndex = 0; setIndex < myoEntry.sets.length; setIndex += 1) {
+    if (setIndex !== activationSetIndex && !miniSetIndexes.includes(setIndex)) {
+      steps.push({ entryIndex: myoEntryIndex, setIndex });
+    }
+  }
+
+  return steps;
+}
+
+function Progress_allMyoSupersetSteps(progress: IHistoryRecord, entryIndexes: number[]): IProgressWorkoutStep[] {
+  const steps: IProgressWorkoutStep[] = [];
+  const miniSetIndexesByEntryIndex: Record<number, number[]> = {};
+  const usedMyoSetIndexesByEntryIndex: Record<number, Set<number>> = {};
+
+  for (const entryIndex of entryIndexes) {
+    const entry = progress.entries[entryIndex];
+    const activationSetIndex = entry.sets.findIndex((set) => Reps_setType(set) === "myoActivation");
+    const miniSetIndexes = entry.sets
+      .map((set, setIndex) => ({ set, setIndex }))
+      .filter(({ set }) => Reps_setType(set) === "myoMini")
+      .map(({ setIndex }) => setIndex);
+
+    miniSetIndexesByEntryIndex[entryIndex] = miniSetIndexes;
+    usedMyoSetIndexesByEntryIndex[entryIndex] = new Set([
+      ...(activationSetIndex !== -1 ? [activationSetIndex] : []),
+      ...miniSetIndexes,
+    ]);
+
+    if (activationSetIndex !== -1) {
+      steps.push({ entryIndex, setIndex: activationSetIndex });
+    }
+  }
+
+  const maxMiniSets = Math.max(...entryIndexes.map((entryIndex) => miniSetIndexesByEntryIndex[entryIndex]?.length ?? 0));
+  for (let miniSetIndex = 0; miniSetIndex < maxMiniSets; miniSetIndex += 1) {
+    for (const entryIndex of entryIndexes) {
+      const setIndex = miniSetIndexesByEntryIndex[entryIndex]?.[miniSetIndex];
+      if (setIndex != null) {
+        steps.push({ entryIndex, setIndex });
+      }
+    }
+  }
+
+  for (const entryIndex of entryIndexes) {
+    const entry = progress.entries[entryIndex];
+    for (let setIndex = 0; setIndex < entry.sets.length; setIndex += 1) {
+      if (!usedMyoSetIndexesByEntryIndex[entryIndex]?.has(setIndex)) {
+        steps.push({ entryIndex, setIndex });
+      }
+    }
+  }
+
+  return steps;
+}
+
+function Progress_normalSupersetSteps(progress: IHistoryRecord, entryIndexes: number[]): IProgressWorkoutStep[] {
+  const maxSets = Math.max(...entryIndexes.map((entryIndex) => progress.entries[entryIndex].sets.length));
+  const steps: IProgressWorkoutStep[] = [];
+  for (let setIndex = 0; setIndex < maxSets; setIndex += 1) {
+    for (const entryIndex of entryIndexes) {
+      if (progress.entries[entryIndex].sets[setIndex] != null) {
+        steps.push({ entryIndex, setIndex });
+      }
+    }
+  }
+  return steps;
+}
+
+function Progress_supersetEntryIndexes(progress: IHistoryRecord, superset: string): number[] {
+  return progress.entries
+    .map((entry, entryIndex) => ({ entry, entryIndex }))
+    .filter(({ entry }) => entry.superset === superset)
+    .map(({ entryIndex }) => entryIndex);
+}
+
+function Progress_buildWorkoutSequence(progress: IHistoryRecord): IProgressWorkoutStep[] {
+  const steps: IProgressWorkoutStep[] = [];
+  const usedSupersetGroups = new Set<string>();
+
+  for (let entryIndex = 0; entryIndex < progress.entries.length; entryIndex += 1) {
+    const entry = progress.entries[entryIndex];
+    if (entry.superset == null) {
+      steps.push(...Progress_workoutSetSteps(entryIndex, entry));
+      continue;
+    }
+
+    if (usedSupersetGroups.has(entry.superset)) {
+      continue;
+    }
+    usedSupersetGroups.add(entry.superset);
+
+    const entryIndexes = Progress_supersetEntryIndexes(progress, entry.superset);
+    if (entryIndexes.length < 2) {
+      steps.push(...entryIndexes.flatMap((i) => Progress_workoutSetSteps(i, progress.entries[i])));
+      continue;
+    }
+
+    const myoEntryIndexes = entryIndexes.filter((i) => Progress_isMyoEntry(progress.entries[i]));
+    if (entryIndexes.length === 2 && myoEntryIndexes.length === 1) {
+      const myoEntryIndex = myoEntryIndexes[0];
+      const normalEntryIndex = entryIndexes.find((i) => i !== myoEntryIndex)!;
+      steps.push(...Progress_myoSupersetSteps(progress, normalEntryIndex, myoEntryIndex));
+    } else if (myoEntryIndexes.length === entryIndexes.length) {
+      steps.push(...Progress_allMyoSupersetSteps(progress, entryIndexes));
+    } else {
+      steps.push(...Progress_normalSupersetSteps(progress, entryIndexes));
+    }
+  }
+
+  return steps;
+}
+
+function Progress_stepSet(progress: IHistoryRecord, step: IProgressWorkoutStep | undefined): ISet | undefined {
+  return step != null ? progress.entries[step.entryIndex]?.sets[step.setIndex] : undefined;
+}
+
+function Progress_isSameSupersetGroup(
+  progress: IHistoryRecord,
+  a: IProgressWorkoutStep,
+  b: IProgressWorkoutStep
+): boolean {
+  const aSuperset = progress.entries[a.entryIndex]?.superset;
+  return aSuperset != null && aSuperset === progress.entries[b.entryIndex]?.superset;
+}
+
+function Progress_shouldStartTimerBetween(
+  progress: IHistoryRecord,
+  currentStep: IProgressWorkoutStep,
+  nextStep: IProgressWorkoutStep
+): boolean {
+  const currentSet = Progress_stepSet(progress, currentStep);
+  const nextSet = Progress_stepSet(progress, nextStep);
+  if (currentSet == null || nextSet == null) {
+    return true;
+  }
+  const currentSetType = Reps_setType(currentSet);
+  const nextSetType = Reps_setType(nextSet);
+
+  if (
+    currentStep.entryIndex === nextStep.entryIndex &&
+    (nextSetType === "myoMini" || (currentSetType === "dropSet" && nextSetType === "dropSet"))
+  ) {
+    return false;
+  }
+
+  if (Progress_isSameSupersetGroup(progress, currentStep, nextStep)) {
+    if (nextSetType === "myoActivation") {
+      return false;
+    }
+    if (nextSetType === "myoMini") {
+      if (currentSetType === "myoActivation" && currentStep.entryIndex !== nextStep.entryIndex) {
+        return true;
+      }
+      if (currentSetType !== "myoMini") {
+        return false;
+      }
+    }
+    return currentStep.entryIndex >= nextStep.entryIndex;
+  }
+
+  return true;
+}
+
+export function Progress_getNextWorkoutStep(
+  progress: IHistoryRecord,
+  entryIndex: number,
+  setIndex: number
+): IProgressNextWorkoutStep | undefined {
+  const sequence = Progress_buildWorkoutSequence(progress);
+  const currentStepIndex = sequence.findIndex((step) => step.entryIndex === entryIndex && step.setIndex === setIndex);
+  if (currentStepIndex === -1) {
+    return undefined;
+  }
+
+  const orderedSteps = [...sequence.slice(currentStepIndex + 1), ...sequence.slice(0, currentStepIndex)];
+  const nextStep = orderedSteps.find((step) => !Progress_stepSet(progress, step)?.isCompleted);
+  if (nextStep == null) {
+    return undefined;
+  }
+
+  return {
+    ...nextStep,
+    shouldStartTimer: Progress_shouldStartTimerBetween(progress, sequence[currentStepIndex], nextStep),
+  };
+}
+
 function floor(num: number): number;
 function floor(num: IWeight): IWeight;
 function floor(num: IWeight | number): IWeight | number {
@@ -350,7 +584,7 @@ export function Progress_createScriptBindings(
     bindings.completedRPE.push(set.completedRpe);
     bindings.completedWeights.push(set.completedWeight);
     bindings.RPE.push(set.rpe);
-    bindings.amraps.push(set.isAmrap ? 1 : undefined);
+    bindings.amraps.push(Reps_isAmrap(set) ? 1 : undefined);
     bindings.logrpes.push(set.logRpe ? 1 : undefined);
     bindings.askweights.push(set.askWeight ? 1 : undefined);
     bindings.timers.push(set.timer);
@@ -757,12 +991,19 @@ export function Progress_updateTimer(
 export function Progress_maybeApplySuperset(
   progress: IHistoryRecord,
   entryIndex: number,
+  setIndex: number,
   mode: "workout" | "warmup"
 ): IHistoryRecord {
   if (!Progress_isCurrent(progress)) {
     return progress;
   }
   const entry = progress.entries[entryIndex];
+  if (mode === "workout") {
+    const nextWorkoutStep = Progress_getNextWorkoutStep(progress, entryIndex, setIndex);
+    if (nextWorkoutStep != null) {
+      return { ...progress, currentEntryIndex: nextWorkoutStep.entryIndex };
+    }
+  }
   const nextEntryIndex = Progress_getNextEntryIndex(progress, entry, mode);
   if (nextEntryIndex != null) {
     return { ...progress, currentEntryIndex: nextEntryIndex };
@@ -1884,7 +2125,7 @@ export function Progress_changeAmrapAction(
   if (Progress_isFullyFinishedSet(newProgress)) {
     newProgress = Progress_stopTimer(newProgress);
   }
-  newProgress = Progress_maybeApplySuperset(newProgress, action.entryIndex, "workout");
+  newProgress = Progress_maybeApplySuperset(newProgress, action.entryIndex, action.setIndex, "workout");
   // A timed set keeps its set-timer modal open behind the amrap modal (see Progress_proceedAfterTimedSet).
   // If it was recorded via "Log & keep timing" (keepTiming), leave the clock running and don't start rest;
   // otherwise close the banner and start the deferred rest. For non-timed sets setTimerModal is already
@@ -2056,20 +2297,32 @@ export function Progress_completeSetAction(
     newProgress = Progress_stopTimer(newProgress);
   }
   if (didFinish) {
-    newProgress = Progress_maybeApplySuperset(newProgress, action.entryIndex, action.mode);
+    newProgress = Progress_maybeApplySuperset(newProgress, action.entryIndex, action.setIndex, action.mode);
   }
   // Non-timed sets start their rest timer here. Timed sets defer it to Progress_proceedAfterTimedSet
   // (below) so a set logged via "Log & keep timing" doesn't start resting while its clock still runs.
+  // The workout sequencer decides when a rest is due: myo clusters and superset partners run with no
+  // rest between their sets, and a rest starts only when the next step calls for it.
+  const nextWorkoutStep =
+    action.mode === "workout"
+      ? Progress_getNextWorkoutStep(newProgress, action.entryIndex, action.setIndex)
+      : undefined;
+  const shouldStartRest = action.mode !== "workout" || nextWorkoutStep == null || nextWorkoutStep.shouldStartTimer;
   if (!action.isPlayground && newSet.setTimer == null) {
-    newProgress = Progress_startTimer(
-      newProgress,
-      new Date().getTime(),
-      action.mode,
-      action.entryIndex,
-      action.setIndex,
-      settings,
-      subscription
-    );
+    if (shouldStartRest) {
+      newProgress = Progress_startTimer(
+        newProgress,
+        new Date().getTime(),
+        action.mode,
+        action.entryIndex,
+        action.setIndex,
+        settings,
+        subscription
+      );
+    } else {
+      // No rest between myo/superset sets: clear any timer left running from the previous set.
+      newProgress = Progress_stopTimer(newProgress);
+    }
   }
   // After a timed set is recorded+completed from its clock, advance to the next timed set or close the
   // banner and start rest — the one place that decision lives. "Log & keep timing" skips it.
