@@ -1,80 +1,150 @@
-# Liftoscript — Upper/Lower V-Taper
+# Liftoscript — 5-Day Push/Pull/Lower/Upper/Upper
 
 The encoded, app-ready version of [current-program.md](current-program.md). Paste the
 code block below into WorkoutThing's program editor (Full mode) to import it. Cues come
 from [exercise-cues.md](exercise-cues.md); gear rules from [equipment.md](equipment.md).
 
-**Before running it:** every weight below is a PLACEHOLDER. Set your real working weights
-(and squat/bench/deadlift numbers) in the app after importing. Notes:
+**Structure:** 5 days — Push A, Pull A, Lower + Core, Upper (push-emphasis), Upper (pull-emphasis).
+Antagonist supersets only. ~55 min/session.
 
-- **Myo-reps** use a `myo` template (activation set + 4 short-rest mini-sets at the same
-  weight); it adds 5lb only when every rep in the cluster is completed.
-- **Double progression** (`dp`) everywhere else: build reps to the top of the range, then
-  +5lb (+10lb deadlift) and reset to the bottom.
-- **Weighted Pull-Up** weight = ADDED weight (belt/DB); `0lb` = bodyweight.
+**Notes:**
+- **Myo-reps** use the canonical set types: `type[myoActivation]` for the activation set and
+  `type[myoMini]` for the short-rest mini-sets (`1x12 type[myoActivation], 4x5 type[myoMini]`).
+  The app runs the activation set, then the minis back-to-back with no rest, and only rests
+  before the next exercise. `@9` sets the target RPE; weights are set live in the app.
+- **Double progression** (`dp(inc, min, max)`): build reps to the top of the range, then add the
+  increment and reset to the bottom. On myo exercises, `dp` progresses off the **activation** set
+  and the whole cluster moves to one shared next load. The actual load step follows the exercise's
+  configured equipment increment (e.g. dumbbell/cable step), so verify your equipment increments
+  in Settings match your real gear (see [equipment.md](equipment.md)).
+- **Linear progression** (`lp`) is used on the Romanian Deadlift.
+- **Weighted Pull-Up / bodyweight**: weight shown is ADDED weight (belt/DB); `0lb` = bodyweight.
 - All supersets are DB+cable / DB+bodyweight — the one-cable/one-DB-pair rule holds.
-- Validated with `scripts/validate_liftoscript.ts` (VALIDATION: OK). Not yet run through
-  the Liftosaur playground or a real session — verify progression live in the app.
 
 ```liftoscript
 # Week 1
-## Upper A
-myo / used: none / 1x12, 4x5 / 20s / 10lb / progress: custom(increment: 5lb) {~
-  if (completedReps >= reps) {
-    weights += state.increment
-  }
-~}
-// Bench Press — 4x6 at ~2 RIR. Push each set toward 10 reps over sessions, then +5lb and reset.
-Bench Press / 4x6 / 135lb / 150s / progress: dp(5lb, 6, 10)
-Incline Bench Press, Dumbbell / 3x8 / 45lb / 120s / superset: a / progress: dp(5lb, 8, 12)
-Seated Row / 3x10 / 80lb / 120s / superset: a / progress: dp(5lb, 10, 15)
-Chest Fly / 3x12 / 20lb / 75s / superset: b / progress: dp(5lb, 12, 15)
-Lateral Raise, Cable / ...myo / 12lb / superset: b
-Lateral Raise / 3x12 / 15lb / 75s / superset: c / progress: dp(5lb, 12, 20)
-Triceps Pushdown / ...myo / 30lb / superset: c
-Triceps Extension / 3x10 / 25lb / 75s / progress: dp(5lb, 10, 12)
+## Day 1 Push A
+/// Sun. Chest / side delt / triceps. ~55 min. Antagonist supersets only.
 
-## Lower A
-// Back Squat — 3x6 at ~2 RIR.
-Squat / 3x6 / 185lb / 150s / progress: dp(5lb, 6, 10)
-Bulgarian Split Squat / 3x8 / 30lb / 90s / superset: d / progress: dp(5lb, 8, 12)
-Ab Wheel / 3x10 / warmup: none / 75s / superset: d
-// Barbell RDL — controlled eccentric, feel the hamstring stretch. Do not round the low back.
-Romanian Deadlift, Barbell / 3x8 / 135lb / 120s / progress: dp(5lb, 8, 12)
-Goblet Squat / 2x12 / 40lb / 90s / progress: dp(5lb, 12, 15)
-Standing Calf Raise / ...myo / 40lb
-// KOT back extension — extend with the erectors to a straight line, do not hyperextend.
-Back Extension, Bodyweight / 3x15 / warmup: none / 75s
+// Flat bench. Quality over load, ~2 RIR
+Bench Press, Barbell / 4x6 / 45lb / warmup: 1x10 50%, 1x5 80% / progress: dp(5lb, 6, 10)
 
-## Upper B
-// Weighted Pull-Up — weight shown is ADDED weight (belt/DB); 0 = bodyweight. Build 6->8 reps, then +5lb.
-Pull Up / 4x6 / 0lb / warmup: none / superset: e / progress: dp(5lb, 6, 8)
-Hammer Curl / 3x8 / 25lb / 75s / superset: e / progress: dp(5lb, 8, 12)
-Lat Pulldown / 3x12 / 80lb / 120s / superset: f / progress: dp(5lb, 12, 15)
-Incline Curl / 3x10 / 20lb / 75s / superset: f / progress: dp(5lb, 10, 12)
-Bent Over One Arm Row / 3x10 / 50lb / 90s / superset: g / progress: dp(5lb, 10, 15)
-Face Pull / 3x12 / 30lb / 75s / superset: g / progress: dp(5lb, 12, 20)
-Pullover / 3x10 / 30lb / 90s / superset: h / progress: dp(5lb, 10, 15)
-Bicep Curl, Cable / ...myo / 25lb / superset: h
-Lateral Raise / 3x12 / 15lb / 75s
+/// SS A: DB press + cable pushdown
+// 15 deg low-incline for mid pec
+Incline Bench Press, Dumbbell / 3x8 / 35lb / warmup: none / superset: A / progress: dp(5lb, 8, 12)
+// rope. Myo: activate ~12, then 4 minis of 5
+Triceps Pushdown, Cable / 1x12 type[myoActivation], 4x5 type[myoMini] / @9 / warmup: none / superset: A
 
-## Upper C
-Incline Bench Press, Dumbbell / 3x8 / 45lb / 120s / superset: i
-Lat Pulldown / 3x12 / 80lb / 120s / superset: i
-Chest Fly / 3x12 / 20lb / 75s / superset: j
-Lateral Raise, Cable / 1x12, 4x5 / 20s / 12lb / superset: j
-Lateral Raise / 3x12 / 15lb / 75s / superset: k
-Face Pull / 3x12 / 30lb / 75s / superset: k
-Incline Curl / 3x10 / 20lb / 75s / superset: l
-Triceps Pushdown / 1x12, 4x5 / 20s / 30lb / superset: l
+/// SS B: DB fly + cable lateral
+// 15 deg low-incline, big stretch
+Chest Fly, Dumbbell / 2x12 / 20lb / warmup: none / superset: B / progress: dp(5lb, 12, 15)
+// single-arm, myo, free pulley
+Lateral Raise, Cable / 1x12 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none / superset: B
+/// SS C: DB overhead ext + DB standing calf
 
-## Lower B
-// Deadlift — 3x5 at ~2 RIR. Reset the brace each rep.
-Deadlift / 3x5 / 225lb / 180s / progress: dp(10lb, 5, 8)
-Lunge, Dumbbell / 3x10 / 30lb / 90s / superset: m / progress: dp(5lb, 10, 12)
-Hanging Leg Raise / 3x12 / warmup: none / 75s / superset: m
-// DB RDL — lighter stretch hinge, secondary to the deadlift.
-Romanian Deadlift / 3x10 / 40lb / 120s / progress: dp(5lb, 10, 12)
-Seated Calf Raise, Dumbbell / 3x15 / 40lb / 90s / progress: dp(5lb, 15, 20)
-Cable Crunch / ...myo / 40lb
+// overhead, elbows tucked
+Triceps Extension, Dumbbell / 3x10 / 25lb / warmup: none / superset: C / progress: dp(5lb, 10, 15)
+// myo, full stretch at bottom
+Standing Calf Raise, Dumbbell / 1x15 type[myoActivation], 4x5 type[myoMini] / @9 / warmup: none / superset: C
+
+## Day 2 Pull A
+/// Mon. Back / biceps / rear delt. ~55 min.
+
+/// SS A: pull-up + rope cable curl
+// band assist if <5; weighted belt when >10
+Pull Up / 4x5 / 0lb / warmup: none / superset: A / progress: dp(5lb, 5, 10)
+// rope, free rotation, myo (elbow-safe)
+Bicep Curl, Cable / 1x12 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none / superset: A
+
+/// SS B: seated cable row (floor) + hammer curl
+// FLOOR pulley, neutral bar, brace on cage base
+Seated Row, Cable / 4x8-12 @9 / warmup: none / superset: B
+// hammer, neutral grip (elbow-safe)
+Hammer Curl, Dumbbell / 3x8 / 30lb / warmup: none / superset: B / progress: dp(5lb, 8, 12)
+
+// prone on incline bench, myo, rear delt
+Reverse Fly, Dumbbell / 1x15 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none
+// incline DB curl, supinated (elbow-safe)
+Incline Curl, Dumbbell / 3x10 / 30lb / warmup: none / progress: dp(5lb, 10, 12)
+// "lat prayer", lats, slight elbow bend
+Lat Pulldown, Cable / 3x10-15 @9 / warmup: none
+
+## Day 3 Lower + Core
+/// Tue. Strength anchors + maintenance-plus legs.
+
+// ANCHOR, ~2 RIR, NO low-bar
+Squat, Barbell / 3x6 / 135lb / warmup: 1x5 50%, 1x5 80% / progress: dp(5lb, 6, 8)
+
+/// SS A: barbell RDL + BW ab wheel
+// hamstring stretch, neutral spine
+Romanian Deadlift / 3x8 / 135lb / warmup: none / superset: A / progress: lp(5lb, 1, 0, 10lb, 2)
+// core, posterior pelvic tilt
+Ab Wheel / 3x8-12 / 0lb / warmup: none / superset: A
+
+/// SS B: BW ATG split squat + cable crunch
+// ATG, front heel down; hold rack to assist
+Split Squat / 3x8 / 0lb / warmup: none / superset: B / progress: dp(5lb, 8, 12)
+// myo
+Cable Crunch / 1x15 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none / superset: B
+
+// heels elevated, knees forward, quad-biased
+Goblet Squat / 2x12 / 35lb / warmup: none / progress: dp(5lb, 12, 15)
+// DB on knees, soleus
+Seated Calf Raise, Dumbbell / 3x15 / 35lb / warmup: none / progress: dp(5lb, 15, 20)
+
+## Day 4 Upper (Push-emphasis)
+/// Thu. Chest / delts / triceps + back maintenance. ~55 min.
+
+/// SS A: flat DB press + cable row
+// flat for mid/lower pec
+Bench Press, Dumbbell / 4x8 / 50lb / warmup: 1x10 50%, 1x5 80% / superset: A / progress: dp(5lb, 8, 12)
+// back maintenance
+Seated Row, Cable / 3x8-12 @9 / superset: A
+
+/// SS B: incline DB press + lat prayer
+// 30 deg
+Incline Bench Press, Dumbbell / 3x8 / 40lb / warmup: none / superset: B
+// "lat prayer"
+Lat Pulldown, Cable / 2x10-15 @9 / warmup: none / superset: B
+
+/// SS C: cable lateral + BW reverse crunch
+// single-arm myo
+Lateral Raise, Cable / 1x12 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none / superset: C
+Reverse Crunch / 2x15-20 / 0lb / warmup: none / superset: C
+
+// prone incline, myo, rear delt
+Reverse Fly, Dumbbell / 1x15 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none
+// rope, myo
+Triceps Pushdown, Cable / 1x12 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none
+
+## Day 5 Upper (Pull-emphasis)
+/// Fri. Back / arms / rear delt + chest maintenance. ~55 min.
+
+/// SS A: pull-up + rope cable curl
+// band assist or weighted belt as needed
+Pull Up / 3x6 / 0lb / warmup: none / superset: A
+// rope, free rotation, myo, elbow-safe
+Bicep Curl, Cable / 1x12 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none / superset: A
+
+/// SS B: seated cable row (floor) + hammer curl
+// FLOOR pulley, neutral bar, brace on cage base
+Seated Row, Cable / 3x8-12 @9 / warmup: none / superset: B
+// hammer, neutral grip (elbow-safe)
+Hammer Curl, Dumbbell / 3x10 / 30lb / warmup: none / superset: B
+
+/// SS C: low-incline DB press + lat prayer
+// 15 deg, chest maintenance
+Incline Bench Press, Dumbbell / 3x10 / 35lb / warmup: none / superset: C
+// "lat prayer", top pulley
+Lat Pulldown, Cable / 2x10-15 @9 / warmup: none / superset: C
+/// SS D: cable lateral + BW reverse crunch
+
+// single-arm myo
+Lateral Raise, Cable / 1x12 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none / superset: D
+Reverse Crunch / 2x15-20 / 0lb / warmup: none / superset: D
+
+// prone incline myo, rear delt
+Reverse Fly, Dumbbell / 1x15 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none
+// overhead
+Triceps Extension, Dumbbell / 3x10 / 25lb / warmup: none
 ```
