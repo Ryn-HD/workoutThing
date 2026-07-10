@@ -53,6 +53,9 @@ export enum PlannerNodeName {
   Superset = "Superset",
   SupersetKeyword = "SupersetKeyword",
   AskWeight = "AskWeight",
+  SetTypeMarker = "SetTypeMarker",
+  SetTypeValue = "SetTypeValue",
+  SetTypeKeyword = "SetTypeKeyword",
   EmptyExpression = "EmptyExpression",
 }
 
@@ -66,6 +69,8 @@ export const plannerExerciseStyles = {
   [`${[PlannerNodeName.Weight]}/...`]: t.number,
   [`${[PlannerNodeName.Percentage]}/...`]: t.number,
   [PlannerNodeName.AskWeight]: t.number,
+  [PlannerNodeName.SetTypeKeyword]: t.keyword,
+  [PlannerNodeName.SetTypeValue]: t.atom,
   [PlannerNodeName.LineComment]: t.lineComment,
   [PlannerNodeName.TripleLineComment]: t.blockComment,
   [PlannerNodeName.SupersetKeyword]: t.keyword,

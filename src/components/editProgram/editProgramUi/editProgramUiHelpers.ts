@@ -460,6 +460,7 @@ export function EditProgramUiHelpers_addInstance(
               maxrep: 5,
               weight: Weight_build(100, settings.units),
               logRpe: false,
+              setType: "normal",
               isAmrap: false,
               isQuickAddSet: false,
               askWeight: false,

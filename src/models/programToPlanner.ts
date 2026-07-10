@@ -737,6 +737,8 @@ export class ProgramToPlanner {
   ): [IPlannerProgramExerciseEvaluatedSet, number][] {
     if (sets.length === 0) {
       const originalSets = PlannerProgramExercise_sets(exercise, index)[0];
+      const setType =
+        originalSets?.setType ?? originalSets?.repRange?.setType ?? (originalSets?.repRange?.isAmrap ? "amrap" : "normal");
       return [
         [
           {
@@ -744,7 +746,8 @@ export class ProgramToPlanner {
             minrep: originalSets?.repRange?.minrep,
             weight: originalSets?.weight || Weight_zero,
             logRpe: originalSets?.logRpe || false,
-            isAmrap: originalSets?.repRange?.isAmrap || false,
+            setType,
+            isAmrap: setType === "amrap",
             isQuickAddSet: originalSets?.repRange?.isQuickAddSet || false,
             askWeight: originalSets?.askWeight || false,
             rpe: originalSets?.rpe,
@@ -820,7 +823,10 @@ export class ProgramToPlanner {
       setStr += `${group[1]}${set.isQuickAddSet ? "+" : ""}x`;
       setStr += set.minrep != null ? `${n(Math.max(0, set.minrep))}-` : "";
       setStr += `${n(Math.max(0, set.maxrep ?? 0))}`;
-      setStr += set.isAmrap ? "+" : "";
+      setStr += set.isAmrap || set.setType === "amrap" ? "+" : "";
+      if (set.setType != null && set.setType !== "normal" && set.setType !== "amrap") {
+        setStr += ` type[${set.setType}]`;
+      }
       if (globals.weight == null && !globals.askWeight) {
         const weightValue = this.weightExprToStr(set.weight);
         if (weightValue) {
@@ -861,7 +867,8 @@ export class ProgramToPlanner {
   }
 
   private setToKey(set: IPlannerProgramExerciseEvaluatedSet): string {
-    return `${set.maxrep}-${set.minrep}-${Weight_printNull(set.weight)}-${set.isAmrap}-${set.rpe}-${set.logRpe}-${
+    const setType = set.setType ?? (set.isAmrap ? "amrap" : "normal");
+    return `${set.maxrep}-${set.minrep}-${Weight_printNull(set.weight)}-${setType}-${set.isAmrap}-${set.rpe}-${set.logRpe}-${
       set.timer
     }-${set.label}-${set.askWeight}-${set.setTimer}-${set.isOverflowSetTimer}-${set.auto}`;
   }

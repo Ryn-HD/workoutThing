@@ -176,6 +176,7 @@ export function ProgramExercise_applyVariables(
                   maxrep: 1,
                   weight: Weight_build(100, "lb"),
                   logRpe: false,
+                  setType: "normal",
                   isAmrap: false,
                   isQuickAddSet: false,
                   askWeight: false,

@@ -455,6 +455,10 @@ void _VCustomExerciseMatches;
 export const VCustomExercise: v.GenericSchema<ICustomExercise> = _VCustomExercise;
 export type IAllCustomExercises = Partial<Record<string, ICustomExercise>>;
 
+export const setTypes = ["normal", "amrap", "myoActivation", "myoMini", "dropSet"] as const;
+export const VSetType = v.picklist(setTypes);
+export type ISetType = v.InferOutput<typeof VSetType>;
+
 export interface ISet {
   vtype: "set";
   index: number;
@@ -466,6 +470,7 @@ export interface ISet {
   rpe?: number;
   logRpe?: boolean;
   timestamp?: number;
+  setType?: ISetType;
   isAmrap?: boolean;
   label?: string;
   timer?: number;
@@ -493,6 +498,7 @@ const _VSet = v.object({
   rpe: v.optional(v.number()),
   logRpe: v.optional(v.boolean()),
   timestamp: v.optional(v.number()),
+  setType: v.optional(VSetType),
   isAmrap: v.optional(v.boolean()),
   label: v.optional(v.string()),
   timer: v.optional(v.number()),
@@ -595,6 +601,7 @@ export type IProgramStateMetadata = v.InferOutput<typeof VProgramStateMetadata>;
 export interface IProgramSet {
   repsExpr: string;
   weightExpr: string;
+  setType?: ISetType;
   isAmrap?: boolean;
   rpeExpr?: string;
   minRepsExpr?: string;
@@ -606,6 +613,7 @@ export interface IProgramSet {
 const _VProgramSet = v.object({
   repsExpr: v.string(),
   weightExpr: v.string(),
+  setType: v.optional(VSetType),
   isAmrap: v.optional(v.boolean()),
   rpeExpr: v.optional(v.string()),
   minRepsExpr: v.optional(v.string()),
