@@ -6,6 +6,7 @@ import { IDispatch } from "../ducks/types";
 import { Subscriptions_hasSubscription } from "../utils/subscriptions";
 import { Thunk_pushScreen } from "../ducks/thunks";
 import { ISubscription } from "../types";
+import { PersonalFork_unlocksLocalPremiumTopic } from "../utils/personalFork";
 
 interface IProps {
   dispatch: IDispatch;
@@ -17,7 +18,7 @@ interface IProps {
 function LockerInner(props: IProps): JSX.Element {
   const isSubscribed = Subscriptions_hasSubscription(props.subscription);
 
-  if (isSubscribed) {
+  if (isSubscribed || PersonalFork_unlocksLocalPremiumTopic(props.topic)) {
     return <></>;
   }
   return (

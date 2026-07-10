@@ -1,0 +1,17 @@
+# Enforce LF for all text files so the CRLF churn that plagued the pre-sync fork can't recur.
+* text=auto eol=lf
+# Windows batch/PowerShell scripts must keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.mp3 binary
+*.wav binary

@@ -12,6 +12,7 @@ import {
 } from "./exercise";
 import { ScriptRunner } from "../parser";
 import { Dialog_alert } from "../utils/dialog";
+import { PersonalFork_exportPrefix } from "../utils/personalFork";
 import {
   IScriptBindings,
   Progress_getEntryId,
@@ -1205,7 +1206,7 @@ export function Program_editAction(
 export function Program_exportProgramToFile(program: IProgram, settings: ISettings, version: string): void {
   const payload = Program_exportProgram(program, settings, version);
   Exporter_toFile(
-    `liftosaur_${program.name.replace(/\s+/g, "-")}_${DateUtils_formatYYYYMMDD(Date.now())}.json`,
+    `${PersonalFork_exportPrefix}_${program.name.replace(/\s+/g, "-")}_${DateUtils_formatYYYYMMDD(Date.now())}.json`,
     JSON.stringify(payload, null, 2)
   );
 }

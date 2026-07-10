@@ -17,6 +17,7 @@
 localdomain.js
 /output
 /programdata
+/liftosaur/
 
 /liftosaur-cdk/*.d.ts
 /dist-lambda
@@ -69,3 +70,8 @@ logs/
 
 # Dev-only perf instrumentation data (streamed from RN app to devserver)
 /perfdata/*.jsonl
+
+# Local env / secrets (Neon DATABASE_URL, APP_PASSWORD, etc. live in Vercel, never in repo)
+.env
+.env.*
+!.env.example

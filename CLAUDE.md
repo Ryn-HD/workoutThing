@@ -216,3 +216,6 @@ Do NOT add "Co-Authored-By: Claude ..." (or any other AI attribution) lines to c
 Project knowledge base lives in `lambda/scripts/memory/`. See `lambda/scripts/memory/INDEX.md` for a compact overview of all captured knowledge.
 
 When you discover important architectural decisions, non-obvious bug root causes, new subsystems, or significant product features — use the `/kb` skill to capture them.
+## Training Program (personal)
+
+Ryan's current personal training program and its review flags live in `research/current-program.md`, and his confirmed home-gym inventory/constraints in `research/equipment.md`. The `research/` folder holds the evidence notes (hypertrophy brief, volume/frequency, intensity techniques, exercise selection, audit checklist) used to review it. Treat `research/current-program.md` as the source of truth for "my current program" and `research/equipment.md` as the source of truth for available equipment; keep both updated when things change.

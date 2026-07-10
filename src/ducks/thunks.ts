@@ -211,6 +211,27 @@ export function Thunk_googleSignIn(cb?: (state: IState) => void): IThunk {
   };
 }
 
+export function Thunk_passwordSignIn(password: string, cb?: (state: IState) => void): IThunk {
+  return async (dispatch, getState, env) => {
+    const result = await load(dispatch, "Logging in", async () => env.service.passwordSignIn(password));
+    if (result == null || result.email == null) {
+      Dialog_alert("Wrong password");
+      if (cb) {
+        cb(getState());
+      }
+      return;
+    }
+    // Pass oldUserId === result.user_id to force handleLogin's "same-user" branch: this device's
+    // local data stays as the working copy and the server storage becomes the sync baseline, then
+    // the forced Thunk_sync2 merges both directions (seeds the server on first login, pulls on later devices).
+    await load(dispatch, "Signing in", () => handleLogin(dispatch, result, env.service.client, result.user_id));
+    if (cb) {
+      cb(getState());
+    }
+    dispatch(Thunk_sync2({ force: true }));
+  };
+}
+
 export function Thunk_postevent(action: string, extra?: Record<string, string | number>): IThunk {
   return async (dispatch, getState, env) => {
     lg(action, extra, env.service, getState().user?.id || getState().storage.tempUserId);

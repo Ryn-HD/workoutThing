@@ -6,6 +6,7 @@ import {
   Thunk_logOut,
   Thunk_googleSignIn,
   Thunk_appleSignIn,
+  Thunk_passwordSignIn,
   Thunk_switchAccount,
   Thunk_deleteAccount,
   Thunk_createAccount,
@@ -202,6 +203,19 @@ export function ScreenAccount(props: IProps): JSX.Element {
               <IconApple />
             </View>
             <Text className="flex-1 ml-2 text-base text-center text-text-alwayswhite">Sign in with Apple</Text>
+          </Pressable>
+          <Pressable
+            className="flex-row items-center w-full px-4 py-3 mt-2 rounded-lg nm-sign-in-with-password bg-background-default"
+            data-testid="menu-item-login-password"
+            testID="menu-item-login-password"
+            onPress={async () => {
+              const password = await Dialog_prompt("Enter your sync password to enable cross-device sync.");
+              if (password) {
+                props.dispatch(Thunk_passwordSignIn(password, () => refetchAccounts()));
+              }
+            }}
+          >
+            <Text className="flex-1 text-base text-center">Enable Sync</Text>
           </Pressable>
         </View>
       )}
