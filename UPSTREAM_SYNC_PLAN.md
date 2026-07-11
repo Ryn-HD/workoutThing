@@ -328,7 +328,14 @@ Push/Pull/Lower/Upper/Upper program (the actual `type[...]` encoding he provided
   entangled); the functional "clear added load" fix WAS. Add later if the history display needs it.
 - Set-type editing UI in the workout/edit screens (dropdown) not re-ported — set types are set via
   Liftoscript `type[...]` text, which fully works. Add RN UI later if wanted.
-- Still pending (unchanged): move `master`, force-push `origin`, redeploy — needs Ryan's OK.
+## ✅ FINALIZED (2026-07-10)
+
+- **Smoke test passed** (Node 22 web build): dev server compiled + served; app rendered end-to-end;
+  `type[myoActivation]`/`type[myoMini]` parsed + syntax-highlighted live; a myo superset workout ran
+  and the sequencing worked — normal set → myo activation (no rest) → back to superset partner (with rest timer).
+- **`master` moved to the synced commit `174aa1ad` and force-pushed to `origin`** (Ryan authorized).
+  Old `master` (`9f5a6a1f`) preserved in tag `pre-sync-backup` and branch `sync-upstream`.
+- Vercel redeploys production from `master` onto the synced React Native codebase.
 
 ## Progress log
 
