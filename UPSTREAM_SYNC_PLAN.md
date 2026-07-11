@@ -293,6 +293,43 @@ Liftoscript. If Ryan wants any of the three genuinely re-ported into RN, that's 
 - [ ] Force-push `origin master` (history rewritten — outward-facing, needs explicit approval).
 - [ ] Confirm Vercel redeploys; smoke-test password sign-in + import the program.
 
+## ✅ FEATURE PORT COMPLETE (2026-07-10) — myo / set-types / bodyweight ported & tested
+
+Reversed the earlier (wrong) drop. All three features Ryan named are now ported onto latest
+upstream and validated by the test suite under **Node 22** (installed via `brew install node@22`;
+run tests with `/opt/homebrew/opt/node@22/bin` on PATH).
+
+**What was ported (commits `bc42dfe2`, `9a319497`, `cab9351c`, `57d92ac5`):**
+- **Set types** `type[myoActivation]` / `type[myoMini]` / `type[dropSet]`: valibot `ISetType` +
+  `setType` on `ISet`/`IProgramSet`; grammar `SetTypeMarker` + regenerated parser; evaluator parse;
+  planner carry-through; `programToPlanner` round-trip serialization; propagated onto the **workout**
+  `ISet` in `Program_nextHistoryRecord` so it works at workout time, not just in the planner.
+- **Myo progression + sequencing** (`progress.ts`): workout sequencer runs activation → minis with
+  no rest between them, rests only before the next exercise; superset interleaving; wired into
+  `Progress_completeSetAction` + `maybeApplySuperset` (auto-advance + rest-timer suppression, stops a
+  stale timer on a no-rest transition).
+- **Myo-aware `dp()`** (`plannerProgramExercise` + `plannerEvaluator`): dp progresses off the
+  activation set, whole cluster → one shared next load; equipment-stepped increment for dumbbell/cable.
+- **Bodyweight**: `models/bodyweight.ts` helpers + "clear added load records bodyweight-only" fix,
+  re-ported into upstream's RN `workoutExerciseSet`.
+
+**Validation:** **766 unit tests passing** (748 upstream + fork myo/set/sequence tests + a new
+`test/realProgram.test.ts` that parses Ryan's real 5-day program, evaluates all 5 days, and confirms
+myoActivation/myoMini set types land on the workout sets). Typecheck: only 3 pre-existing
+upstream/generated errors (localdomain setup, encoder lib types, plannerEvaluator strict-null), 0 new.
+
+**Repo also updated:** `research/liftoscript-program.md` now holds Ryan's real 5-day
+Push/Pull/Lower/Upper/Upper program (the actual `type[...]` encoding he provided).
+
+### Notes / follow-ups
+- Two myo-dp test expectations were set to upstream's default equipment increment (2.5lb dumbbell
+  step → 22.5lb). Real load steps follow Ryan's configured equipment increments — verify in Settings.
+- Bodyweight *display* refinement (hideZeroWeight in history) was NOT re-ported (pure display, RN-
+  entangled); the functional "clear added load" fix WAS. Add later if the history display needs it.
+- Set-type editing UI in the workout/edit screens (dropdown) not re-ported — set types are set via
+  Liftoscript `type[...]` text, which fully works. Add RN UI later if wanted.
+- Still pending (unchanged): move `master`, force-push `origin`, redeploy — needs Ryan's OK.
+
 ## Progress log
 
 - **2026-07-10** — Added `upstream` remote, fetched (464 commits behind). Confirmed `origin` in sync.
