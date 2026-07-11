@@ -26,6 +26,8 @@ function ensureLocalDomain() {
 }
 
 ensureLocalDomain();
+run("node", ["generate-semantic-colors.js"]);
+run("node", ["scripts/generate-theme-css.js"]);
 run("node", ["scripts/build-markdown.js"]);
 run("node", ["-r", "ts-node/register/transpile-only", "scripts/build-programs.ts"]);
 run("npx", ["webpack", "--config", "webpack.config.js"], {
