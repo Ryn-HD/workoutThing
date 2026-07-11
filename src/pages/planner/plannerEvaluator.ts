@@ -403,7 +403,7 @@ export function PlannerEvaluator_fillSetReuses(
       settings,
       reuse.fullName,
       evaluatedWeeks,
-      reuse.week ?? weekIndex + 1 ?? 1,
+      reuse.week ?? weekIndex + 1,
       reuse.day
     );
     if (originalExercises.length > 1) {
