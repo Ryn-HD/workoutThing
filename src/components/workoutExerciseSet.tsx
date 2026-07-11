@@ -47,6 +47,7 @@ import {
   Weight_getOneRepMax,
 } from "../models/weight";
 import { Exercise_getIsUnilateral, Exercise_onerm } from "../models/exercise";
+import { Bodyweight_isExercise, Bodyweight_zeroAddedLoad } from "../models/bodyweight";
 import { FocusedInputFlush_flush } from "../utils/focusedInputFlush";
 
 export interface ISetColumnWidths {
@@ -183,7 +184,14 @@ function WorkoutExerciseSetInner(props: IWorkoutExerciseSet): JSX.Element {
           dispatch,
           [
             lbSet.recordModify((s) => {
-              const newSet = { ...s, completedWeight: value };
+              // Clearing the added load on a bodyweight exercise should record bodyweight-only (0 added),
+              // not fall back to the target's added load.
+              const completedWeight =
+                value ??
+                (Bodyweight_isExercise(props.settings, props.exerciseType)
+                  ? Bodyweight_zeroAddedLoad(props.settings, props.exerciseType)
+                  : undefined);
+              const newSet = { ...s, completedWeight };
               return Reps_enforceCompletedSet(newSet);
             }),
           ],
@@ -191,7 +199,7 @@ function WorkoutExerciseSetInner(props: IWorkoutExerciseSet): JSX.Element {
         );
       }
     },
-    [dispatch, lbSet]
+    [dispatch, lbSet, props.settings, props.exerciseType]
   );
   const onInputWeight = useCallback(
     (value: IWeight | IPercentage | undefined) => {
