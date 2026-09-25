@@ -84,6 +84,7 @@ import {
 import { CollectionUtils_compact, CollectionUtils_findIndexReverse } from "../utils/collection";
 import { ILiftoscriptEvaluatorUpdate } from "../liftoscriptEvaluator";
 import { Equipment_getUnitForExerciseType } from "./equipment";
+import { Bodyweight_isExercise, Bodyweight_zeroAddedLoad } from "./bodyweight";
 import { IByTag, IByExercise } from "../pages/planner/plannerEvaluator";
 import { IPlannerProgramExercise, IPlannerProgramExerciseWithType } from "../pages/planner/models/types";
 import {
@@ -283,7 +284,9 @@ function Progress_allMyoSupersetSteps(progress: IHistoryRecord, entryIndexes: nu
     }
   }
 
-  const maxMiniSets = Math.max(...entryIndexes.map((entryIndex) => miniSetIndexesByEntryIndex[entryIndex]?.length ?? 0));
+  const maxMiniSets = Math.max(
+    ...entryIndexes.map((entryIndex) => miniSetIndexesByEntryIndex[entryIndex]?.length ?? 0)
+  );
   for (let miniSetIndex = 0; miniSetIndex < maxMiniSets; miniSetIndex += 1) {
     for (const entryIndex of entryIndexes) {
       const setIndex = miniSetIndexesByEntryIndex[entryIndex]?.[miniSetIndex];
@@ -1430,10 +1433,20 @@ export function Progress_completeAmrapSet(
         timestamp: !progressSet.isCompleted ? Date.now() : progressSet.timestamp,
         completedRepsLeft: isUnilateral ? (progressSet.completedRepsLeft ?? progressSet.reps) : undefined,
         completedReps: progressSet.completedReps ?? progressSet.reps,
-        completedWeight: progressSet.completedWeight ?? progressSet.weight,
+        completedWeight: Progress_completedWeightOrDefault(progressSet, entry, settings),
         isCompleted: !progressSet.isCompleted,
       };
     });
+}
+
+// A blank weight on a bodyweight exercise means bodyweight only, so it must never block completing the set.
+function Progress_completedWeightOrDefault(set: ISet, entry: IHistoryEntry, settings: ISettings): IWeight | undefined {
+  if (set.completedWeight != null || set.weight != null) {
+    return set.completedWeight ?? set.weight;
+  }
+  return Bodyweight_isExercise(settings, entry.exercise)
+    ? Bodyweight_zeroAddedLoad(settings, entry.exercise)
+    : undefined;
 }
 
 export function Progress_shouldShowAmrapModal(
@@ -1450,7 +1463,9 @@ export function Progress_shouldShowAmrapModal(
   const isAmrap =
     (set?.completedReps == null || (isUnilateral && set?.completedRepsLeft == null)) &&
     (!!set?.isAmrap || set.reps == null);
-  const shouldAskWeight = set?.completedWeight == null && (!!set?.askWeight || set.weight == null);
+  const shouldAskWeight =
+    set?.completedWeight == null &&
+    (!!set?.askWeight || (set.weight == null && !Bodyweight_isExercise(settings, entry.exercise)));
   return !set.isCompleted && (shouldLogRpe || shouldPromptUserVars || isAmrap || shouldAskWeight);
 }
 
@@ -1488,7 +1503,9 @@ export function Progress_completeSet(
   const isAmrap =
     (set?.completedReps == null || (isUnilateral && set?.completedRepsLeft == null)) &&
     (!!set?.isAmrap || set.reps == null);
-  const shouldAskWeight = set?.completedWeight == null && (!!set?.askWeight || set.weight == null);
+  const shouldAskWeight =
+    set?.completedWeight == null &&
+    (!!set?.askWeight || (set.weight == null && !Bodyweight_isExercise(settings, entry.exercise)));
   if (mode === "warmup") {
     return lf(progress)
       .p("entries")
@@ -1501,7 +1518,7 @@ export function Progress_completeSet(
           timestamp: !progressSet.isCompleted ? Date.now() : progressSet.timestamp,
           completedRepsLeft: isUnilateral ? (progressSet.completedRepsLeft ?? progressSet.reps) : undefined,
           completedReps: progressSet.completedReps ?? progressSet.reps,
-          completedWeight: progressSet.completedWeight ?? progressSet.weight,
+          completedWeight: Progress_completedWeightOrDefault(progressSet, entry, settings),
           isCompleted: !progressSet.isCompleted,
         };
       });

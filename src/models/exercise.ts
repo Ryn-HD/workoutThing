@@ -3840,51 +3840,8 @@ export function Exercise_findByNameAndEquipment(
 export function Exercise_getIsUnilateral(exerciseType: IExerciseType, settings: ISettings): boolean {
   const key = Exercise_toKey(exerciseType);
   const exerciseData = settings.exerciseData[key];
-  if (exerciseData?.isUnilateral !== undefined) {
-    return exerciseData.isUnilateral;
-  }
-
-  switch (exerciseType.id) {
-    case "bulgarianSplitSquat":
-    case "concentrationCurl":
-    case "reverseGripConcentrationCurl":
-    case "bentOverOneArmRow":
-    case "cableKickback":
-    case "cableTwist":
-    case "russianTwist":
-    case "lunge":
-    case "reverseLunge":
-    case "splitSquat":
-    case "stepUp":
-    case "pistolSquat":
-    case "singleLegBridge":
-    case "singleLegDeadlift":
-    case "sideBend":
-    case "sideCrunch":
-    case "sideHipAbductor":
-    case "sideLyingClam":
-    case "sidePlank":
-    case "singleLegBridge":
-    case "singleLegCalfRaise":
-    case "singleLegDeadlift":
-    case "singleLegGluteBridgeBench":
-    case "singleLegGluteBridgeStraight":
-    case "singleLegGluteBridgeBentKnee":
-    case "singleLegHipThrust":
-      return true;
-    case "bicepCurl":
-    case "wristCurl":
-    case "reverseWristCurl":
-    case "seatedPalmsUpWristCurl":
-    case "hammerCurl":
-    case "preacherCurl":
-    case "reverseCurl":
-    case "lyingBicepCurl":
-    case "inclineCurl":
-      return exerciseType.equipment === "dumbbell";
-    default:
-      return false;
-  }
+  // Personal fork: never split reps into L/R unless explicitly enabled in the exercise's settings.
+  return exerciseData?.isUnilateral ?? false;
 }
 
 export function Exercise_findByName(name: string, customExercises: IAllCustomExercises): IExercise | undefined {
