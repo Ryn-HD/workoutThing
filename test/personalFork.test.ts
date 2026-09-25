@@ -8,7 +8,7 @@ import {
 } from "../src/models/program";
 import { Settings_build } from "../src/models/settings";
 import { Stats_getEmpty } from "../src/models/stats";
-import { Progress_completeSetAction } from "../src/models/progress";
+import { Progress_changeAmrapAction, Progress_completeSetAction } from "../src/models/progress";
 import { Exercise_getIsUnilateral } from "../src/models/exercise";
 import { IHistoryRecord, ISettings } from "../src/types";
 
@@ -75,6 +75,43 @@ Seated Row, Cable / 3x8-12 @9 / warmup: none
       "bicepCurl:myoMini rest",
     ]);
     expect(p.entries[p.currentEntryIndex ?? 0].exercise.id).to.equal("seatedRow");
+  });
+
+  it("rests for the partner exercise, not the 20s myo rest, when leaving a myo cluster", () => {
+    const { record, complete } = startWorkout(`# Week 1
+## Day 1
+myo / used: none / 1x12+ type[myoActivation], 2x5 type[myoMini] / 10lb 20s
+Chest Fly / 2x14 / 20lb 90s / warmup: none / superset: b
+Lateral Raise, Cable / ...myo / 12lb / warmup: none / superset: b
+Triceps Extension / 3x10 / 25lb 60s / warmup: none
+`);
+    const rests: Array<number | undefined> = [];
+    let p = record;
+    for (let i = 0; i < 5; i += 1) {
+      const entryIndex = p.currentEntryIndex ?? 0;
+      const setIndex = p.entries[entryIndex].sets.findIndex((s) => !s.isCompleted);
+      p = complete(p, entryIndex, setIndex);
+      if (p.amrapModal != null) {
+        p = Progress_changeAmrapAction(
+          settings,
+          stats,
+          p,
+          {
+            type: "ChangeAMRAPAction",
+            entryIndex,
+            setIndex,
+            amrapValue: 13,
+            logRpe: false,
+            userVars: {},
+            isPlayground: false,
+          },
+          undefined
+        );
+      }
+      rests.push(p.timer);
+    }
+    // fly1, activation (AMRAP modal), fly2, mini, mini
+    expect(rests).to.deep.equal([undefined, 90, undefined, undefined, 60]);
   });
 
   it("completes a bodyweight set with no weight without asking for one", () => {

@@ -837,6 +837,35 @@ export function Progress_startTimer(
   return newProgress;
 }
 
+function Progress_startRestAfterSet(
+  progress: IHistoryRecord,
+  mode: IProgressMode,
+  entryIndex: number,
+  setIndex: number,
+  settings: ISettings,
+  subscription: ISubscription | undefined
+): IHistoryRecord {
+  const nextStep = mode === "workout" ? Progress_getNextWorkoutStep(progress, entryIndex, setIndex) : undefined;
+  if (nextStep != null && !nextStep.shouldStartTimer) {
+    // No rest between myo/superset sets: clear any timer left running from the previous set.
+    return Progress_stopTimer(progress);
+  }
+  // A myo set's own timer is the short mini-set rest. When the rest leads into a different exercise
+  // (superset partner after the activation, or the next exercise after the last mini), rest for that one.
+  let timer: number | undefined;
+  const completedSetType = Reps_setType(progress.entries[entryIndex].sets[setIndex]);
+  const isMyoSet = completedSetType === "myoActivation" || completedSetType === "myoMini";
+  if (mode === "workout" && isMyoSet && nextStep != null && nextStep.entryIndex !== entryIndex) {
+    const nextEntry = progress.entries[nextStep.entryIndex];
+    timer =
+      nextEntry.sets[nextStep.setIndex]?.timer ??
+      (nextEntry.superset != null ? settings.timers.superset : undefined) ??
+      settings.timers.workout ??
+      undefined;
+  }
+  return Progress_startTimer(progress, new Date().getTime(), mode, entryIndex, setIndex, settings, subscription, timer);
+}
+
 export function Progress_getNextSupersetEntry(
   entries: IHistoryEntry[],
   entry: IHistoryEntry
@@ -2160,9 +2189,8 @@ export function Progress_changeAmrapAction(
     // would count it as elapsed rest and a short rest could be over the instant the user submits.
     // The playground has no rest timers (matches Progress_proceedAfterTimedSet + normal-set completion).
     if (!action.isPlayground) {
-      newProgress = Progress_startTimer(
+      newProgress = Progress_startRestAfterSet(
         newProgress,
-        new Date().getTime(),
         "workout",
         action.entryIndex,
         action.setIndex,
@@ -2320,26 +2348,15 @@ export function Progress_completeSetAction(
   // (below) so a set logged via "Log & keep timing" doesn't start resting while its clock still runs.
   // The workout sequencer decides when a rest is due: myo clusters and superset partners run with no
   // rest between their sets, and a rest starts only when the next step calls for it.
-  const nextWorkoutStep =
-    action.mode === "workout"
-      ? Progress_getNextWorkoutStep(newProgress, action.entryIndex, action.setIndex)
-      : undefined;
-  const shouldStartRest = action.mode !== "workout" || nextWorkoutStep == null || nextWorkoutStep.shouldStartTimer;
   if (!action.isPlayground && newSet.setTimer == null) {
-    if (shouldStartRest) {
-      newProgress = Progress_startTimer(
-        newProgress,
-        new Date().getTime(),
-        action.mode,
-        action.entryIndex,
-        action.setIndex,
-        settings,
-        subscription
-      );
-    } else {
-      // No rest between myo/superset sets: clear any timer left running from the previous set.
-      newProgress = Progress_stopTimer(newProgress);
-    }
+    newProgress = Progress_startRestAfterSet(
+      newProgress,
+      action.mode,
+      action.entryIndex,
+      action.setIndex,
+      settings,
+      subscription
+    );
   }
   // After a timed set is recorded+completed from its clock, advance to the next timed set or close the
   // banner and start rest — the one place that decision lives. "Log & keep timing" skips it.
