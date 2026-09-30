@@ -1,6 +1,6 @@
 import { Utils_getEnv } from "../utils";
 import { IDI } from "../utils/di";
-import { UidFactory_generateUid } from "../utils/generator";
+import { UidFactory_generateSecureToken } from "../utils/generator";
 
 export const apiKeyTableNames = {
   dev: {
@@ -24,7 +24,7 @@ export class ApiKeyDao {
   constructor(private readonly di: IDI) {}
 
   public static generateKey(): string {
-    return `lftsk_${UidFactory_generateUid(16)}`;
+    return `lftsk_${UidFactory_generateSecureToken(16)}`;
   }
 
   public async create(userId: string, name: string): Promise<IApiKeyDao> {
@@ -35,6 +35,13 @@ export class ApiKeyDao {
       name,
       createdAt: Date.now(),
     };
+    await this.di.dynamo.put({ tableName: apiKeyTableNames[env].apiKeys, item: dao });
+    return dao;
+  }
+
+  public async bindKey(key: string, userId: string, name: string): Promise<IApiKeyDao> {
+    const env = Utils_getEnv();
+    const dao: IApiKeyDao = { key, userId, name, createdAt: Date.now() };
     await this.di.dynamo.put({ tableName: apiKeyTableNames[env].apiKeys, item: dao });
     return dao;
   }

@@ -16,6 +16,7 @@ interface IHistoryEntryProps {
   isOngoing?: boolean;
   isLast?: boolean;
   isNext: boolean;
+  supersetColor?: string;
   settings: ISettings;
   showNotes: boolean;
 }
@@ -27,23 +28,37 @@ export const HistoryEntryView = memo((props: IHistoryEntryProps): JSX.Element =>
   const isPr = ObjectUtils_values(props.prs || {}).some((v) => v);
   return (
     <View data-testid="history-entry-exercise" testID="history-entry-exercise" className="flex-row items-center gap-2">
+      {props.supersetColor && (
+        <View
+          data-testid="history-entry-superset-line"
+          testID="history-entry-superset-line"
+          style={{
+            position: "absolute",
+            left: -10,
+            top: 5,
+            bottom: 5,
+            width: 3,
+            backgroundColor: props.supersetColor,
+          }}
+        />
+      )}
       <View
         data-testid="history-entry-exercise-img"
         testID="history-entry-exercise-img"
-        className="items-center justify-center py-1 my-1 rounded-lg bg-background-image"
+        className="items-center justify-center py-1 rounded-lg bg-background-image"
         style={{ minWidth: 36 }}
       >
-        <ExerciseImage settings={props.settings} className="w-8" exerciseType={exercise} size="small" />
+        <ExerciseImage settings={props.settings} className="w-scaled-8" exerciseType={exercise} size="small" />
       </View>
       <View
-        className={`flex-1 py-2 ${
+        className={`flex-1 py-2 min-h-scaled-16 flex-row items-center ${
           !isLast
             ? `border-b ${isNext ? (isOngoing ? "border-border-cardyellow" : "border-border-cardpurple") : "border-border-neutral"}`
             : ""
         }`}
       >
-        <View className="flex-row items-center gap-2 min-h-8">
-          <View className="flex-1 flex-shrink">
+        <View className="flex-row items-center w-full gap-2 min-h-scaled-8">
+          <View className="flex-1 shrink" style={{ minWidth: "45%" }}>
             <Text
               data-testid="history-entry-exercise-name"
               testID="history-entry-exercise-name"
@@ -52,8 +67,13 @@ export const HistoryEntryView = memo((props: IHistoryEntryProps): JSX.Element =>
               {Exercise_nameWithEquipment(exercise, props.settings)}
               {isPr && " \u{1F3C6}"}
             </Text>
+            {showNotes && entry.notes && (
+              <View>
+                <Text className="mt-1 text-sm text-text-secondary">{entry.notes}</Text>
+              </View>
+            )}
           </View>
-          <View>
+          <View className="shrink">
             <HistoryRecordSetsView
               sets={entry.sets.map((set) => ({
                 ...set,
@@ -68,7 +88,6 @@ export const HistoryEntryView = memo((props: IHistoryEntryProps): JSX.Element =>
             />
           </View>
         </View>
-        {showNotes && entry.notes && <Text className="mt-1 text-sm text-text-secondary">{entry.notes}</Text>}
       </View>
     </View>
   );

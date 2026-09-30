@@ -194,12 +194,14 @@ class LiftosaurEngine {
         await callMutation("discardWorkout", globals: [("__lft_s", storageJson)], args: [str(deviceId)])
     }
 
-    func completeSet(storageJson: String, deviceId: String, entryIndex: Int, setIndex: Int) async -> Result<String, EngineError> {
-        await callMutation("completeSet", globals: [("__lft_s", storageJson)], args: [str(deviceId), "\(entryIndex)", "\(setIndex)"])
+    func completeSet(storageJson: String, deviceId: String, entryIndex: Int, setIndex: Int, values: WatchSetLogValues) async -> Result<String, EngineError> {
+        let valuesArg = values.toJson().map { str($0) } ?? "undefined"
+        return await callMutation("completeSet", globals: [("__lft_s", storageJson)], args: [str(deviceId), "\(entryIndex)", "\(setIndex)", valuesArg])
     }
 
-    func updateCompletedSetTimer(storageJson: String, deviceId: String, entryIndex: Int, setIndex: Int, seconds: Int) async -> Result<String, EngineError> {
-        await callMutation("updateCompletedSetTimer", globals: [("__lft_s", storageJson)], args: [str(deviceId), "\(entryIndex)", "\(setIndex)", "\(seconds)"])
+    func updateCompletedSetTimer(storageJson: String, deviceId: String, entryIndex: Int, setIndex: Int, seconds: Int, secondsLeft: Int?) async -> Result<String, EngineError> {
+        let leftArg = secondsLeft.map { "\($0)" } ?? "undefined"
+        return await callMutation("updateCompletedSetTimer", globals: [("__lft_s", storageJson)], args: [str(deviceId), "\(entryIndex)", "\(setIndex)", "\(seconds)", leftArg])
     }
 
     func setCurrentEntryIndex(storageJson: String, deviceId: String, entryIndex: Int) async -> Result<String, EngineError> {
@@ -269,6 +271,10 @@ class LiftosaurEngine {
         await callMutation("checkSetTimer", globals: [("__lft_s", storageJson)], args: [str(deviceId)])
     }
 
+    func startSetTimerWork(storageJson: String, deviceId: String) async -> Result<String, EngineError> {
+        await callMutation("startSetTimerWork", globals: [("__lft_s", storageJson)], args: [str(deviceId)])
+    }
+
     func getRestTimer(storageJson: String) async -> Result<WatchRestTimer?, EngineError> {
         await callOptional("getRestTimer", globals: [("__lft_s", storageJson)])
     }
@@ -307,6 +313,21 @@ class LiftosaurEngine {
 
     func mergeStorage(currentStorageJson: String, incomingStorageJson: String, deviceId: String) async -> String? {
         await callRaw("mergeStorage", globals: [("__lft_s0", currentStorageJson), ("__lft_s1", incomingStorageJson)], args: [str(deviceId)])
+    }
+
+    func pruneHistory(storageJson: String, confirmedIdsJson: String) async -> String? {
+        await callRaw(
+            "pruneHistory",
+            globals: [("__lft_s0", storageJson), ("__lft_s1", confirmedIdsJson)]
+        )
+    }
+
+    func filterStorageForPhone(storageJson: String, maxJsonLength: Int, maxRecords: Int) async -> String? {
+        await callRaw(
+            "filterStorageForPhone",
+            globals: [("__lft_s", storageJson)],
+            args: ["\(maxJsonLength)", "\(maxRecords)"]
+        )
     }
 
     func getLatestMigrationVersion() async -> String? {

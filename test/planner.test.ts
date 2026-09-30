@@ -5,6 +5,7 @@ import {
   PlannerProgram_switchToUnit,
   PlannerProgram_evaluateText,
   PlannerProgram_evaluate,
+  PlannerProgram_replaceExercise,
 } from "../src/pages/planner/models/plannerProgram";
 import {
   PlannerTestUtils_finish,
@@ -20,6 +21,12 @@ import { PlannerExerciseEvaluator, PlannerSyntaxError } from "../src/pages/plann
 import { Weight_build } from "../src/models/weight";
 import { ObjectUtils_clone } from "../src/utils/object";
 import { Stats_getEmpty } from "../src/models/stats";
+import {
+  EditProgramUiHelpers_changeCurrentInstancePosition,
+  EditProgramUiHelpers_changeFirstInstance,
+} from "../src/components/editProgram/editProgramUi/editProgramUiHelpers";
+import { ProgramRewrite_changedKeys } from "../src/models/programRewrite";
+import { PlannerProgramExercise_buildProgress } from "../src/pages/planner/models/plannerProgramExercise";
 
 describe("Planner", () => {
   it("round trips explicit set types through Liftoscript", () => {
@@ -155,6 +162,68 @@ Squat / 2x5 / 105lb / progress: lp(5lb)
 
 
 `);
+  });
+
+  it("keeps 'used: none' templates with repeat ranges in place on finish", () => {
+    const programText = `# Week 1
+## Day 1
+base / used: none / 2x5 / progress: custom(increment: 5lb) {~
+  weights += state.increment
+~}
+tpl[1-2] / used: none / 2x8 / progress: custom(increment: 2.5lb) { ...base }
+Bench Press[1] / ...tpl / 100lb
+Squat[2] / ...tpl / 200lb
+
+# Week 2
+## Day 1
+Bench Press[1] / ...tpl / 110lb
+Squat[2] / ...tpl / 210lb`;
+    const { program } = PlannerTestUtils_finish(programText, {
+      completedReps: [
+        [8, 8],
+        [8, 8],
+      ],
+    });
+    const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+    expect(newText).to.equal(`# Week 1
+## Day 1
+base / used: none / 2x5 / progress: custom(increment: 5lb) {~
+  weights += state.increment
+~}
+tpl[1-2] / used: none / 2x8 / progress: custom(increment: 2.5lb) { ...base }
+Bench Press[1] / ...tpl / 102.5lb
+Squat[2] / ...tpl / 202.5lb
+
+
+# Week 2
+## Day 1
+Bench Press[1] / ...tpl / 112.5lb
+Squat[2] / ...tpl / 212.5lb
+
+
+`);
+  });
+
+  it("evaluates progress reuse chains regardless of exercise order", () => {
+    const programText = `# Week 1
+## Day 1
+base / used: none / 2x5 / progress: custom(increment: 5lb) {~
+  weights += state.increment
+~}
+Bench Press / ...tpl / 100lb
+tpl[1-2] / used: none / 2x8 / progress: custom(increment: 2.5lb) { ...base }
+
+# Week 2
+## Day 1
+Bench Press / ...tpl / 110lb`;
+    const planner: IPlannerProgram = {
+      vtype: "planner",
+      name: "MyProgram",
+      weeks: PlannerProgram_evaluateText(programText),
+    };
+    const evaluatedWeeks = PlannerProgram_evaluate(planner, Settings_build()).evaluatedWeeks;
+    const errors = evaluatedWeeks.flat().flatMap((day) => (day.success ? [] : [day.error.message]));
+    expect(errors).to.eql([]);
   });
 
   it("updates empty weight after completing", () => {
@@ -1145,6 +1214,555 @@ Bench Press[4-5] / ...tmp: Squat
 `);
   });
 
+  // Authors park a bulky template on the last week so the first week a user opens isn't a wall of
+  // script. Every week the `[1-3]` spans holds a materialized copy of it, and printing the block on
+  // the first copy - then compacting only forward - moved the template to week 1 and split the range.
+  it("keeps a template written on the last week there", () => {
+    const programText = `# Week 1
+## Day 1
+Squat[1,1-3] / ...tmp / 100lb / progress: custom(foo: 0) { ...tmp }
+
+# Week 2
+## Day 1
+
+# Week 3
+## Day 1
+/// The program logic lives here
+tmp[1-3] / used: none / 2x5 / 100lb / warmup: none / update: custom() {~
+  numberOfSets = state.foo
+~} / progress: custom(foo: 0) {~
+  weights += 5lb
+~}
+`;
+    const { program } = PlannerTestUtils_get(programText);
+    const evaluated = Program_evaluate(program, Settings_build());
+    const newText = PlannerProgram_generateFullText(
+      new ProgramToPlanner(evaluated, Settings_build()).convertToPlanner().weeks
+    );
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Squat[1,1-3] / ...tmp
+
+
+# Week 2
+## Day 1
+
+
+
+# Week 3
+## Day 1
+/// The program logic lives here
+tmp[1-3] / used: none / 2x5 / 100lb / warmup: none / update: custom() {~
+  numberOfSets = state.foo
+~} / progress: custom(foo: 0) {~
+  weights += 5lb
+~}
+
+
+`);
+  });
+
+  it("stops a template's backwards range at the week that differs", () => {
+    const programText = `# Week 1
+## Day 1
+tmp / used: none / 3x5 / 100lb
+Squat[1,1-3] / ...tmp / 100lb / progress: custom(foo: 0) { ...tmp }
+
+# Week 2
+## Day 1
+
+# Week 3
+## Day 1
+tmp[2-3] / used: none / 2x5 / 100lb / progress: custom(foo: 0) {~
+  weights += 5lb
+~}
+`;
+    const { program } = PlannerTestUtils_get(programText);
+    const evaluated = Program_evaluate(program, Settings_build());
+    const newText = PlannerProgram_generateFullText(
+      new ProgramToPlanner(evaluated, Settings_build()).convertToPlanner().weeks
+    );
+    expect(newText).to.equal(`# Week 1
+## Day 1
+tmp / used: none / 3x5 / 100lb
+Squat[1,1-3] / ...tmp
+
+
+# Week 2
+## Day 1
+
+
+
+# Week 3
+## Day 1
+tmp[2-3] / used: none / 2x5 / 100lb / progress: custom(foo: 0) {~
+  weights += 5lb
+~}
+
+
+`);
+  });
+
+  // Each declaration owns its own range, so tracking only one declaring week per key/day let the
+  // later one hide the earlier - the earlier declaration was then compacted away by a materialized
+  // copy from a week before it, taking the progress block that only existed on that line.
+  it("keeps both declarations when a template is declared twice on the same day", () => {
+    const programText = `# Week 1
+## Day 1
+Squat[1,1-5] / ...tmp / 100lb
+
+# Week 2
+## Day 1
+
+# Week 3
+## Day 1
+tmp[1-3] / used: none / 2x5 / 100lb / progress: custom(foo: 0) {~
+  weights += 5lb
+~}
+
+# Week 4
+## Day 1
+tmp[4-5] / used: none / 3x5 / 100lb
+
+# Week 5
+## Day 1
+`;
+    const { program } = PlannerTestUtils_get(programText);
+    const evaluated = Program_evaluate(program, Settings_build());
+    const newText = PlannerProgram_generateFullText(
+      new ProgramToPlanner(evaluated, Settings_build()).convertToPlanner().weeks
+    );
+    expect(newText).to.equal(`# Week 1
+## Day 1
+Squat[1,1-5] / ...tmp
+
+
+# Week 2
+## Day 1
+
+
+
+# Week 3
+## Day 1
+tmp[1-3] / used: none / 2x5 / 100lb / progress: custom(foo: 0) {~
+  weights += 5lb
+~}
+
+
+# Week 4
+## Day 1
+tmp[4-5] / used: none / 3x5 / 100lb
+
+
+# Week 5
+## Day 1
+
+
+
+`);
+  });
+
+  // The declaring-week table is keyed by the old program's keys, so without going back through
+  // renameMapping a renamed template stopped being recognized as the week that declares it, and
+  // its progress block was compacted away.
+  it("keeps a backwards-declared template's progress when the template itself is renamed", () => {
+    const planner: IPlannerProgram = {
+      vtype: "planner",
+      name: "MyProgram",
+      weeks: PlannerProgram_evaluateText(`# Week 1
+## Day 1
+Squat[1,1-3] / ...tmp / 100lb
+
+# Week 2
+## Day 1
+
+# Week 3
+## Day 1
+tmp[1-3] / used: none / 2x5 / 100lb / progress: custom(foo: 0) {~
+  weights += 5lb
+~}
+`),
+    };
+    const result = PlannerProgram_replaceExercise(planner, "tmp", undefined, "tmpRenamed", Settings_build());
+    expect(PlannerProgram_generateFullText(result.weeks)).to.equal(`# Week 1
+## Day 1
+Squat[1,1-3] / ...tmpRenamed / progress: custom() { ...tmpRenamed }
+
+
+# Week 2
+## Day 1
+
+
+
+# Week 3
+## Day 1
+tmpRenamed[1-3] / used: none / 2x5 / 100lb / progress: custom(foo: 0) {~
+  weights += 5lb
+~}
+
+
+`);
+  });
+
+  // `id:` is shared across every instance of a key, and it used to be printed on the first one -
+  // which for a backwards-declared exercise is a materialized copy in an earlier week, exactly the
+  // line compaction deletes. Tags address exercises across days, so losing them is silent breakage.
+  it("keeps id: tags on a backwards-declared exercise", () => {
+    const programText = `# Week 1
+## Day 1
+
+# Week 2
+## Day 1
+
+# Week 3
+## Day 1
+Squat[1-3] / 2x5 / 100lb / id: tags(5)
+`;
+    const { program } = PlannerTestUtils_get(programText);
+    const evaluated = Program_evaluate(program, Settings_build());
+    const newText = PlannerProgram_generateFullText(
+      new ProgramToPlanner(evaluated, Settings_build()).convertToPlanner().weeks
+    );
+    expect(newText).to.equal(`# Week 1
+## Day 1
+
+
+
+# Week 2
+## Day 1
+
+
+
+# Week 3
+## Day 1
+Squat[1-3] / 2x5 / 100lb / id: tags(5)
+
+
+`);
+  });
+
+  // Pins PlannerEvaluator_compareExerciseOrder directly: in week 2 the template, the materialized
+  // repeat and the local exercise all share exerciseIndex 0, and the whole round trip depends on
+  // them landing in that order in both weeks. Regressing the tie-break shows up here rather than
+  // as a much less obvious compaction failure somewhere else.
+  it("orders a template, a repeat copy and a local exercise the same way in every week", () => {
+    const programText = `# Week 1
+## Day 1
+tmpl[1-2] / used: none / 2x5 / 100lb
+Squat[1-2] / ...tmpl
+
+# Week 2
+## Day 1
+Bench Press / 3x5 / 50lb
+`;
+    const { program } = PlannerTestUtils_get(programText);
+    const evaluated = Program_evaluate(program, Settings_build());
+    const newText = PlannerProgram_generateFullText(
+      new ProgramToPlanner(evaluated, Settings_build()).convertToPlanner().weeks
+    );
+    expect(newText).to.equal(`# Week 1
+## Day 1
+tmpl[1-2] / used: none / 2x5 / 100lb
+Squat[1-2] / ...tmpl
+
+
+# Week 2
+## Day 1
+Bench Press / 3x5 / 50lb
+
+
+`);
+  });
+
+  // Replacing an exercise with a name that isn't a known one turns it into a `used: none` template,
+  // which moves it ahead of the repeat copy it shares an exerciseIndex with. Pairing the day's
+  // exercises by array index then reported a rename for both of them, and edit state followed the
+  // wrong key.
+  it("reports only the actually renamed key when an exercise becomes a template", () => {
+    const settings = Settings_build();
+    const planner: IPlannerProgram = {
+      vtype: "planner",
+      name: "MyProgram",
+      weeks: PlannerProgram_evaluateText(`# Week 1
+## Day 1
+Squat[1-2] / 2x5 / 100lb
+
+# Week 2
+## Day 1
+Bench Press / 3x5 / 50lb
+`),
+    };
+    const newPlanner = PlannerProgram_replaceExercise(
+      planner,
+      "benchpress_barbell",
+      undefined,
+      "Mystery Move",
+      settings
+    );
+    expect(ProgramRewrite_changedKeys(planner, newPlanner, settings)).to.eql({
+      benchpress_barbell: "mystery move",
+    });
+  });
+
+  // The script getters walk a fixed couple of hops, and the progression/update runners read those
+  // same getters — so a chain past them resolves to no script at all and silently never runs.
+  // 'used: none' templates were exempt from the "cannot reuse another progress" check with nothing
+  // bounding the exemption, which is how such a chain could be written and saved.
+  describe("reuse chains deeper than the app resolves", () => {
+    function errorsFor(programText: string): string[] {
+      const planner: IPlannerProgram = {
+        vtype: "planner",
+        name: "MyProgram",
+        weeks: PlannerProgram_evaluateText(programText),
+      };
+      const evaluatedWeeks = PlannerProgram_evaluate(planner, Settings_build()).evaluatedWeeks;
+      return evaluatedWeeks.flat().flatMap((day) => (day.success ? [] : [day.error.message]));
+    }
+
+    it("allows a progress reused through one template that reuses another", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+t1 / used: none / 1x5 100lb / progress: custom() {~ weights += 10lb ~}
+t2 / used: none / 1x5 100lb / progress: custom() { ...t1 }
+Squat / 1x5 100lb / progress: custom() { ...t2 }
+`)
+      ).to.eql([]);
+    });
+
+    it("rejects a third progress hop", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+t1 / used: none / 1x5 100lb / progress: custom() {~ weights += 10lb ~}
+t2 / used: none / 1x5 100lb / progress: custom() { ...t1 }
+t3 / used: none / 1x5 100lb / progress: custom() { ...t2 }
+Squat / 1x5 100lb / progress: custom() { ...t3 }
+`)
+      ).to.eql([
+        "Squat: Couldn't find the progress script this reuses - reuse the exercise that defines it instead (4:20)",
+      ]);
+    });
+
+    it("allows sets reuse of a template whose progress reuses another exercise", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+t1 / used: none / 1x5 100lb / progress: custom() {~ weights += 10lb ~}
+t2 / used: none / 1x5 100lb / progress: custom() { ...t1 }
+Squat / ...t2
+`)
+      ).to.eql([]);
+    });
+
+    it("rejects sets reuse of a template whose progress reuses a progress that reuses again", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+t1 / used: none / 1x5 100lb / progress: custom() {~ weights += 10lb ~}
+t2 / used: none / 1x5 100lb / progress: custom() { ...t1 }
+t3 / used: none / 1x5 100lb / progress: custom() { ...t2 }
+Squat / ...t3
+`)
+      ).to.eql([
+        "Squat: Couldn't find the progress script this reuses - reuse the exercise that defines it instead (4:0)",
+      ]);
+    });
+
+    it("rejects the same shape for update", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+t1 / used: none / 1x5 100lb / update: custom() {~ weights = 5lb ~}
+t2 / used: none / 1x5 100lb / update: custom() { ...t1 }
+t3 / used: none / 1x5 100lb / update: custom() { ...t2 }
+Squat / ...t3
+`)
+      ).to.eql([
+        "Squat: Couldn't find the update script this reuses - reuse the exercise that defines it instead (4:0)",
+      ]);
+    });
+  });
+
+  // A reuse resolving back to the exercise that declares it used to wire a self-loop that
+  // PlannerProgramExercise_getState walked forever - reading such a program (e.g. GET
+  // /user/programs) died with "Maximum call stack size exceeded" instead of showing an error.
+  describe("reuses that loop back", () => {
+    function errorsFor(programText: string): string[] {
+      const planner: IPlannerProgram = {
+        vtype: "planner",
+        name: "MyProgram",
+        weeks: PlannerProgram_evaluateText(programText),
+      };
+      const evaluatedWeeks = PlannerProgram_evaluate(planner, Settings_build()).evaluatedWeeks;
+      return evaluatedWeeks.flat().flatMap((day) => (day.success ? [] : [day.error.message]));
+    }
+
+    it("rejects an exercise reusing its own sets", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+Squat / ...Squat / 3x8 100lb
+`)
+      ).to.eql(["Squat: Exercise cannot reuse itself (1:8)"]);
+    });
+
+    it("rejects an exercise reusing its own progress", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+Squat / 3x8 100lb / progress: custom() { ...Squat }
+`)
+      ).to.eql(["Squat: Exercise cannot reuse its own progress (1:20)"]);
+    });
+
+    it("rejects an exercise reusing its own update", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+Squat / 3x8 100lb / update: custom() { ...Squat }
+`)
+      ).to.eql(["Squat: Exercise cannot reuse its own update (1:20)"]);
+    });
+
+    it("rejects an exercise reusing its own description", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+// ...Squat
+Squat / 3x8 100lb
+`)
+      ).to.eql(["Squat: Exercise cannot reuse its own description (2:0)"]);
+    });
+
+    // A description reuse copies what the target holds when it is wired, rather than following a
+    // pointer, so a target that is itself borrowing hands over the raw `...name` directive — which
+    // the reader then sees as the description. Loops are the case where that always happens.
+    it("rejects two exercises reusing each other's description", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+// ...t2
+t1 / used: none / 1x5 100lb
+
+// ...t1
+t2 / used: none / 1x5 100lb
+`)
+      ).to.eql(["t1: Original exercise cannot reuse another description - reuse the one that writes it instead (2:0)"]);
+    });
+
+    it("rejects a three-exercise description loop", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+// ...t2
+t1 / used: none / 1x5 100lb
+
+// ...t3
+t2 / used: none / 1x5 100lb
+
+// ...t1
+t3 / used: none / 1x5 100lb
+`)
+      ).to.eql(["t1: Original exercise cannot reuse another description - reuse the one that writes it instead (2:0)"]);
+    });
+
+    // Both ends report: a bare `...name` resolves against the first day of the week that has the
+    // exercise, so each of the two finds the other whichever day it sits on.
+    it("rejects a description loop that closes across days", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+// ...t2
+t1 / used: none / 1x5 100lb
+## Day 2
+// ...t1
+t2 / used: none / 1x5 100lb
+`)
+      ).to.eql([
+        "t1: Original exercise cannot reuse another description - reuse the one that writes it instead (2:0)",
+        "t2: Original exercise cannot reuse another description - reuse the one that writes it instead (2:0)",
+      ]);
+    });
+
+    // Not a loop, but the same copied-directive problem: which text t3 ends up with depended on
+    // the order the days were evaluated in.
+    it("rejects reusing a description that is itself reused", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+// real description
+t1 / used: none / 1x5 100lb
+
+// ...t1
+t2 / used: none / 1x5 100lb
+
+// ...t2
+t3 / used: none / 1x5 100lb
+`)
+      ).to.eql(["t3: Original exercise cannot reuse another description - reuse the one that writes it instead (8:0)"]);
+    });
+
+    it("keeps reusing a description that the target writes itself", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+// real description
+t1 / used: none / 1x5 100lb
+
+// ...t1
+t2 / used: none / 1x5 100lb
+`)
+      ).to.eql([]);
+    });
+
+    // The 'used: none' exemption let a template's progress reuse itself, and the exercises reusing
+    // that template inherited the loop.
+    it("rejects a 'used: none' template reusing its own progress", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+tpl / used: none / 1x5 100lb / progress: custom(foo: 5lb) { ...tpl }
+Squat / ...tpl
+`)
+      ).to.eql(["tpl: Exercise cannot reuse its own progress (1:31)"]);
+    });
+
+    it("rejects two templates reusing each other's progress", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+t1 / used: none / 1x5 100lb / progress: custom(foo: 5lb) { ...t2 }
+t2 / used: none / 1x5 100lb / progress: custom(foo: 5lb) { ...t1 }
+Squat / ...t1
+`)
+      ).to.eql(["t1: This exercise ends up reusing itself through other exercises (1:30)"]);
+    });
+
+    it("allows reusing the same exercise from an earlier week", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+Squat / 3x8 100lb
+
+# Week 2
+## Day 1
+Squat / ...Squat[1:1]
+`)
+      ).to.eql([]);
+    });
+
+    it("allows reusing a template that only shares its name", () => {
+      expect(
+        errorsFor(`# Week 1
+## Day 1
+tmp: Squat / used: none / 1x5 100lb / progress: custom() {~ weights += 5lb ~}
+Squat / ...tmp: Squat
+`)
+      ).to.eql([]);
+    });
+  });
+
   it("doesn't show an error if original exercise progress reuses another exercise but overrides progress", () => {
     const programText = `# Week 1
 ## Day 1
@@ -1204,7 +1822,113 @@ Bench Press[1-5] / ...tmp: Squat / progress: custom() { ...tmp: Squat }
     const evaluatedWeeks = PlannerProgram_evaluate(planner, Settings_build()).evaluatedWeeks;
     expect(evaluatedWeeks[2][0]).to.deep.equal({
       success: false,
-      error: new PlannerSyntaxError("Squat: No such exercise tmp: Squat at week: 3 (4:13)", 0, 0, 0, 0),
+      error: new PlannerSyntaxError("Squat: No such exercise tmp: Squat at week: 3 (4:13)", 0, 0, 0, 0, {
+        type: "reuseTargetNotFound",
+        data: { fullName: "tmp: Squat", week: 3 },
+      }),
+    });
+  });
+
+  it("shows a positioned syntax error when passing an array to a scalar function in a progress script", () => {
+    const programText = `# Week 1
+## Day 1
+Squat / 2x8+ / 100lb / progress: custom(reps: 24) {~
+  if (sum(completedReps) >= state.reps) {
+    weights = increment(weights)
+  }
+~}`;
+    const planner: IPlannerProgram = {
+      vtype: "planner",
+      name: "MyProgram",
+      weeks: PlannerProgram_evaluateText(programText),
+    };
+    const result = PlannerProgram_evaluate(planner, Settings_build()).evaluatedWeeks[0][0];
+    expect(result).to.deep.equal({
+      success: false,
+      error: new PlannerSyntaxError(
+        "Function 'increment' doesn't accept arrays, and 'weights' is an array. Use an index to pick one value, like 'weights[1]' (3:24)",
+        0,
+        0,
+        0,
+        0,
+        { type: "fnArrayArgument", data: { fn: "increment", argText: "weights" } }
+      ),
+    });
+  });
+
+  it("shows a positioned syntax error on wrong number of function arguments in a progress script", () => {
+    const programText = `# Week 1
+## Day 1
+Squat / 2x8+ / 100lb / progress: custom(foo: 0) {~
+  state.foo = rpeMultiplier()
+~}`;
+    const planner: IPlannerProgram = {
+      vtype: "planner",
+      name: "MyProgram",
+      weeks: PlannerProgram_evaluateText(programText),
+    };
+    const result = PlannerProgram_evaluate(planner, Settings_build()).evaluatedWeeks[0][0];
+    expect(result).to.deep.equal({
+      success: false,
+      error: new PlannerSyntaxError("Function 'rpeMultiplier' expects 1-2 arguments, but got 0 (2:14)", 0, 0, 0, 0, {
+        type: "fnArity",
+        data: { fn: "rpeMultiplier", expected: "1-2", got: 0 },
+      }),
+    });
+  });
+
+  it("shows a positioned syntax error on a statically known wrong argument type in a progress script", () => {
+    const programText = `# Week 1
+## Day 1
+Squat / 2x8+ / 100lb / progress: custom(foo: 0) {~
+  state.foo = calculateTrainingMax(100lb, 5lb)
+~}`;
+    const planner: IPlannerProgram = {
+      vtype: "planner",
+      name: "MyProgram",
+      weeks: PlannerProgram_evaluateText(programText),
+    };
+    const result = PlannerProgram_evaluate(planner, Settings_build()).evaluatedWeeks[0][0];
+    expect(result).to.deep.equal({
+      success: false,
+      error: new PlannerSyntaxError(
+        "Argument 2 (reps) of 'calculateTrainingMax' should be a number of reps, but '5lb' is a weight (2:42)",
+        0,
+        0,
+        0,
+        0,
+        {
+          type: "fnArgumentType",
+          data: {
+            fn: "calculateTrainingMax",
+            index: 1,
+            argName: "reps",
+            hint: "a number of reps",
+            got: "weight",
+          },
+        }
+      ),
+    });
+  });
+
+  it("shows a positioned syntax error on wrong number of 'sets' arguments in an update script", () => {
+    const programText = `# Week 1
+## Day 1
+Squat / 2x8+ / 100lb / update: custom() {~
+  sets(1, 3, 5, 5, 0, 100lb, 60, 0)
+~}`;
+    const planner: IPlannerProgram = {
+      vtype: "planner",
+      name: "MyProgram",
+      weeks: PlannerProgram_evaluateText(programText),
+    };
+    const result = PlannerProgram_evaluate(planner, Settings_build()).evaluatedWeeks[0][0];
+    expect(result).to.deep.equal({
+      success: false,
+      error: new PlannerSyntaxError("Function 'sets' expects 9 arguments, but got 8 (2:2)", 0, 0, 0, 0, {
+        type: "fnArity",
+        data: { fn: "sets", expected: "9", got: 8 },
+      }),
     });
   });
 
@@ -2241,9 +2965,8 @@ Bench Press / ...Squat / 30s|45s`;
         const { program } = PlannerTestUtils_get(text);
         const evaluated = Program_evaluate(program, Settings_build());
         const result = new ProgramToPlanner(evaluated, Settings_build()).convertToPlanner();
-        // Override materializes the diverged sets; overflow drops (no `+`), auto is inherited from Squat
         expect(result.weeks[0].days[0].exerciseText).to.equal(
-          `Squat / 3x8 60s+|10s auto\nBench Press / ...Squat / 3x8 30s|45s auto`
+          `Squat / 3x8 60s+|10s auto\nBench Press / ...Squat / 30s|45s`
         );
       });
     });
@@ -2261,6 +2984,50 @@ Plank / 1x1 30s|60s / progress: custom() {~
 Plank / 1x1 35s|60s / progress: custom() {~
   setTime[1] += 5
 ~}
+
+
+`);
+    });
+
+    it("moves a uniform setTime change back into a global override on a reuse line", () => {
+      const programText = `# Week 1
+## Day 1
+plank_progression / used: none / 2x1 / 70s|90s 0lb / progress: custom(completions: 1) {~
+  setTime = 80
+~}
+
+Plank / ...plank_progression`;
+      const { program } = PlannerTestUtils_finish(programText, { completedReps: [[1, 1]] });
+      const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+      expect(newText).to.equal(`# Week 1
+## Day 1
+plank_progression / used: none / 2x1 / 0lb 70s|90s / progress: custom(completions: 1) {~
+  setTime = 80
+~}
+
+Plank / ...plank_progression / 80s|90s
+
+
+`);
+    });
+
+    it("dereuses sets when setTime changes on an exercise with reused sets", () => {
+      const programText = `# Week 1
+## Day 1
+plank_progression / used: none / 1x1 70s|90s, 1x1 60s+|90s / 0lb / progress: custom(completions: 1) {~
+  setTime[2] = 70
+~}
+
+Plank / ...plank_progression / progress: custom(completions: 0) { ...plank_progression }`;
+      const { program } = PlannerTestUtils_finish(programText, { completedReps: [[1, 1]] });
+      const newText = PlannerProgram_generateFullText(program.planner!.weeks);
+      expect(newText).to.equal(`# Week 1
+## Day 1
+plank_progression / used: none / 1x1 70s|90s, 1x1 60s+|90s / 0lb / progress: custom(completions: 1) {~
+  setTime[2] = 70
+~}
+
+Plank / ...plank_progression / 1x1 70s|90s, 1x1 70s+|90s / progress: custom(completions: 0) { ...plank_progression }
 
 
 `);
@@ -2311,6 +3078,141 @@ customLogic[1-3] / used: none / 2x5-30 / 5lb / warmup: none / update: custom() {
       const settings = Settings_build();
       const record = Program_nextHistoryRecord(program, settings, Stats_getEmpty());
       expect(record.entries[0].sets.length).to.equal(2);
+    });
+  });
+
+  describe("shared property placement", () => {
+    function roundtrip(text: string): string {
+      const { program } = PlannerTestUtils_get(text);
+      const settings = Settings_build();
+      const evaluated = Program_evaluate(program, settings);
+      const planner = new ProgramToPlanner(evaluated, settings).convertToPlanner();
+      return PlannerProgram_generateFullText(planner.weeks).trim();
+    }
+
+    it("keeps progress on the week it was written on", () => {
+      expect(
+        roundtrip(`# Week 1
+## Day 1
+Squat / 3x8 100lb
+
+# Week 2
+## Day 1
+Squat / 3x8 100lb / progress: lp(5lb)`)
+      ).to.equal(`# Week 1
+## Day 1
+Squat / 3x8 / 100lb
+
+
+# Week 2
+## Day 1
+Squat / 3x8 / 100lb / progress: lp(5lb)`);
+    });
+
+    it("keeps update and warmup on the day they were written on", () => {
+      expect(
+        roundtrip(`# Week 1
+## Day 1
+Squat / 3x8 100lb
+## Day 2
+Squat / 3x8 100lb / warmup: 2x5 50lb / update: custom() {~ weights = 100lb ~}`)
+      ).to.equal(`# Week 1
+## Day 1
+Squat / 3x8 / 100lb
+
+## Day 2
+Squat / 3x8 / 100lb / warmup: 2x5 50lb / update: custom() {~ weights = 100lb ~}`);
+    });
+
+    it("keeps progress on the last week after finishing a workout", () => {
+      const { program } = PlannerTestUtils_finish(
+        `# Week 1
+## Day 1
+Squat / 3x8 100lb
+
+# Week 2
+## Day 1
+Squat / 3x8 100lb / progress: lp(5lb, 3, 0)`,
+        { completedReps: [[8, 8, 8]] }
+      );
+      expect(PlannerProgram_generateFullText(program.planner!.weeks).trim()).to.equal(`# Week 1
+## Day 1
+Squat / 3x8 / 100lb
+
+
+# Week 2
+## Day 1
+Squat / 3x8 / 100lb / progress: lp(5lb, 3, 1)`);
+    });
+
+    // A forced order outranks where a line sits, so the day was rewritten and then drawn in the
+    // order it was already in — the drag looked like it did nothing at all.
+    it("drops the forced order when the per-day editor moves an exercise", () => {
+      const settings = Settings_build();
+      const { planner } = PlannerTestUtils_get(`# Week 1
+## Day 1
+Squat[1] / 3x8 100lb
+Bench Press[2] / 3x8 100lb
+Bicep Curl[3] / 3x8 20lb`);
+      const newPlanner = EditProgramUiHelpers_changeCurrentInstancePosition(
+        planner,
+        { week: 1, dayInWeek: 1, day: 1 },
+        "Bicep Curl",
+        2,
+        0,
+        settings
+      );
+      expect(PlannerProgram_generateFullText(newPlanner.weeks).trim()).to.equal(`# Week 1
+## Day 1
+Bicep Curl / 3x8 / 20lb
+Squat / 3x8 / 100lb
+Bench Press / 3x8 / 100lb`);
+    });
+
+    it("applies a UI progress edit at the week the progress was written on", () => {
+      const text = `# Week 1
+## Day 1
+Squat / 3x8 100lb
+
+# Week 2
+## Day 1
+Squat / 3x8 100lb / progress: lp(5lb)`;
+      const settings = Settings_build();
+      const { planner, program } = PlannerTestUtils_get(text);
+      const exercise = Program_evaluate(program, settings).weeks[0].days[0].exercises[0];
+      const newPlanner = EditProgramUiHelpers_changeFirstInstance(planner, exercise, settings, false, (e) => {
+        const result = PlannerProgramExercise_buildProgress("lp", ["10lb"]);
+        if (result.success) {
+          e.progress = result.data;
+        }
+      });
+      expect(PlannerProgram_generateFullText(newPlanner.weeks).trim()).to.equal(`# Week 1
+## Day 1
+Squat / 3x8 / 100lb
+
+
+# Week 2
+## Day 1
+Squat / 3x8 / 100lb / progress: lp(10lb)`);
+    });
+
+    it("still prints progress on the first instance when it's written there", () => {
+      expect(
+        roundtrip(`# Week 1
+## Day 1
+Squat / 3x8 100lb / progress: lp(5lb)
+
+# Week 2
+## Day 1
+Squat / 3x8 100lb`)
+      ).to.equal(`# Week 1
+## Day 1
+Squat / 3x8 / 100lb / progress: lp(5lb)
+
+
+# Week 2
+## Day 1
+Squat / 3x8 / 100lb`);
     });
   });
 });

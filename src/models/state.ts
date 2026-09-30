@@ -26,15 +26,31 @@ import type { IScreenData } from "./screen";
 import type { IProgramPreviewPlaygroundState } from "../components/preview/programPreviewPlaygroundSetup";
 import type { IIapActiveSubscription, IIapAdapter } from "../utils/iapAdapter";
 import type { IHealthAdapter } from "../utils/healthAdapter";
+import type { IPushSync } from "../utils/pushSyncAdapter";
+import type { Persistence } from "../utils/persistence";
+import type { ITimerBridge } from "../utils/timerBridge";
+import type { IWorkoutBridge } from "../utils/workoutBridge";
+import type { IWatchBridge } from "../utils/watchBridge";
+import type { IKeychain } from "../utils/keychain";
+import type { IWorkoutMirroring } from "../utils/workoutMirroring";
+import type { IHeartRateStore } from "../utils/heartRateStore";
 
 export type IEnv = {
   service: Service;
   audio: IAudioInterface;
   queue: AsyncQueue;
+  persistence: Persistence;
   navigationRef?: NavigationContainerRef<IRootStackParamList>;
   getCurrentScreenData?: () => IScreenData | undefined;
   iap?: IIapAdapter;
   health?: IHealthAdapter;
+  push?: IPushSync;
+  timer: ITimerBridge;
+  workout: IWorkoutBridge;
+  watch: IWatchBridge;
+  keychain: IKeychain;
+  mirroring: IWorkoutMirroring;
+  heartRate: IHeartRateStore;
 };
 
 export interface INotification {
@@ -125,10 +141,16 @@ export interface IStateTour {
   screenData?: IScreenData;
 }
 
+export interface ILastSynced {
+  versions: IStorage["_versions"];
+  tempUserId: string;
+  serverVersionsFetchedAt: number;
+}
+
 export interface IState {
   user?: IUser;
   storage: IStorage;
-  lastSyncedStorage?: IStorage;
+  lastSynced?: ILastSynced;
   programs: IProgram[];
   programsIndex: IProgramIndexEntry[];
   notification?: INotification;
@@ -159,6 +181,8 @@ export interface IState {
   adminKey?: string;
   showWhatsNew?: boolean;
   showSignupRequest?: boolean;
+  showHearAboutUs?: boolean;
+  toast?: string;
   tour?: IStateTour;
   scrollToHistoryRecordId?: number;
   freshMigrations: boolean;
@@ -168,7 +192,7 @@ export interface IState {
   selectedGymId?: string;
   appleOffer?: IAppleOffer;
   googleOffer?: IGoogleOffer;
-  deviceId?: string;
+  deviceId: string;
   editProgramStates: Record<string, IPlannerState>;
   editProgramExerciseStates: Record<string, IPlannerExerciseState>;
   playgroundState?: IProgramPreviewPlaygroundState;
@@ -182,7 +206,7 @@ export interface IImportPreview {
 
 export interface ILocalStorage {
   storage?: IStorage;
-  lastSyncedStorage?: IStorage;
+  lastSynced?: ILastSynced;
   editDay?: IProgramDay;
 }
 
@@ -191,7 +215,7 @@ export function buildState(args: {
   notification?: INotification;
   userId?: string;
   nosync?: boolean;
-  deviceId?: string;
+  deviceId: string;
 }): IState {
   return {
     progress: {},

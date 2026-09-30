@@ -1679,6 +1679,267 @@ export const allExercisesList: Record<IExerciseId, IExercise> = {
     startingWeightLb: { value: 105, unit: "lb" },
     startingWeightKg: { value: 47.5, unit: "kg" },
   },
+  wallPushup: {
+    id: "wallPushup",
+    name: "Wall Push Up",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  inclinePushup: {
+    id: "inclinePushup",
+    name: "Incline Push Up",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  kneePushup: {
+    id: "kneePushup",
+    name: "Knee Push Up",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  diamondPushup: {
+    id: "diamondPushup",
+    name: "Diamond Push Up",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  pseudoPlanchePushup: {
+    id: "pseudoPlanchePushup",
+    name: "Pseudo Planche Push Up",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  pikePushup: {
+    id: "pikePushup",
+    name: "Pike Push Up",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  ringDip: {
+    id: "ringDip",
+    name: "Ring Dip",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  negativeDip: {
+    id: "negativeDip",
+    name: "Negative Dip",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  verticalRow: {
+    id: "verticalRow",
+    name: "Vertical Row",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "pull"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  wideRow: {
+    id: "wideRow",
+    name: "Wide Row",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "pull"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  ringRow: {
+    id: "ringRow",
+    name: "Ring Row",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "pull"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  tuckFrontLeverRow: {
+    id: "tuckFrontLeverRow",
+    name: "Tuck Front Lever Row",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "pull"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  frontLeverRow: {
+    id: "frontLeverRow",
+    name: "Front Lever Row",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "pull"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  scapularPullUp: {
+    id: "scapularPullUp",
+    name: "Scapular Pull Up",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "pull"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  deadHang: {
+    id: "deadHang",
+    name: "Dead Hang",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "pull"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  negativePullup: {
+    id: "negativePullup",
+    name: "Negative Pull Up",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "pull"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  assistedSquat: {
+    id: "assistedSquat",
+    name: "Assisted Squat",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["lower", "legs"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  shrimpSquat: {
+    id: "shrimpSquat",
+    name: "Shrimp Squat",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["lower", "legs"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  nordicCurl: {
+    id: "nordicCurl",
+    name: "Nordic Curl",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["lower", "legs"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  handstand: {
+    id: "handstand",
+    name: "Handstand",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  wallHandstand: {
+    id: "wallHandstand",
+    name: "Wall Handstand",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  crowPose: {
+    id: "crowPose",
+    name: "Crow Pose",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  dragonFlag: {
+    id: "dragonFlag",
+    name: "Dragon Flag",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["core"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  copenhagenPlank: {
+    id: "copenhagenPlank",
+    name: "Copenhagen Plank",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["core"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  hangingKneeRaise: {
+    id: "hangingKneeRaise",
+    name: "Hanging Knee Raise",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["core"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  archHang: {
+    id: "archHang",
+    name: "Arch Hang",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "pull"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  supportHold: {
+    id: "supportHold",
+    name: "Support Hold",
+    defaultWarmup: 10,
+    defaultEquipment: "bodyweight",
+    types: ["upper", "push"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  pallofPress: {
+    id: "pallofPress",
+    name: "Pallof Press",
+    defaultWarmup: 10,
+    defaultEquipment: "band",
+    types: ["core"],
+    startingWeightLb: { value: 0, unit: "lb" },
+    startingWeightKg: { value: 0, unit: "kg" },
+  },
+  renegadeRow: {
+    id: "renegadeRow",
+    name: "Renegade Row",
+    defaultWarmup: 10,
+    defaultEquipment: "dumbbell",
+    types: ["upper", "pull", "core"],
+    startingWeightLb: { value: 20, unit: "lb" },
+    startingWeightKg: { value: 10, unit: "kg" },
+  },
 };
 
 const nameToIdMapping = ObjectUtils_keys(allExercisesList).reduce<Partial<Record<string, IExerciseId>>>(
@@ -3463,6 +3724,286 @@ export const metadata: Record<IExerciseId, IMetaExercises> = {
     bodyParts: ["Hips"],
     sortedEquipment: ["barbell"],
   },
+  wallPushup: {
+    targetMuscles: ["Pectoralis Major Sternal Head"],
+    synergistMuscles: ["Deltoid Anterior", "Pectoralis Major Clavicular Head", "Triceps Brachii"],
+    bodyParts: ["Chest"],
+    sortedEquipment: ["bodyweight"],
+  },
+  inclinePushup: {
+    targetMuscles: ["Pectoralis Major Sternal Head"],
+    synergistMuscles: ["Deltoid Anterior", "Pectoralis Major Clavicular Head", "Triceps Brachii"],
+    bodyParts: ["Chest"],
+    sortedEquipment: ["bodyweight"],
+  },
+  kneePushup: {
+    targetMuscles: ["Pectoralis Major Sternal Head"],
+    synergistMuscles: ["Deltoid Anterior", "Pectoralis Major Clavicular Head", "Triceps Brachii"],
+    bodyParts: ["Chest"],
+    sortedEquipment: ["bodyweight"],
+  },
+  diamondPushup: {
+    targetMuscles: ["Triceps Brachii"],
+    synergistMuscles: ["Deltoid Anterior", "Pectoralis Major Clavicular Head", "Pectoralis Major Sternal Head"],
+    bodyParts: ["Upper Arms"],
+    sortedEquipment: ["bodyweight"],
+  },
+  pseudoPlanchePushup: {
+    targetMuscles: ["Pectoralis Major Sternal Head"],
+    synergistMuscles: ["Deltoid Anterior", "Pectoralis Major Clavicular Head", "Serratus Anterior", "Triceps Brachii"],
+    bodyParts: ["Chest"],
+    sortedEquipment: ["bodyweight"],
+  },
+  pikePushup: {
+    targetMuscles: ["Deltoid Anterior"],
+    synergistMuscles: ["Deltoid Lateral", "Pectoralis Major Clavicular Head", "Serratus Anterior", "Triceps Brachii"],
+    bodyParts: ["Shoulders"],
+    sortedEquipment: ["bodyweight"],
+  },
+  ringDip: {
+    targetMuscles: ["Pectoralis Major Sternal Head"],
+    synergistMuscles: [
+      "Deltoid Anterior",
+      "Latissimus Dorsi",
+      "Levator Scapulae",
+      "Pectoralis Major Clavicular Head",
+      "Serratus Anterior",
+      "Teres Major",
+      "Trapezius Middle Fibers",
+      "Triceps Brachii",
+    ],
+    bodyParts: ["Chest"],
+    sortedEquipment: ["bodyweight"],
+  },
+  negativeDip: {
+    targetMuscles: ["Pectoralis Major Sternal Head"],
+    synergistMuscles: [
+      "Deltoid Anterior",
+      "Latissimus Dorsi",
+      "Levator Scapulae",
+      "Pectoralis Major Clavicular Head",
+      "Serratus Anterior",
+      "Teres Major",
+      "Trapezius Middle Fibers",
+      "Triceps Brachii",
+    ],
+    bodyParts: ["Chest"],
+    sortedEquipment: ["bodyweight"],
+  },
+  verticalRow: {
+    targetMuscles: ["Latissimus Dorsi", "Trapezius Lower Fibers", "Trapezius Middle Fibers"],
+    synergistMuscles: [
+      "Infraspinatus",
+      "Teres Major",
+      "Teres Minor",
+      "Brachialis",
+      "Brachioradialis",
+      "Deltoid Posterior",
+      "Pectoralis Major Sternal Head",
+    ],
+    bodyParts: ["Back"],
+    sortedEquipment: ["bodyweight"],
+  },
+  wideRow: {
+    targetMuscles: ["Latissimus Dorsi", "Trapezius Middle Fibers"],
+    synergistMuscles: [
+      "Deltoid Posterior",
+      "Infraspinatus",
+      "Teres Major",
+      "Teres Minor",
+      "Brachialis",
+      "Brachioradialis",
+    ],
+    bodyParts: ["Back"],
+    sortedEquipment: ["bodyweight"],
+  },
+  ringRow: {
+    targetMuscles: ["Latissimus Dorsi", "Trapezius Lower Fibers", "Trapezius Middle Fibers"],
+    synergistMuscles: [
+      "Infraspinatus",
+      "Teres Major",
+      "Teres Minor",
+      "Brachialis",
+      "Brachioradialis",
+      "Deltoid Posterior",
+      "Pectoralis Major Sternal Head",
+    ],
+    bodyParts: ["Back"],
+    sortedEquipment: ["bodyweight"],
+  },
+  tuckFrontLeverRow: {
+    targetMuscles: ["Latissimus Dorsi"],
+    synergistMuscles: [
+      "Teres Major",
+      "Trapezius Lower Fibers",
+      "Trapezius Middle Fibers",
+      "Deltoid Posterior",
+      "Rectus Abdominis",
+      "Brachialis",
+    ],
+    bodyParts: ["Back"],
+    sortedEquipment: ["bodyweight"],
+  },
+  frontLeverRow: {
+    targetMuscles: ["Latissimus Dorsi"],
+    synergistMuscles: [
+      "Teres Major",
+      "Trapezius Lower Fibers",
+      "Trapezius Middle Fibers",
+      "Deltoid Posterior",
+      "Rectus Abdominis",
+      "Brachialis",
+    ],
+    bodyParts: ["Back"],
+    sortedEquipment: ["bodyweight"],
+  },
+  scapularPullUp: {
+    targetMuscles: ["Trapezius Lower Fibers", "Trapezius Middle Fibers"],
+    synergistMuscles: ["Latissimus Dorsi", "Levator Scapulae", "Serratus Anterior", "Teres Major"],
+    bodyParts: ["Back"],
+    sortedEquipment: ["bodyweight"],
+  },
+  deadHang: {
+    targetMuscles: ["Latissimus Dorsi", "Wrist Flexors"],
+    synergistMuscles: ["Teres Major", "Trapezius Lower Fibers", "Trapezius Middle Fibers"],
+    bodyParts: ["Back"],
+    sortedEquipment: ["bodyweight"],
+  },
+  negativePullup: {
+    targetMuscles: ["Latissimus Dorsi"],
+    synergistMuscles: [
+      "Biceps Brachii",
+      "Brachialis",
+      "Brachioradialis",
+      "Deltoid Posterior",
+      "Infraspinatus",
+      "Levator Scapulae",
+      "Teres Major",
+      "Teres Minor",
+      "Trapezius Lower Fibers",
+      "Trapezius Middle Fibers",
+    ],
+    bodyParts: ["Back"],
+    sortedEquipment: ["bodyweight"],
+  },
+  assistedSquat: {
+    targetMuscles: ["Quadriceps"],
+    synergistMuscles: ["Adductor Magnus", "Gluteus Maximus", "Soleus"],
+    bodyParts: ["Thighs"],
+    sortedEquipment: ["bodyweight"],
+  },
+  shrimpSquat: {
+    targetMuscles: ["Gluteus Maximus"],
+    synergistMuscles: ["Adductor Magnus", "Quadriceps", "Soleus"],
+    bodyParts: ["Thighs"],
+    sortedEquipment: ["bodyweight"],
+  },
+  nordicCurl: {
+    targetMuscles: ["Hamstrings"],
+    synergistMuscles: ["Gastrocnemius", "Gluteus Maximus", "Erector Spinae"],
+    bodyParts: ["Thighs"],
+    sortedEquipment: ["bodyweight"],
+  },
+  handstand: {
+    targetMuscles: ["Deltoid Anterior"],
+    synergistMuscles: [
+      "Deltoid Lateral",
+      "Trapezius Upper Fibers",
+      "Triceps Brachii",
+      "Serratus Anterior",
+      "Rectus Abdominis",
+    ],
+    bodyParts: ["Shoulders"],
+    sortedEquipment: ["bodyweight"],
+  },
+  wallHandstand: {
+    targetMuscles: ["Deltoid Anterior"],
+    synergistMuscles: [
+      "Deltoid Lateral",
+      "Trapezius Upper Fibers",
+      "Triceps Brachii",
+      "Serratus Anterior",
+      "Rectus Abdominis",
+    ],
+    bodyParts: ["Shoulders"],
+    sortedEquipment: ["bodyweight"],
+  },
+  crowPose: {
+    targetMuscles: ["Deltoid Anterior"],
+    synergistMuscles: ["Triceps Brachii", "Serratus Anterior", "Rectus Abdominis", "Wrist Flexors"],
+    bodyParts: ["Shoulders"],
+    sortedEquipment: ["bodyweight"],
+  },
+  dragonFlag: {
+    targetMuscles: ["Rectus Abdominis"],
+    synergistMuscles: ["Obliques", "Iliopsoas", "Erector Spinae"],
+    bodyParts: ["Waist"],
+    sortedEquipment: ["bodyweight"],
+  },
+  copenhagenPlank: {
+    targetMuscles: ["Adductor Magnus"],
+    synergistMuscles: ["Adductor Brevis", "Adductor Longus", "Obliques", "Gluteus Medius"],
+    bodyParts: ["Waist"],
+    sortedEquipment: ["bodyweight"],
+  },
+  hangingKneeRaise: {
+    targetMuscles: ["Iliopsoas"],
+    synergistMuscles: [
+      "Adductor Brevis",
+      "Adductor Longus",
+      "Pectineous",
+      "Rectus Abdominis",
+      "Sartorius",
+      "Tensor Fasciae Latae",
+    ],
+    bodyParts: ["Waist"],
+    sortedEquipment: ["bodyweight"],
+  },
+  archHang: {
+    targetMuscles: ["Latissimus Dorsi"],
+    synergistMuscles: [
+      "Teres Major",
+      "Trapezius Lower Fibers",
+      "Trapezius Middle Fibers",
+      "Deltoid Posterior",
+      "Wrist Flexors",
+    ],
+    bodyParts: ["Back"],
+    sortedEquipment: ["bodyweight"],
+  },
+  supportHold: {
+    targetMuscles: ["Pectoralis Major Sternal Head"],
+    synergistMuscles: [
+      "Deltoid Anterior",
+      "Latissimus Dorsi",
+      "Serratus Anterior",
+      "Triceps Brachii",
+      "Trapezius Lower Fibers",
+      "Trapezius Middle Fibers",
+    ],
+    bodyParts: ["Chest"],
+    sortedEquipment: ["bodyweight"],
+  },
+  pallofPress: {
+    targetMuscles: ["Obliques"],
+    synergistMuscles: ["Rectus Abdominis"],
+    bodyParts: ["Waist"],
+    sortedEquipment: ["band"],
+  },
+  renegadeRow: {
+    targetMuscles: ["Latissimus Dorsi", "Obliques"],
+    synergistMuscles: [
+      "Trapezius Lower Fibers",
+      "Trapezius Middle Fibers",
+      "Teres Major",
+      "Deltoid Posterior",
+      "Brachialis",
+      "Brachioradialis",
+      "Rectus Abdominis",
+    ],
+    bodyParts: ["Back", "Waist"],
+    sortedEquipment: ["dumbbell"],
+  },
 };
 
 export function equipmentToBarKey(equipment?: IEquipment): IBarKey | undefined {
@@ -3664,19 +4205,22 @@ export function Exercise_isCustom(id: string, customExercises: IAllCustomExercis
   return customExercises[id] != null;
 }
 
-export function Exercise_fullName(exercise: IExercise, settings: ISettings, label?: string): string {
-  let str: string;
-  if (exercise.equipment && exercise.defaultEquipment !== exercise.equipment) {
+export function Exercise_buildName(name: string, settings: ISettings, label?: string, equipment?: IEquipment): string {
+  let str = name;
+  if (equipment) {
     const allEquipment = Equipment_currentEquipment(settings);
-    const equipment = equipmentName(exercise.equipment, allEquipment);
-    str = `${exercise.name}, ${equipment}`;
-  } else {
-    str = exercise.name;
+    str = `${name}, ${equipmentName(equipment, allEquipment)}`;
   }
   if (label) {
     str = `${label}: ${str}`;
   }
   return str;
+}
+
+export function Exercise_fullName(exercise: IExercise, settings: ISettings, label?: string): string {
+  const equipment =
+    exercise.equipment && exercise.defaultEquipment !== exercise.equipment ? exercise.equipment : undefined;
+  return Exercise_buildName(exercise.name, settings, label, equipment);
 }
 
 export function Exercise_reverseName(exercise: IExercise, settings?: ISettings): string {
@@ -3725,18 +4269,24 @@ function normalizeExerciseName(name: string): string {
   return name.toLowerCase().replace(/\s*,\s*/g, ",");
 }
 
+interface ICustomExercisesNameIndex {
+  live: Map<string, IExerciseId>;
+  deleted: Map<string, IExerciseId>;
+}
+
 // Cache a normalized-name -> id index per customExercises object, since Exercise_findIdByName is called
 // once per exercise reference during program evaluation, and accounts can have hundreds of custom exercises.
-const customExercisesNameIndexCache = new WeakMap<IAllCustomExercises, Map<string, IExerciseId>>();
-function getCustomExercisesNameIndex(customExercises: IAllCustomExercises): Map<string, IExerciseId> {
+const customExercisesNameIndexCache = new WeakMap<IAllCustomExercises, ICustomExercisesNameIndex>();
+function getCustomExercisesNameIndex(customExercises: IAllCustomExercises): ICustomExercisesNameIndex {
   let index = customExercisesNameIndexCache.get(customExercises);
   if (index == null) {
-    index = new Map();
+    index = { live: new Map(), deleted: new Map() };
     for (const ce of ObjectUtils_values(customExercises)) {
       if (ce?.name && ce.id) {
         const key = normalizeExerciseName(ce.name);
-        if (!index.has(key)) {
-          index.set(key, ce.id);
+        const map = ce.isDeleted ? index.deleted : index.live;
+        if (!map.has(key)) {
+          map.set(key, ce.id);
         }
       }
     }
@@ -3745,11 +4295,37 @@ function getCustomExercisesNameIndex(customExercises: IAllCustomExercises): Map<
   return index;
 }
 
+// These characters are Liftoscript syntax — grammar separators (/{}()#[]|!) or the label
+// delimiter (:) — so a name containing them can't round-trip through planner text: replacing
+// an exercise with it would leave the program with a syntax error.
+const forbiddenExerciseNameChars = /[/{}()#[\]|!:\t\n\r]/;
+const forbiddenExerciseNameCharsAll = new RegExp(forbiddenExerciseNameChars.source, "g");
+
+export function Exercise_nameError(name: string): string | undefined {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    return "Name cannot be empty";
+  }
+  if (forbiddenExerciseNameChars.test(trimmed)) {
+    return "Name cannot contain special characters: / { } ( ) # [ ] | ! :";
+  }
+  return undefined;
+}
+
+export function Exercise_sanitizeName(name: string): string {
+  const sanitized = name.replace(forbiddenExerciseNameCharsAll, " ").replace(/\s+/g, " ").trim();
+  return sanitized || "Exercise";
+}
+
 export function Exercise_findIdByName(name: string, customExercises: IAllCustomExercises): IExerciseId | undefined {
-  const lowercaseName = name.toLowerCase();
-  return (
-    nameToIdMapping[lowercaseName] || getCustomExercisesNameIndex(customExercises).get(normalizeExerciseName(name))
-  );
+  const index = getCustomExercisesNameIndex(customExercises);
+  const key = normalizeExerciseName(name);
+  // Live customs win over built-ins on name collision, so shipping a built-in with the same
+  // name as a user's existing custom exercise never silently re-points their programs/history.
+  // Deleted customs resolve last: they must not shadow a built-in (deleting the custom is the
+  // user's only way back to it), but a name matching nothing else should still resolve so
+  // history records and planner text referencing it keep displaying.
+  return index.live.get(key) || nameToIdMapping[name.toLowerCase()] || index.deleted.get(key);
 }
 
 export function Exercise_get(type: IExerciseType, customExercises: IAllCustomExercises): IExercise {
@@ -3819,9 +4395,30 @@ export function Exercise_findByNameAndEquipment(
   if (name == null) {
     name = nameAndEquipment;
   }
-  let exerciseId = Exercise_findIdByName(name, {});
+  let exerciseId = Exercise_findIdByName(name, customExercises);
   if (exerciseId != null && equipment !== null) {
-    const exercise = Exercise_findById(exerciseId, {});
+    // Users can have both "X" and "X, <Equipment>" custom exercises. Before custom exercises
+    // were included in the split-name lookup, "X, <Equipment>" resolved to the custom of that
+    // exact name (history is keyed by it), so an exact full-string custom match must beat the
+    // bare-name custom + parsed equipment interpretation. Built-in bare-name matches keep
+    // winning as they always did — flipping those would re-key history too.
+    const bareNameCustom = customExercises[exerciseId];
+    if (bareNameCustom != null) {
+      const index = getCustomExercisesNameIndex(customExercises);
+      const fullNameKey = normalizeExerciseName(nameAndEquipment);
+      // A deleted full-name custom loses only to a live bare-name custom; when the bare match
+      // is itself a tombstone, the exact full-name tombstone still wins so history keyed by it
+      // doesn't re-point.
+      const fullNameExerciseId =
+        index.live.get(fullNameKey) ?? (bareNameCustom.isDeleted ? index.deleted.get(fullNameKey) : undefined);
+      if (fullNameExerciseId != null && fullNameExerciseId !== exerciseId) {
+        const fullNameExercise = Exercise_findById(fullNameExerciseId, customExercises);
+        if (fullNameExercise != null) {
+          return { ...fullNameExercise };
+        }
+      }
+    }
+    const exercise = Exercise_findById(exerciseId, customExercises);
     if (exercise != null) {
       return { ...exercise, equipment: equipment || exercise.defaultEquipment };
     }
@@ -3842,6 +4439,60 @@ export function Exercise_getIsUnilateral(exerciseType: IExerciseType, settings: 
   const exerciseData = settings.exerciseData[key];
   // Personal fork: never split reps into L/R unless explicitly enabled in the exercise's settings.
   return exerciseData?.isUnilateral ?? false;
+}
+
+// The number of implements loaded per rep — orthogonal to unilaterality. Unilateral rep-summing
+// (left+right) accounts for the *sides*; this accounts for the *implements*. A dumbbell lunge is
+// both: worked one leg at a time (reps summed) AND holding two dumbbells (multiplier 2).
+export function Exercise_getVolumeMultiplier(exerciseType: IExerciseType, settings: ISettings): number {
+  const key = Exercise_toKey(exerciseType);
+  const override = settings.exerciseData[key]?.volumeMultiplier;
+  if (override !== undefined) {
+    return override;
+  }
+  // Only dumbbells load two implements per rep at a per-implement displayed weight.
+  // Kettlebell is excluded on purpose: the default is a single bell (swing, goblet,
+  // turkish get up) — double-kettlebell users can override.
+  if (exerciseType.equipment !== "dumbbell") {
+    return 1;
+  }
+  switch (exerciseType.id) {
+    case "arnoldPress":
+    case "overheadPress":
+    case "shoulderPress":
+    case "shoulderPressParallelGrip":
+    case "lateralRaise":
+    case "frontRaise":
+    case "seatedFrontRaise":
+    case "reverseFly":
+    case "uprightRow":
+    case "benchPress":
+    case "inclineBenchPress":
+    case "declineBenchPress":
+    case "inclineChestPress":
+    case "chestFly":
+    case "inclineChestFly":
+    case "aroundTheWorld":
+    case "bentOverRow":
+    case "chestSupportedRow":
+    case "inclineRow":
+    case "renegadeRow":
+    case "deadlift":
+    case "romanianDeadlift":
+    case "straightLegDeadlift":
+    case "stiffLegDeadlift":
+    case "shrug":
+    case "skullcrusher":
+    // unilateral, but both dumbbells are loaded through the whole rep (reps are summed left+right on top)
+    case "lunge":
+    case "reverseLunge":
+    case "splitSquat":
+    case "bulgarianSplitSquat":
+    case "stepUp":
+      return 2;
+    default:
+      return 1;
+  }
 }
 
 export function Exercise_findByName(name: string, customExercises: IAllCustomExercises): IExercise | undefined {

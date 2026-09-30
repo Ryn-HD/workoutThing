@@ -8,6 +8,7 @@ import {
   Exercise_filterCustomExercisesByType,
   Exercise_findById,
   Exercise_findIdByName,
+  Exercise_findByNameAndEquipment,
 } from "../src/models/exercise";
 import { IAllCustomExercises, ICustomExercise } from "../src/types";
 
@@ -59,5 +60,111 @@ describe("Exercise — deleted custom exercises", () => {
   it("name/id resolution still finds deleted custom exercises (history/import path)", () => {
     expect(Exercise_findIdByName("Deleted Curl", customExercises)).to.eql("custom-deleted");
     expect(Exercise_findById("custom-deleted" as ICustomExercise["id"], customExercises)?.name).to.eql("Deleted Curl");
+  });
+});
+
+describe("Exercise — custom exercise wins over built-in on name collision", () => {
+  const customExercises: IAllCustomExercises = {
+    "custom-squat": buildCustom("custom-squat", "Squat", false),
+  };
+
+  it("Exercise_findIdByName prefers the custom exercise when the name matches a built-in", () => {
+    expect(Exercise_findIdByName("Squat", customExercises)).to.eql("custom-squat");
+  });
+
+  it("Exercise_findIdByName resolves to the built-in when there is no colliding custom exercise", () => {
+    expect(Exercise_findIdByName("Squat", {})).to.eql("squat");
+  });
+
+  it("Exercise_findByNameAndEquipment prefers the custom exercise (with and without equipment)", () => {
+    expect(Exercise_findByNameAndEquipment("Squat", customExercises)?.id).to.eql("custom-squat");
+    expect(Exercise_findByNameAndEquipment("Squat, Barbell", customExercises)?.id).to.eql("custom-squat");
+  });
+
+  it("Exercise_findByNameAndEquipment falls back to the built-in when no custom collides", () => {
+    expect(Exercise_findByNameAndEquipment("Squat", {})?.id).to.eql("squat");
+  });
+});
+
+describe("Exercise — deleted custom exercise colliding with a built-in", () => {
+  const customExercises: IAllCustomExercises = {
+    "custom-legext": buildCustom("custom-legext", "Leg Extension", true),
+  };
+
+  it("Exercise_findIdByName resolves to the built-in, not the deleted custom", () => {
+    expect(Exercise_findIdByName("Leg Extension", customExercises)).to.eql("legExtension");
+  });
+
+  it("Exercise_findByNameAndEquipment resolves to the built-in with parsed equipment", () => {
+    const exercise = Exercise_findByNameAndEquipment("Leg Extension, Leverage Machine", customExercises);
+    expect(exercise?.id).to.eql("legExtension");
+    expect(exercise?.equipment).to.eql("leverageMachine");
+  });
+
+  it("a live custom with the same name still wins over the built-in", () => {
+    const withLive: IAllCustomExercises = {
+      ...customExercises,
+      "custom-live": buildCustom("custom-live", "Leg Extension", false),
+    };
+    expect(Exercise_findIdByName("Leg Extension", withLive)).to.eql("custom-live");
+  });
+});
+
+describe("Exercise — custom exercises named 'X' and 'X, <Equipment>' coexist", () => {
+  const customExercises: IAllCustomExercises = {
+    "custom-bare": buildCustom("custom-bare", "Chest Supported Row", false),
+    "custom-full": buildCustom("custom-full", "Chest Supported Row, Dumbbell", false),
+  };
+
+  it("exact full-name custom match wins over bare-name custom + parsed equipment", () => {
+    const exercise = Exercise_findByNameAndEquipment("Chest Supported Row, Dumbbell", customExercises);
+    expect(exercise?.id).to.eql("custom-full");
+    expect(exercise?.equipment).to.eql(undefined);
+  });
+
+  it("bare name still resolves to the bare custom exercise", () => {
+    expect(Exercise_findByNameAndEquipment("Chest Supported Row", customExercises)?.id).to.eql("custom-bare");
+  });
+
+  it("bare custom + parsed equipment still resolves when no full-name custom exists", () => {
+    const onlyBare: IAllCustomExercises = { "custom-bare": buildCustom("custom-bare", "Chest Supported Row", false) };
+    const exercise = Exercise_findByNameAndEquipment("Chest Supported Row, Dumbbell", onlyBare);
+    expect(exercise?.id).to.eql("custom-bare");
+    expect(exercise?.equipment).to.eql("dumbbell");
+  });
+
+  it("a deleted full-name custom no longer beats the live bare-name custom", () => {
+    const withDeletedFull: IAllCustomExercises = {
+      "custom-bare": buildCustom("custom-bare", "Chest Supported Row", false),
+      "custom-full": buildCustom("custom-full", "Chest Supported Row, Dumbbell", true),
+    };
+    const exercise = Exercise_findByNameAndEquipment("Chest Supported Row, Dumbbell", withDeletedFull);
+    expect(exercise?.id).to.eql("custom-bare");
+    expect(exercise?.equipment).to.eql("dumbbell");
+  });
+
+  it("when both customs are deleted, the exact full-name custom still wins", () => {
+    const bothDeleted: IAllCustomExercises = {
+      "custom-bare": buildCustom("custom-bare", "Chest Supported Row", true),
+      "custom-full": buildCustom("custom-full", "Chest Supported Row, Dumbbell", true),
+    };
+    const exercise = Exercise_findByNameAndEquipment("Chest Supported Row, Dumbbell", bothDeleted);
+    expect(exercise?.id).to.eql("custom-full");
+    expect(exercise?.equipment).to.eql(undefined);
+  });
+
+  it("a live full-name custom wins over a deleted bare-name custom", () => {
+    const deletedBare: IAllCustomExercises = {
+      "custom-bare": buildCustom("custom-bare", "Chest Supported Row", true),
+      "custom-full": buildCustom("custom-full", "Chest Supported Row, Dumbbell", false),
+    };
+    expect(Exercise_findByNameAndEquipment("Chest Supported Row, Dumbbell", deletedBare)?.id).to.eql("custom-full");
+  });
+
+  it("built-in bare-name match still wins over a full-name custom", () => {
+    const fullOnly: IAllCustomExercises = {
+      "custom-full": buildCustom("custom-full", "Squat, Barbell", false),
+    };
+    expect(Exercise_findByNameAndEquipment("Squat, Barbell", fullOnly)?.id).to.eql("squat");
   });
 });

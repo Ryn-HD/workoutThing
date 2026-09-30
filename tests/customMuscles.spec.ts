@@ -10,7 +10,7 @@ import {
 
 test("Custom Muscles", async ({ page }) => {
   await page.goto(startpage + "?skipintro=1");
-  PlaywrightUtils_disableTours(page);
+  await PlaywrightUtils_disableTours(page);
   await PlaywrightUtils_createProgram(page, "My Program");
 
   await page.getByTestId("tab-edit").click();
@@ -54,6 +54,7 @@ Bench Press / 10x5 / 100lb`
 
   await page.getByTestId("footer-program").click();
   await page.getByTestId("tab-edit").click();
+  await page.getByTestId("editor-v2-ui-program").click();
   await page.getByTestId("editor-v2-week-muscles").click();
 
   await expect(page.getByTestId("planner-stats")).toContainText("Chest: 10");

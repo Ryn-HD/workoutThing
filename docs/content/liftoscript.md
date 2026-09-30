@@ -46,21 +46,25 @@ Bench Press / 1x5, 1x3, 1x1, 5x5
 
 That would be 8 sets total - first 5 reps, then 3 reps, 1 rep, and then 5 sets of 5 reps.
 
-If you don't specify the weight, it'll use the weight calculated from
-<abbr title="RPE - Rate of Perceived Exertion - is a way to measure how close you are to failure. It's a scale from 1 to 10, where 1 is very easy, and 10 is failure.">RPE</abbr>
-tables, like [this one](/blog/images/rpetable.png). By default it'll assume you want to do exercises til failure (@10 RPE), so e.g. if you write:
+If you specify neither the weight nor the
+<abbr title="RPE - Rate of Perceived Exertion - is a way to measure how close you are to failure. It's a scale from 1 to 10, where 1 is very easy, and 10 is failure.">RPE</abbr>,
+like here:
 
 ```liftoscript
 Bench Press / 3x12
 ```
 
-It'll check in the RPE table that for if you want to do 12 reps til failure (@10 RPE), you probably should use 65% of 1RM, so it'll set the weight to 65% of 1RM under the hood. If you don't want to go to full failure, you can specify desired RPE:
+then the weight field will be empty during the workout, and you'll have to enter the weight yourself to finish a set.
+
+But if you specify the RPE, the weight will be calculated from RPE tables, like [this one](/blog/images/rpetable.png). So, if you write:
 
 ```liftoscript
 Bench Press / 3x12 @8
 ```
 
-Then the weight would be lower - 60%. You can specify the weight explicitly, as a percentage of 1RM, like this:
+it'll check in the RPE table that for 12 reps at @8 RPE you probably should use 60% of 1RM, so it'll set the weight to 60% of 1RM under the hood. @10 RPE means going til failure - for 12 reps that'd be 65% of 1RM.
+
+You can specify the weight explicitly, as a percentage of 1RM, like this:
 
 ```liftoscript
 Bench Press / 3x12 80%
@@ -389,7 +393,7 @@ Squat / 3x8 / progress: lp(5lb, 2)
 /// increase by 5lb after 2 successful attempts, and already had 1 successful attempt
 Squat / 3x8 / progress: lp(5lb, 2, 1)
 
-/// increase by 5lb after 1 successful attempt, and decrease by 10lb after 3 unsuccessful
+/// increase by 5lb after 2 successful attempt, and decrease by 10lb after 3 unsuccessful
 Squat / 3x8 / progress: lp(5lb, 2, 1, 10lb, 3)
 
 /// You can also use percentages for increase (instead of absolute values)
@@ -1132,6 +1136,34 @@ Note the exclamation mark `!` at `6x2` - that means that this is the current set
 
 So, to define the set variations you just list them separated by `/`, and then use the `setVariationIndex` in the script to define the logic when to choose which set variation. And the app tracks which one is the current one by the `!` character.
 
+### Exercise Variations
+
+While set variations let you switch between different **sets x reps schemes**, exercise variations let you switch between different **exercises** (movements) within the same program exercise. This is useful for **progression ladders** - for example, the r/bodyweightfitness Recommended Routine, where you graduate from an easier movement to a harder one once you can do enough reps.
+
+To define exercise variations, list the exercises separated by `|` in the exercise name section:
+
+```liftoscript
+Split Squat | Bulgarian Split Squat | Pistol Squat / 3x8 / progress: custom() {~
+  if (completedReps >= reps) {
+    exerciseVariationIndex += 1
+  }
+~}
+```
+
+There, once you hit the target reps, `exerciseVariationIndex` increments, which switches the current exercise from `Split Squat` to `Bulgarian Split Squat`, and then to `Pistol Squat`. The current variation is marked with a `!` (same convention as set variations), and the app moves the `!` as `exerciseVariationIndex` changes:
+
+```liftoscript
+Split Squat | ! Bulgarian Split Squat | Pistol Squat / 3x8 / progress: custom() {~
+```
+
+The first variation is the current one by default, so you don't need to put a `!` on it. `exerciseVariationIndex` is 1-based and wraps around (assigning past the last variation goes back to the first).
+
+A few important notes:
+
+- The **sets, reps, weights, and progress logic are shared** by all variations - only the movement itself changes. If you need a different set scheme per movement, combine this with set variations. Note that `%` and RPE weights resolve against the **current** variation's own 1RM, so the same `75%` gives a movement-appropriate load on each rung.
+- An exercise with multiple variations **cannot be used as a reuse target** (e.g. `...Squat`). If you need to share sets/progress from a laddered exercise, move them into a `used: none` template and reuse that instead. A multi-variation exercise can still be a reuse **consumer**.
+- The label is taken from the first variation only.
+
 ### Advanced Descriptions
 
 Similarly to set variations, you can specify mutliple descriptions per exercise, and switch between the current one by assigning to the `descriptionIndex` variable. The current one is marked the same as in set variations - by `!`.
@@ -1313,6 +1345,7 @@ You cannot assign values to them, but you can use their values. They are:
 - `numberOfSets` or `ns` - how many sets were in the exercise.
 - `completedNumberOfSets` - how many sets are completed (by a checkmark).
 - `setVariationIndex` - current set variation index (see below about set variations)
+- `exerciseVariationIndex` - current exercise variation index (see below about exercise variations)
 - `descriptionIndex` - current description index
 - `amraps[n]` - whether the set is AMRAP, `1` for AMRAP, `0` for not AMRAP
 - `logrpes[n]` - whether to ask user what was the actual RPE, `1` to ask, `0` to not ask
@@ -1338,6 +1371,7 @@ You assign new values to them.
 - `askweights[week:day:setvariation:set]` - whether to ask user what was the actual weight, `1` to ask, `0` to not ask
 - `rm1` - 1 Rep Max of a current exercise.
 - `setVariationIndex` - index of the current set variation
+- `exerciseVariationIndex` - index of the current exercise variation
 - `descriptionIndex` - index of the current description
 - `numberOfSets[week:day:setvariation]` - number of sets for the exercise in this workout
 

@@ -1,10 +1,17 @@
-import { JSX, memo, useCallback, useMemo, useState } from "react";
+import { JSX, memo, useCallback, useMemo, useRef, useState } from "react";
 import { View, Pressable, Platform } from "react-native";
 import { Text } from "./primitives/text";
-import { IHistoryEntry, IHistoryRecord, IProgramState, ISettings, IStats, ISubscription } from "../types";
-import { IState, updateProgress, updateSettings, updateState } from "../models/state";
+import {
+  IHistoryEntry,
+  IHistoryRecord,
+  IProgramState,
+  IProgressMode,
+  ISettings,
+  IStats,
+  ISubscription,
+} from "../types";
+import { updateProgress, updateSettings } from "../models/state";
 import { lb } from "lens-shmens";
-import { ExerciseImage } from "./exerciseImage";
 import {
   Exercise_get,
   Exercise_getNotes,
@@ -16,11 +23,18 @@ import { IconArrowRight } from "./icons/iconArrowRight";
 import { ActionSheet_show } from "../utils/actionSheet";
 import { LinkButton } from "./linkButton";
 import { ProgramExercise_doesUse1RM } from "../models/programExercise";
-import { Weight_print, Weight_build } from "../models/weight";
-import { WorkoutPlatesCalculator } from "./workoutPlatesCalculator";
+import { Weight_print } from "../models/weight";
 import { Markdown } from "./markdown";
+import {
+  IWorkoutSetExpansionOverride,
+  WorkoutSetExpansion_expanded,
+  WorkoutSetExpansion_shouldCollapseSetsAfterComplete,
+  WorkoutSetExpansion_toggle,
+} from "../utils/workoutSetExpansion";
+import { WorkoutHints_recordUseInState } from "../utils/workoutHintsDispatch";
+import { IWorkoutExerciseSetsExpansion } from "./workoutExerciseAllSets";
 import { CollectionUtils_removeAt } from "../utils/collection";
-import { IconKebab } from "./icons/iconKebab";
+import { IconCog2 } from "./icons/iconCog2";
 import { Subscriptions_hasSubscription } from "../utils/subscriptions";
 import { Thunk_pushExerciseStatsScreen, Thunk_pushToEditProgramExercise } from "../ducks/thunks";
 import { WorkoutExerciseAllSets } from "./workoutExerciseAllSets";
@@ -47,10 +61,13 @@ import {
 } from "../models/equipment";
 import { PlannerProgramExercise_currentDescription } from "../pages/planner/models/plannerProgramExercise";
 import { IByExercise } from "../pages/planner/plannerEvaluator";
+import { useTrackClick } from "../utils/clickTracking";
 import { IconReorder } from "./icons/iconReorder";
+import { IconNotebook } from "./icons/iconNotebook";
 import { navigateToModal } from "../navigation/navigationService";
 import { Dialog_confirm } from "../utils/dialog";
 import { usePerfRenderCount } from "../utils/usePerfRenderCount";
+import { usePerfWhyRender } from "../utils/usePerfWhyRender";
 
 interface IWorkoutExerciseCardProps {
   entry: IHistoryEntry;
@@ -67,16 +84,18 @@ interface IWorkoutExerciseCardProps {
   settings: ISettings;
   dispatch: IDispatch;
   subscription: ISubscription;
-  hidePlatesCalculator?: boolean;
   showHelp?: boolean;
   helps: string[];
   otherStates?: IByExercise<IProgramState>;
+  onTitleLayout?: (title: View) => void;
 }
 
-type IKebabAction = "edit" | "swap" | "superset" | "remove";
+type IKebabAction = "edit" | "swap" | "superset" | "notes" | "remove";
 
 function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element {
   usePerfRenderCount("WorkoutExerciseCard");
+  usePerfWhyRender("sets-grid", props as unknown as Record<string, unknown>);
+  const trackClick = useTrackClick();
   const programExerciseId = props.entry.programExerciseId;
   const programExercise = useMemo(
     () =>
@@ -95,10 +114,6 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
     ? PlannerProgramExercise_currentDescription(programExercise)
     : props.entry.descriptionSnapshot;
   const onerm = Exercise_onerm(exercise, settings);
-  const nextSet = useMemo(
-    () => [...props.entry.warmupSets, ...props.entry.sets].filter((s) => !s.isCompleted)[0],
-    [props.entry.warmupSets, props.entry.sets]
-  );
   const lbSets = useMemo(() => lb<IHistoryRecord>().p("entries").i(props.entryIndex).p("sets"), [props.entryIndex]);
   const lbWarmupSets = useMemo(
     () => lb<IHistoryRecord>().p("entries").i(props.entryIndex).p("warmupSets"),
@@ -167,6 +182,15 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
     );
   }, [dispatch, entryExercise, entryIndex, pickerSort]);
 
+  const showExerciseNotes = !!settings.workoutSettings.showExerciseNotes;
+  const toggleExerciseNotes = useCallback((): void => {
+    updateSettings(
+      dispatch,
+      lb<ISettings>().p("workoutSettings").p("showExerciseNotes").record(!showExerciseNotes),
+      "toggle-exercise-notes"
+    );
+  }, [dispatch, showExerciseNotes]);
+
   const editSuperset = useCallback((): void => {
     updateProgress(
       dispatch,
@@ -205,12 +229,17 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
   const programIdForEdit = props.program?.id;
   const editProgramExercise = useCallback((): void => {
     if (programExercise) {
-      dispatch(Thunk_pushToEditProgramExercise(programExercise.key, programExercise.dayData, programIdForEdit));
+      dispatch(
+        Thunk_pushToEditProgramExercise(programExercise.key, programExercise.dayData, {
+          workoutProgramId: programIdForEdit,
+        })
+      );
     }
   }, [dispatch, programExercise, programIdForEdit]);
 
   const runKebabAction = useCallback(
     (action: IKebabAction): void => {
+      trackClick(`workout-kebab-${action}`);
       setIsKebabMenuOpen(false);
       if (action === "edit") {
         editProgramExercise();
@@ -218,11 +247,13 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
         swapExercise();
       } else if (action === "superset") {
         editSuperset();
+      } else if (action === "notes") {
+        toggleExerciseNotes();
       } else if (action === "remove") {
         removeExercise().catch(() => undefined);
       }
     },
-    [editProgramExercise, swapExercise, editSuperset, removeExercise]
+    [editProgramExercise, swapExercise, editSuperset, toggleExerciseNotes, removeExercise, trackClick]
   );
 
   const kebabActions = useMemo<Array<{ action: IKebabAction; label: string }>>(() => {
@@ -232,28 +263,74 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
     }
     actions.push({ action: "swap", label: "Swap Exercise" });
     actions.push({ action: "superset", label: "Edit Superset" });
+    actions.push({ action: "notes", label: showExerciseNotes ? "Hide Exercise Notes" : "Show Exercise Notes" });
     actions.push({ action: "remove", label: "Remove Exercise" });
     return actions;
-  }, [programExercise, programExerciseId]);
+  }, [programExercise, programExerciseId, showExerciseNotes]);
 
   const helps = props.helps;
-  const onStopShowingHint = useCallback((): void => {
-    if (!helps.includes("swipeable-set")) {
-      updateState(
-        dispatch,
-        [
-          lb<IState>()
-            .p("storage")
-            .p("helps")
-            .recordModify((hs) => Array.from(new Set([...hs, "swipeable-set"]))),
-        ],
-        "Stop showing swipe hint"
+  const [expansionOverride, setExpansionOverride] = useState<IWorkoutSetExpansionOverride>(undefined);
+  const [isSetMenuOpen, setIsSetMenuOpen] = useState(false);
+  const shouldCollapseSets = !!settings.workoutSettings.shouldCollapseSets;
+  const expandedSetValue = WorkoutSetExpansion_expanded(entry, expansionOverride, shouldCollapseSets);
+  const expandedSet = useMemo(() => expandedSetValue, [expandedSetValue?.mode, expandedSetValue?.setIndex]);
+  // Read through a ref, so the callback survives a set completion and the other rows skip rendering.
+  const toggleInputRef = useRef({ entry, expansionOverride, helps, shouldCollapseSets, expandedSet });
+  toggleInputRef.current = { entry, expansionOverride, helps, shouldCollapseSets, expandedSet };
+  const onToggleExpand = useCallback(
+    (mode: IProgressMode, setIndex: number): void => {
+      const current = toggleInputRef.current;
+      const next = WorkoutSetExpansion_toggle(
+        current.entry,
+        current.expansionOverride,
+        current.shouldCollapseSets,
+        mode,
+        setIndex
       );
-    }
-  }, [dispatch, helps]);
+      setExpansionOverride(next);
+      trackClick(next?.kind === "collapsed" ? "workout-set-collapse" : "workout-set-expand");
+      if (next?.kind === "expanded") {
+        WorkoutHints_recordUseInState(dispatch, current.helps, "workout-set-expand");
+      }
+    },
+    [dispatch, trackClick]
+  );
+  const onCompleteSet = useCallback(
+    (mode: IProgressMode, setIndex: number): void => {
+      const current = toggleInputRef.current;
+      const next = WorkoutSetExpansion_shouldCollapseSetsAfterComplete(
+        current.entry,
+        current.expandedSet,
+        current.shouldCollapseSets,
+        mode,
+        setIndex
+      );
+      if (next !== current.shouldCollapseSets) {
+        updateSettings(
+          dispatch,
+          lb<ISettings>().p("workoutSettings").p("shouldCollapseSets").record(next),
+          "toggle-collapse-sets"
+        );
+      }
+    },
+    [dispatch]
+  );
+  const isMultiweek = (props.program?.weeks.length ?? 0) > 1;
+  const expansion = useMemo<IWorkoutExerciseSetsExpansion>(
+    () => ({
+      expanded: expandedSet,
+      onToggle: onToggleExpand,
+      onComplete: onCompleteSet,
+      prevData: props.prevData,
+      isMultiweek,
+      onMenuOpenChange: setIsSetMenuOpen,
+    }),
+    [expandedSet, onToggleExpand, onCompleteSet, props.prevData, isMultiweek]
+  );
 
   const subscription = props.subscription;
   const onTargetClick = useCallback((): void => {
+    trackClick("workout-target-type");
     updateSettings(
       dispatch,
       lb<ISettings>()
@@ -264,9 +341,11 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
         ),
       "Change target type"
     );
-  }, [dispatch, subscription, currentEquipmentName]);
+    WorkoutHints_recordUseInState(dispatch, helps, "workout-target-switch");
+  }, [dispatch, subscription, currentEquipmentName, trackClick, helps]);
 
   const onKebabPress = useCallback((): void => {
+    trackClick("workout-exercise-kebab");
     if (Platform.OS === "web") {
       setIsKebabMenuOpen(true);
       return;
@@ -284,11 +363,20 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
         }
       }
     );
-  }, [kebabActions, runKebabAction]);
+  }, [kebabActions, runKebabAction, trackClick]);
+
+  const titleRef = useRef<View>(null);
+  const { onTitleLayout: onTitleLayoutProp } = props;
+  const onTitleLayout = useCallback(() => {
+    if (titleRef.current != null) {
+      onTitleLayoutProp?.(titleRef.current);
+    }
+  }, [onTitleLayoutProp]);
 
   const onPressExerciseStats = useCallback(() => {
+    trackClick("workout-exercise-stats");
     dispatch(Thunk_pushExerciseStatsScreen(entryExercise));
-  }, [dispatch, entryExercise]);
+  }, [dispatch, entryExercise, trackClick]);
 
   const onChangeNotes = useCallback(
     (text: string) => {
@@ -301,9 +389,10 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
   const onKebabEdit = useCallback(() => runKebabAction("edit"), [runKebabAction]);
   const onKebabSwap = useCallback(() => runKebabAction("swap"), [runKebabAction]);
   const onKebabSuperset = useCallback(() => runKebabAction("superset"), [runKebabAction]);
+  const onKebabNotes = useCallback(() => runKebabAction("notes"), [runKebabAction]);
   const onKebabRemove = useCallback(() => runKebabAction("remove"), [runKebabAction]);
 
-  const kebabMenuZIndex = Platform.OS === "web" && isKebabMenuOpen ? { zIndex: 50 } : undefined;
+  const kebabMenuZIndex = Platform.OS === "web" && (isKebabMenuOpen || isSetMenuOpen) ? { zIndex: 50 } : undefined;
 
   return (
     <View
@@ -317,20 +406,14 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
     >
       <View className="px-4" style={kebabMenuZIndex}>
         <View className="flex-row gap-2" style={kebabMenuZIndex}>
-          <Pressable
-            onPress={onPressExerciseStats}
-            className="self-center rounded-lg bg-background-image"
-            data-testid="workout-exercise-image"
-            testID="workout-exercise-image"
-          >
-            <ExerciseImage settings={props.settings} width={48} exerciseType={exerciseType} size="small" />
-          </Pressable>
-          <View className="flex-1 min-w-0 mt-2 ml-2">
+          <View className="flex-1 min-w-0 mt-2">
             <Pressable
+              ref={titleRef}
               className="flex-row items-center"
               data-testid="exercise-name"
               testID="exercise-name"
               onPress={onPressExerciseStats}
+              onLayout={onTitleLayout}
             >
               <Text className="pr-1 text-lg font-bold">{Exercise_nameWithEquipment(exercise, props.settings)}</Text>
               <IconArrowRight />
@@ -388,12 +471,12 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
             <Pressable
               data-testid="exercise-options"
               testID="exercise-options"
-              className="px-4 py-2"
+              className="p-4"
               style={{ marginRight: -12 }}
               onPress={onKebabPress}
               hitSlop={16}
             >
-              <IconKebab />
+              <IconCog2 />
             </Pressable>
             {Platform.OS === "web" && isKebabMenuOpen && (
               <DropdownMenu rightOffset="2rem" onClose={onCloseKebabMenu} maxWidth="20rem">
@@ -430,6 +513,18 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
                   </View>
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  data-testid="exercise-notes-toggle"
+                  testID="exercise-notes-toggle"
+                  onClick={onKebabNotes}
+                >
+                  <View className="flex-row items-center" style={{ gap: 8 }}>
+                    <IconNotebook size={18} />
+                    <Text className="whitespace-nowrap">
+                      {showExerciseNotes ? "Hide Exercise Notes" : "Show Exercise Notes"}
+                    </Text>
+                  </View>
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   data-testid="edit-exercise-kebab-remove-exercise"
                   testID="edit-exercise-kebab-remove-exercise"
                   onClick={onKebabRemove}
@@ -459,45 +554,34 @@ function WorkoutExerciseCardInner(props: IWorkoutExerciseCardProps): JSX.Element
           <View>
             <GroupHeader name={`Previous Note (from ${DateUtils_format(timestamp)})`} />
             <View className="pl-1 mb-1 border-purplev3-300" style={{ borderLeftWidth: 4 }}>
-              <Text className="text-sm select-text">{lastNote}</Text>
+              {/* An Android text selection keeps its page on screen, so the exercise pager snaps back to it */}
+              <Text className={Platform.OS === "web" ? "text-sm select-text" : "text-sm"}>{lastNote}</Text>
             </View>
           </View>
         )}
-        <View>
-          <TextareaAutogrow
-            debounceMs={1000}
-            data-testid="exercise-notes-input"
-            testID="exercise-notes-input"
-            id="exercise-notes"
-            maxLength={4095}
-            name="exercise-notes"
-            placeholder="Add workout notes for this exercise here..."
-            value={props.entry.notes}
-            onChangeText={onChangeNotes}
-            className="mt-1"
-          />
-        </View>
-      </View>
-      {!props.hidePlatesCalculator &&
-        !!nextSet &&
-        !!currentEquipmentName &&
-        !!(nextSet.completedWeight || nextSet.weight) && (
-          <View className="mx-4">
-            <WorkoutPlatesCalculator
-              entry={props.entry}
-              weight={nextSet.completedWeight ?? nextSet.weight ?? Weight_build(0, props.settings.units)}
-              subscription={props.subscription}
-              settings={props.settings}
-              dispatch={props.dispatch}
+        {showExerciseNotes && (
+          <View>
+            <TextareaAutogrow
+              debounceMs={1000}
+              data-testid="exercise-notes-input"
+              testID="exercise-notes-input"
+              id="exercise-notes"
+              maxLength={4095}
+              name="exercise-notes"
+              placeholder="Add workout notes for this exercise here..."
+              value={props.entry.notes}
+              onChangeText={onChangeNotes}
+              className="mt-1"
             />
           </View>
         )}
-      <View className="mt-1">
+      </View>
+      <View className="mt-2">
         <WorkoutExerciseAllSets
           stats={props.stats}
           isPlayground={false}
           helps={props.helps}
-          onStopShowingHint={onStopShowingHint}
+          expansion={expansion}
           isCurrentProgress={props.isCurrentProgress}
           day={props.day}
           program={props.program}

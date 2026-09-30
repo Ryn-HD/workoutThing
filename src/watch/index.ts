@@ -1,5 +1,6 @@
 declare let __BUNDLE_VERSION_WATCH_IOS__: number;
 declare let __BUNDLE_VERSION_WATCH_ANDROID__: number;
+declare let __COMMIT_HASH__: string;
 
 // These markers are used by native apps to detect watch bundle version changes
 const BUNDLE_VERSION_WATCH_IOS = __BUNDLE_VERSION_WATCH_IOS__;
@@ -8,6 +9,10 @@ const BUNDLE_VERSION_WATCH_ANDROID = __BUNDLE_VERSION_WATCH_ANDROID__;
 void BUNDLE_VERSION_WATCH_IOS;
 // eslint-disable-next-line no-void
 void BUNDLE_VERSION_WATCH_ANDROID;
+
+// Runs at eval time, so it reports which bundle the engine actually loaded — the embedded one or
+// whichever update is active. The only way to tell them apart from a device log.
+console.log(`watch bundle commit ${__COMMIT_HASH__}`);
 
 import {
   Program_evaluate,
@@ -45,6 +50,7 @@ import {
   IUnit,
   IPercentageUnit,
   IProgram,
+  ITimedSetSide,
 } from "../types";
 import { IEither } from "../utils/types";
 import { getLatestMigrationVersion } from "../migrations/migrations";
@@ -68,6 +74,8 @@ import {
   Progress_checkSetTimer,
   Progress_isSetTimerCheckDue,
   Progress_closeTimedSet,
+  Progress_startSetTimerWork,
+  Progress_getActiveSetTimer,
 } from "../models/progress";
 import { Equipment_getUnitOrDefaultForExerciseType } from "../models/equipment";
 import {
@@ -79,9 +87,17 @@ import { Collector } from "../utils/collector";
 import { Muscle_getMuscleGroupName } from "../models/muscle";
 import { SendMessage_toIos } from "../utils/sendMessage";
 import { LiveActivityManager_updateProgressLiveActivity } from "../utils/liveActivityManager";
+import { INativeEffect, INativeEffectBridges, NativeEffects_apply } from "../models/nativeEffects";
+import { TimerBridge } from "../utils/nativeTimerBridge";
+import { WorkoutBridge } from "../utils/nativeWorkoutBridge";
+import { WatchBridge } from "../utils/nativeWatchBridge";
+import { WorkoutMirroring } from "../utils/nativeWorkoutMirroringBridge";
+import { TimedSet_toView, TimedSet_withRecorded } from "../models/timedSet";
 import { Subscriptions_hasSubscription } from "../utils/subscriptions";
 import { lg } from "../utils/posthog";
 import { CollectionUtils_uniqByExpr } from "../utils/collection";
+import { WatchStorageFilter_filterForPhone } from "../utils/watchStorageFilter";
+import { WatchHistoryPrune_prune } from "../utils/watchHistoryPrune";
 
 export interface IWatchHistoryRecord {
   dayName: string;
@@ -136,6 +152,8 @@ export interface IWatchSetTimerModal {
   // Work-set index (excludes warmups) — what recordSetTimer/closeSetTimer expect.
   setIndex: number;
   startedAt: number;
+  phase: "getReady" | "work";
+  getReady: number;
   setTimer: number;
   isOverflow: boolean;
   isCompleted: boolean;
@@ -145,6 +163,9 @@ export interface IWatchSetTimerModal {
   // 1-based, counted across warmups+work (the absolute index) to match the rest timer view.
   currentSet: number;
   totalSets: number;
+  phaseId: string;
+  side: ITimedSetSide;
+  recordedThisSide: boolean;
 }
 
 export interface IWatchWorkoutStatus {
@@ -155,6 +176,14 @@ export interface IWatchWorkoutStatus {
 
 export interface IWatchCompleteSetResult {
   amrapModal?: IWatchAmrapModal;
+}
+
+// Crown edits that haven't reached storage yet, sent along with the completion that would otherwise race
+// them. An absent field means "keep whatever storage has" — see WatchSetLogValues on the Swift side.
+export interface IWatchSetLogValues {
+  reps?: number;
+  repsLeft?: number;
+  weight?: number;
 }
 
 export interface IWatchSet {
@@ -175,6 +204,7 @@ export interface IWatchSet {
   completedWeight?: IWeight;
   completedRpe?: number;
   completedSetTimer?: number;
+  completedSetTimerLeft?: number;
   status: IWatchSetStatus;
   plates?: string;
   isWarmup: boolean;
@@ -250,6 +280,7 @@ function setToWatchSet(
     completedWeight: set.completedWeight,
     completedRpe: set.completedRpe,
     completedSetTimer: set.completedSetTimer,
+    completedSetTimerLeft: isUnilateral ? set.completedSetTimerLeft : undefined,
     status: isWarmup ? Reps_setWarmupStatus([set]) : Reps_setsStatus([set]),
     plates,
     isWarmup,
@@ -258,6 +289,13 @@ function setToWatchSet(
 }
 
 // Cache validated storage to avoid re-parsing/validating on every call
+const watchBridges: INativeEffectBridges = {
+  timer: new TimerBridge(),
+  workout: new WorkoutBridge(),
+  watch: new WatchBridge(),
+  mirroring: new WorkoutMirroring(),
+};
+
 let cachedStorage: IStorage | null = null;
 let cachedStorageVersion: number = 0; // Incremented on each mutation
 let hasValidatedOnceThisSession: boolean = false; // Only validate once per app session
@@ -411,13 +449,15 @@ class LiftosaurWatch {
   private static modifyStorage(
     storageJson: string,
     deviceId: string,
-    cb: (storage: IStorage) => IEither<IStorage, string>
+    cb: (storage: IStorage, effects: INativeEffect[]) => IEither<IStorage, string>
   ): string {
     return this.getStorage<IStorage>(storageJson, (storage) => {
-      const newStorageResult = cb(storage);
+      const effects: INativeEffect[] = [];
+      const newStorageResult = cb(storage, effects);
       if (!newStorageResult.success) {
         return { success: false, error: newStorageResult.error };
       }
+      NativeEffects_apply(watchBridges, effects);
       const newStorage = newStorageResult.data;
       const newVersions = Storage_updateVersions(storage, newStorage, deviceId);
       newStorage._versions = newVersions;
@@ -430,13 +470,15 @@ class LiftosaurWatch {
   private static modifyStorageFresh(
     storageJson: string,
     deviceId: string,
-    cb: (storage: IStorage) => IEither<IStorage, string>
+    cb: (storage: IStorage, effects: INativeEffect[]) => IEither<IStorage, string>
   ): string {
     return this.getStorageFresh<IStorage>(storageJson, (storage) => {
-      const newStorageResult = cb(storage);
+      const effects: INativeEffect[] = [];
+      const newStorageResult = cb(storage, effects);
       if (!newStorageResult.success) {
         return { success: false, error: newStorageResult.error };
       }
+      NativeEffects_apply(watchBridges, effects);
       const newStorage = newStorageResult.data;
       const newVersions = Storage_updateVersions(storage, newStorage, deviceId);
       newStorage._versions = newVersions;
@@ -507,14 +549,14 @@ class LiftosaurWatch {
   }
 
   public static finishWorkout(storageJson: string, deviceId: string): string {
-    return this.modifyStorage(storageJson, deviceId, (storage) => {
+    return this.modifyStorage(storageJson, deviceId, (storage, effects) => {
       const progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No progress to finish" };
       }
       lg("watch-finish-workout", { workout: JSON.stringify(progress) });
       lg("ls-finish-workout");
-      const newStorage = Progress_finishWorkout(storage, progress);
+      const newStorage = Progress_finishWorkout(effects, storage, progress);
       return { success: true, data: newStorage };
     });
   }
@@ -566,7 +608,7 @@ class LiftosaurWatch {
       if (lastSyncedStorage.version != null && unrunMigrations(lastSyncedStorage).length > 0) {
         lastSyncedStorage = runMigrations(lastSyncedStorage);
       }
-      const update: IStorageUpdate2 = Sync_getStorageUpdate2(currentStorage, lastSyncedStorage, deviceId);
+      const update: IStorageUpdate2 = Sync_getStorageUpdate2(currentStorage, lastSyncedStorage._versions, deviceId);
       return JSON.stringify(update);
     } catch (e) {
       return JSON.stringify({ error: String(e) });
@@ -612,7 +654,7 @@ class LiftosaurWatch {
     restTimer: number,
     restTimerSince: number
   ): string {
-    return this.modifyStorageFresh(storageJson, deviceId, (storage): IEither<IStorage, string> => {
+    return this.modifyStorageFresh(storageJson, deviceId, (storage, effects): IEither<IStorage, string> => {
       const progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No active workout" };
@@ -637,6 +679,7 @@ class LiftosaurWatch {
         console.log(`Main App: Set already completed, refreshing live activity`);
         const program = getProgram(storage);
         LiveActivityManager_updateProgressLiveActivity(
+          effects,
           program,
           progress,
           storage.settings,
@@ -649,6 +692,7 @@ class LiftosaurWatch {
         return { success: true, data: storage };
       }
       const newProgress = Progress_completeSetAction(
+        effects,
         storage.settings,
         storage.stats,
         progress,
@@ -683,7 +727,7 @@ class LiftosaurWatch {
     setIndex: number,
     skipLiveActivityUpdate: boolean
   ): string {
-    return this.modifyStorageFresh(storageJson, deviceId, (storage): IEither<IStorage, string> => {
+    return this.modifyStorageFresh(storageJson, deviceId, (storage, effects): IEither<IStorage, string> => {
       const progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No active workout" };
@@ -701,6 +745,7 @@ class LiftosaurWatch {
         );
         if (!skipLiveActivityUpdate) {
           LiveActivityManager_updateProgressLiveActivity(
+            effects,
             program,
             progress,
             storage.settings,
@@ -713,6 +758,7 @@ class LiftosaurWatch {
         }
       } else {
         const newProgress = Progress_updateTimer(
+          effects,
           progress,
           program,
           action === "increase" ? timer + 15 : Math.max(0, timer - 15),
@@ -733,8 +779,22 @@ class LiftosaurWatch {
     });
   }
 
-  public static completeSet(storageJson: string, deviceId: string, entryIndex: number, globalSetIndex: number): string {
-    return this.modifyStorage(storageJson, deviceId, (storage): IEither<IStorage, string> => {
+  public static completeSet(
+    storageJson: string,
+    deviceId: string,
+    entryIndex: number,
+    globalSetIndex: number,
+    logValuesJson?: string
+  ): string {
+    let logValues: IWatchSetLogValues | undefined;
+    if (logValuesJson) {
+      try {
+        logValues = JSON.parse(logValuesJson) as IWatchSetLogValues;
+      } catch (e) {
+        // A malformed payload must not block logging the set — fall back to the stored values.
+      }
+    }
+    return this.modifyStorage(storageJson, deviceId, (storage, effects): IEither<IStorage, string> => {
       let progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No active workout" };
@@ -742,7 +802,7 @@ class LiftosaurWatch {
       if (progress.amrapModal) {
         progress = { ...progress, amrapModal: undefined };
       }
-      const entry = progress.entries[entryIndex];
+      let entry = progress.entries[entryIndex];
       if (!entry) {
         return { success: false, error: "Entry not found" };
       }
@@ -753,12 +813,38 @@ class LiftosaurWatch {
       const mode: IProgressMode = isWarmup ? "warmup" : "workout";
       const setIndex = isWarmup ? globalSetIndex : globalSetIndex - warmupSetsCount;
 
+      // Crown edits on the watch are debounced, so a value dialed in right before the tap may not have
+      // been written yet. Those values ride along with the completion and are applied here, in the same
+      // mutation — otherwise the update script below runs against the target reps/weight (i.e. the top of
+      // a rep range) rather than what was actually done.
+      const setsKey = isWarmup ? "warmupSets" : "sets";
+      const uncommittedSet = entry[setsKey]?.[setIndex];
+      const { reps, repsLeft, weight } = logValues || {};
+      if (uncommittedSet != null && (reps != null || repsLeft != null || weight != null)) {
+        const unit =
+          uncommittedSet.completedWeight?.unit ??
+          uncommittedSet.weight?.unit ??
+          Equipment_getUnitOrDefaultForExerciseType(storage.settings, entry.exercise);
+        const newSets = [...entry[setsKey]];
+        newSets[setIndex] = {
+          ...uncommittedSet,
+          completedReps: reps ?? uncommittedSet.completedReps,
+          completedRepsLeft: repsLeft ?? uncommittedSet.completedRepsLeft,
+          completedWeight: weight != null ? { value: weight, unit } : uncommittedSet.completedWeight,
+        };
+        const newEntries = [...progress.entries];
+        entry = { ...entry, [setsKey]: newSets };
+        newEntries[entryIndex] = entry;
+        progress = { ...progress, entries: newEntries };
+      }
+
       const evaluatedProgram = getEvaluatedProgram(storage);
       const programExercise = evaluatedProgram
         ? Program_getProgramExercise(progress.day, evaluatedProgram, entry.programExerciseId)
         : undefined;
       lg("watch-complete-set");
       const newProgress = Progress_completeSetAction(
+        effects,
         storage.settings,
         storage.stats,
         progress,
@@ -797,20 +883,24 @@ class LiftosaurWatch {
 
   // Polled by the watch (e.g. every second) to drive `auto` set timer transitions; no-op otherwise.
   public static checkSetTimer(storageJson: string, deviceId: string): string {
-    return this.modifyStorage(storageJson, deviceId, (storage): IEither<IStorage, string> => {
+    return this.modifyStorage(storageJson, deviceId, (storage, effects): IEither<IStorage, string> => {
       const progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No active workout" };
       }
       const evaluatedProgram = getEvaluatedProgram(storage);
-      const stm = progress.setTimer;
-      const entryIndex = stm?.entryIndex ?? progress.timerEntryIndex;
+      // Must include the countdown, like Thunk_checkSetTimer does: a watch that wakes after both the
+      // countdown and the work window elapsed settles both in one pass, and resolving the context from
+      // setTimer alone leaves programExercise undefined - the update script never runs.
+      const entryIndex =
+        progress.setTimer?.entryIndex ?? progress.setTimerGetReady?.entryIndex ?? progress.timerEntryIndex;
       const entry = entryIndex != null ? progress.entries[entryIndex] : undefined;
       const programExercise =
         evaluatedProgram && entry
           ? Program_getProgramExercise(progress.day, evaluatedProgram, entry.programExerciseId)
           : undefined;
       const newProgress = Progress_checkSetTimer(
+        effects,
         storage.settings,
         storage.stats,
         progress,
@@ -830,33 +920,27 @@ class LiftosaurWatch {
       if (!progress) {
         return { success: true, data: undefined };
       }
-      const stm = progress.setTimer;
-      // A timed AMRAP set keeps progress.setTimer set behind the amrap modal (see Progress_proceedAfterTimedSet);
-      // yield to the amrap screen here like the in-app banner does, then re-present after it resolves (keep) or
-      // stay gone (record).
-      if (!stm || progress.amrapModal != null) {
+      const view = TimedSet_toView(progress, Progress_getActiveSetTimer(progress), storage.settings);
+      if (view == null) {
         return { success: true, data: undefined };
       }
-      const entry = progress.entries[stm.entryIndex];
-      const set = entry?.sets[stm.setIndex];
-      if (!entry || !set) {
-        return { success: true, data: undefined };
-      }
-      const settings = storage.settings;
-      const exercise = Exercise_get(entry.exercise, settings.exercises);
-      const absoluteSetIndex = entry.warmupSets.length + stm.setIndex;
       const data: IWatchSetTimerModal = {
-        entryIndex: stm.entryIndex,
-        setIndex: stm.setIndex,
-        startedAt: stm.startedAt,
-        setTimer: set.setTimer ?? 0,
-        isOverflow: !!set.isOverflowSetTimer,
-        isCompleted: !!set.isCompleted,
-        restTimer: set.timer ?? 0,
-        exerciseName: exercise.name,
-        imageUrl: ExerciseImageUtils_url(exercise, "small", settings),
-        currentSet: absoluteSetIndex + 1,
-        totalSets: entry.warmupSets.length + entry.sets.length,
+        entryIndex: view.entryIndex,
+        setIndex: view.setIndex,
+        startedAt: view.startedAt,
+        phase: view.stage,
+        getReady: view.getReadySeconds,
+        setTimer: view.targetSeconds,
+        isOverflow: view.isOverflow,
+        isCompleted: view.isCompleted,
+        restTimer: view.restSeconds,
+        exerciseName: view.exerciseShortName,
+        imageUrl: view.imageUrl,
+        currentSet: view.currentSet,
+        totalSets: view.totalSets,
+        phaseId: view.phaseId,
+        side: view.side,
+        recordedThisSide: view.recordedThisSide,
       };
       return { success: true, data };
     });
@@ -873,7 +957,7 @@ class LiftosaurWatch {
     keepTiming: boolean,
     recordedSeconds: number
   ): string {
-    return this.modifyStorage(storageJson, deviceId, (storage): IEither<IStorage, string> => {
+    return this.modifyStorage(storageJson, deviceId, (storage, effects): IEither<IStorage, string> => {
       const progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No active workout" };
@@ -890,6 +974,7 @@ class LiftosaurWatch {
           : undefined;
       lg("watch-record-set-timer");
       const newProgress = Progress_completeSetAction(
+        effects,
         storage.settings,
         storage.stats,
         progress,
@@ -914,12 +999,24 @@ class LiftosaurWatch {
 
   // Discard the set timer banner from the watch (no recording); starts deferred rest if already logged.
   public static closeSetTimer(storageJson: string, deviceId: string): string {
+    return this.modifyStorage(storageJson, deviceId, (storage, effects): IEither<IStorage, string> => {
+      const progress = storage.progress?.[0];
+      if (!progress) {
+        return { success: false, error: "No active workout" };
+      }
+      const newProgress = Progress_closeTimedSet(effects, progress, storage.settings, storage.subscription);
+      return { success: true, data: { ...storage, progress: [newProgress] } };
+    });
+  }
+
+  public static startSetTimerWork(storageJson: string, deviceId: string): string {
+    lg("watch-start-set-timer-work");
     return this.modifyStorage(storageJson, deviceId, (storage): IEither<IStorage, string> => {
       const progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No active workout" };
       }
-      const newProgress = Progress_closeTimedSet(progress, storage.settings, storage.subscription);
+      const newProgress = Progress_startSetTimerWork(progress, Date.now());
       return { success: true, data: { ...storage, progress: [newProgress] } };
     });
   }
@@ -1018,7 +1115,8 @@ class LiftosaurWatch {
     deviceId: string,
     entryIndex: number,
     globalSetIndex: number,
-    seconds: number
+    seconds: number,
+    secondsLeft?: number
   ): string {
     lg("watch-edit-set-timer");
     return this.modifySet(storageJson, deviceId, entryIndex, globalSetIndex, (set) => {
@@ -1028,6 +1126,7 @@ class LiftosaurWatch {
         return {
           ...set,
           completedSetTimer: undefined,
+          completedSetTimerLeft: undefined,
           completedReps: undefined,
           completedRepsLeft: undefined,
           completedRpe: undefined,
@@ -1035,7 +1134,8 @@ class LiftosaurWatch {
           isCompleted: false,
         };
       }
-      return { ...set, completedSetTimer: seconds };
+      const withRight = TimedSet_withRecorded(set, "bilateral", seconds);
+      return secondsLeft != null ? TimedSet_withRecorded(withRight, "left", secondsLeft) : withRight;
     });
   }
 
@@ -1241,7 +1341,7 @@ class LiftosaurWatch {
     completedRpe?: number,
     userPromptedVarsJson?: string
   ): string {
-    return this.modifyStorage(storageJson, deviceId, (storage) => {
+    return this.modifyStorage(storageJson, deviceId, (storage, effects) => {
       const progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No active workout" };
@@ -1289,6 +1389,7 @@ class LiftosaurWatch {
 
       // Use Progress.changeAmrapAction which handles all the logic
       const newProgress = Progress_changeAmrapAction(
+        effects,
         settings,
         storage.stats,
         progress,
@@ -1341,7 +1442,7 @@ class LiftosaurWatch {
   }
 
   public static adjustRestTimer(storageJson: string, deviceId: string, adjustment: number): string {
-    return this.modifyStorage(storageJson, deviceId, (storage) => {
+    return this.modifyStorage(storageJson, deviceId, (storage, effects) => {
       const progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No active workout" };
@@ -1359,6 +1460,7 @@ class LiftosaurWatch {
       lg("watch-adjust-rest-timer");
       const newTimer = progress.timer + adjustment;
       const newProgress = Progress_updateTimer(
+        effects,
         progress,
         program,
         newTimer,
@@ -1431,13 +1533,14 @@ class LiftosaurWatch {
   }
 
   public static resumeWorkout(storageJson: string, deviceId: string): string {
-    return this.modifyStorage(storageJson, deviceId, (storage) => {
+    return this.modifyStorage(storageJson, deviceId, (storage, effects) => {
       const progress = storage.progress?.[0];
       if (!progress) {
         return { success: false, error: "No active workout" };
       }
 
       const newIntervals = History_resumeWorkout(
+        effects,
         progress,
         false,
         undefined,
@@ -1527,7 +1630,7 @@ class LiftosaurWatch {
 
       // Calculate stats using History helpers
       const timeMs = History_workoutTime(record);
-      const volume = History_totalRecordWeight(record, settings.units);
+      const volume = History_totalRecordWeight(record, settings);
       const totalSets = History_totalRecordSets(record);
       const totalReps = History_totalRecordReps(record);
 
@@ -1635,6 +1738,31 @@ class LiftosaurWatch {
       return JSON.stringify({ success: true });
     } catch (e) {
       return JSON.stringify({ success: false, error: String(e) });
+    }
+  }
+
+  // Deliberately bypasses parseStorageSync: this is a structural transform that must not touch
+  // cachedStorage, or the next mutation would run against a storage with truncated history.
+  public static filterStorageForPhone(storageJson: string, maxJsonLength: number, maxRecords: number): string {
+    try {
+      const storage = JSON.parse(storageJson) as IStorage;
+      return JSON.stringify(WatchStorageFilter_filterForPhone(storage, maxJsonLength, maxRecords));
+    } catch (e) {
+      return storageJson;
+    }
+  }
+
+  // Must not run through modifyStorage: Storage_updateVersions would write a deletion timestamp for
+  // every dropped record, and the phone and server both honour those. Cache-neutral because the
+  // caller prunes two storages, and seeding here would leave the cache holding whichever came last.
+  public static pruneHistory(storageJson: string, confirmedIdsJson: string): string {
+    try {
+      const storage = JSON.parse(storageJson) as IStorage;
+      const confirmedIds = new Set(JSON.parse(confirmedIdsJson) as string[]);
+      const pruned = WatchHistoryPrune_prune(storage, confirmedIds);
+      return pruned === storage ? storageJson : JSON.stringify(pruned);
+    } catch (e) {
+      return storageJson;
     }
   }
 }

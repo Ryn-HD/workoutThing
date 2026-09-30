@@ -53,20 +53,27 @@ class WatchConnectivityManager: NSObject, ObservableObject {
     }
 
     /// Send full storage to phone for merging (simpler than deltas, self-healing)
-    func sendStorage(_ storageJson: String, deviceId: String) {
+    func sendStorage(_ storageJson: String, deviceId: String, onSendError: (() -> Void)? = nil) {
         guard let session = session else {
             return
         }
 
-        let message: [String: Any] = [
+        var message: [String: Any] = [
             "type": "watchStorage",
-            "storage": storageJson,
             "deviceId": deviceId
         ]
+        if let compressed = StoragePayloadCompression.compressIfLarge(storageJson) {
+            Logger.wc.info(" compressing storage payload: \(storageJson.utf8.count) -> \(compressed.count) bytes")
+            message["storageZ"] = compressed
+        } else {
+            message["storage"] = storageJson
+        }
 
         if self.isReachable {
             session.sendMessage(message, replyHandler: nil, errorHandler: { error in
                 Logger.wc.info(" failed to send storage: \(error)")
+                Self.logPayloadTooLarge(error: error, storageJson: storageJson, path: "sendMessage")
+                onSendError?()
             })
         } else {
             // Use updateApplicationContext to keep only the latest (not transferUserInfo which queues all)
@@ -77,9 +84,24 @@ class WatchConnectivityManager: NSObject, ObservableObject {
             } catch {
                 // Fall back to transferUserInfo if applicationContext fails (e.g., size limit)
                 Logger.wc.info(" applicationContext failed (\(error)), falling back to transferUserInfo")
+                Self.logPayloadTooLarge(error: error, storageJson: storageJson, path: "applicationContext")
                 session.transferUserInfo(message)
             }
         }
+    }
+
+    /// The ~64KB WCSession payload cap silently kills the direct watch->phone sync channel once
+    /// storage outgrows it, so log WHAT outgrew it (per-top-level-key sizes), not just that it did.
+    private static func logPayloadTooLarge(error: Error, storageJson: String, path: String) {
+        guard (error as? WCError)?.code == .payloadTooLarge else { return }
+        let size = storageJson.utf8.count
+        let breakdown = StoragePayloadCompression.sizeBreakdown(storageJson)
+        Logger.wc.info(" storage payload too large via \(path): total=\(size) bytes, \(breakdown)")
+        WatchEventManager.shared.logNativeEvent(name: "watch-storage-too-large", extra: [
+            "path": path,
+            "size": String(size),
+            "breakdown": breakdown,
+        ])
     }
 
     func sendLiveActivityUpdate(_ message: [String: String]) {
@@ -157,7 +179,7 @@ extension WatchConnectivityManager: WCSessionDelegate {
         if activationState == .activated {
             let context = session.receivedApplicationContext
             Logger.wc.info(" receivedApplicationContext has \(context.count) keys: \(context.keys)")
-            if let storageJson = context["storage"] as? String {
+            if let storageJson = StoragePayloadCompression.extractStorageJson(context) {
                 Logger.wc.info(" found storage in receivedApplicationContext (\(storageJson.count) bytes)")
                 Task { @MainActor in
                     await WatchSyncManager.shared.handleIncomingStorage(storageJson)
@@ -178,6 +200,11 @@ extension WatchConnectivityManager: WCSessionDelegate {
             authRetryCount = 0
             requestAuth()
             requestStorage()
+            // The phone drops its reply to requestStorage when its own storage is unchanged, so a
+            // pull alone leaves a set completed out of range sitting on the watch.
+            Task { @MainActor in
+                WatchSyncManager.shared.retryPhoneSync()
+            }
         }
     }
 
@@ -194,25 +221,32 @@ extension WatchConnectivityManager: WCSessionDelegate {
     func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
         Logger.wc.info(" didReceiveMessage (with reply): \(message.keys)")
         if message["type"] as? String == "requestLogs" {
-            Task { @MainActor in
-                let logs = LogFileManager.shared.readLogs()
-                Logger.wc.info(" sending logs to phone (\(logs.count) bytes)")
-                replyHandler(["logs": logs])
-            }
+            let offset = message["offset"] as? Int ?? 0
+            let chunk = LogFileManager.shared.readChunk(from: offset)
+            Logger.wc.info(" sending logs to phone: offset \(offset), \(chunk.rawCount) -> \(chunk.compressed.count) bytes, done \(chunk.done)")
+            replyHandler(["logsZ": chunk.compressed, "next": chunk.next, "done": chunk.done])
             return
         }
         if message["type"] as? String == "finishWorkout" {
             let saveToHealth = message["saveToHealth"] as? Bool ?? true
             Logger.wc.info(" received finishWorkout from phone (with reply), saveToHealth: \(saveToHealth)")
             Task { @MainActor in
-                // Predict whether we'll save (a held, running session + health-sync on) and reply
-                // IMMEDIATELY — don't wait for the slow finishWorkout(), or the phone's 5s fallback
-                // could fire and double-save. The actual end/save happens in the background below.
-                let willSave = HealthKitManager.shared.isSessionActive && saveToHealth
-                Logger.wc.info(" replied watchSaved=\(willSave), ending session in background")
-                replyHandler(["watchSaved": willSave])
                 WorkoutManager.shared.clearWorkoutState()
-                await WorkoutManager.shared.reconcileHealth(.finish(save: willSave))
+                // Hold the reply until the session is ACTUALLY ended/saved, so the phone decides
+                // its estimated-calories fallback on the real outcome instead of a prediction (the
+                // old optimistic reply lost the workout entirely when the save later failed). The
+                // phone waits 20s, well within WCSession's reply window; "final" marks the reply
+                // as a real result vs the old protocol's prediction.
+                let result = await WorkoutManager.shared.finishHealthSession(save: saveToHealth)
+                let saved = saveToHealth && result.saved
+                let reason = saveToHealth ? result.reason : "save-disabled"
+                var reply: [String: Any] = ["watchSaved": saved, "final": true]
+                if let reason = reason { reply["reason"] = reason }
+                Logger.wc.info(" replying watchSaved=\(saved), reason=\(reason ?? "none")")
+                replyHandler(reply)
+                var extra = ["saved": String(saved), "trigger": "phone"]
+                if let reason = reason { extra["reason"] = reason }
+                WatchEventManager.shared.logNativeEvent(name: "watch-hk-finish", extra: extra)
             }
             return
         }
@@ -279,8 +313,15 @@ extension WatchConnectivityManager: WCSessionDelegate {
             }
         }
 
+        if data["type"] as? String == "watchStorageAck", let ids = data["ids"] as? [String] {
+            Logger.wc.info(" received storage ack for \(ids.count) history records")
+            Task { @MainActor in
+                WatchSyncManager.shared.confirmHistorySynced(ids)
+            }
+        }
+
         // Handle storage
-        if let storageJson = data["storage"] as? String {
+        if let storageJson = StoragePayloadCompression.extractStorageJson(data) {
             Logger.wc.info(" received storage (\(storageJson.count) bytes)")
             Task { @MainActor in
                 await WatchSyncManager.shared.handleIncomingStorage(storageJson)

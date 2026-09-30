@@ -14,11 +14,12 @@ import {
   Thunk_pushScreen,
   Thunk_openManageSubscriptions,
   Thunk_iapRefreshActiveSubscriptions,
+  Thunk_fetchAccounts,
 } from "../ducks/thunks";
 import { INavCommon } from "../models/state";
 import { useNavOptions } from "../navigation/useNavOptions";
 import { Button } from "./button";
-import { IAccount, Account_getAll } from "../models/account";
+import { IAccount } from "../models/account";
 import { AdminDebug_isDebugAccountId } from "../models/adminDebug";
 import { IPartialStorage } from "../types";
 import { GroupHeader } from "./groupHeader";
@@ -31,10 +32,12 @@ import { IconTrash } from "./icons/iconTrash";
 import { IconApple } from "./icons/iconApple";
 import { IconSpinner } from "./icons/iconSpinner";
 import { Dialog_confirm, Dialog_prompt, Dialog_alert } from "../utils/dialog";
+import { navigateToModal } from "../navigation/navigationService";
 import { Tailwind_colors, Tailwind_semantic } from "../utils/tailwindConfig";
 import { IIapActiveSubscription } from "../utils/iapAdapter";
 import { SubscriptionPlan_derive, ISubscriptionPlanKind, IDerivedSubscriptionPlan } from "../utils/subscriptionPlan";
 import { DateUtils_format } from "../utils/date";
+import { StoreRuntime_isIos } from "../utils/storeRuntime";
 
 declare let __HOST__: string;
 
@@ -66,9 +69,11 @@ export function ScreenAccount(props: IProps): JSX.Element {
   };
 
   function refetchAccounts(): void {
-    Account_getAll().then((accounts) => {
-      setOtherAccounts(accounts.filter((a) => a.id !== currentAccountId));
-    });
+    props.dispatch(
+      Thunk_fetchAccounts((accounts) => {
+        setOtherAccounts(accounts.filter((a) => a.id !== currentAccountId));
+      })
+    );
   }
 
   useEffect(() => {
@@ -129,7 +134,7 @@ export function ScreenAccount(props: IProps): JSX.Element {
   });
 
   return (
-    <View className="px-4">
+    <View className="px-gutter">
       <GroupHeader name="Current Account" />
       <MenuItem
         isBorderless={true}
@@ -180,6 +185,15 @@ export function ScreenAccount(props: IProps): JSX.Element {
           >
             Sign Out
           </Button>
+          <View className="mt-3">
+            <LinkButton
+              name="account-change-password"
+              className="text-sm"
+              onPress={() => navigateToModal("changePasswordModal")}
+            >
+              Change password
+            </LinkButton>
+          </View>
         </View>
       ) : (
         <View>
@@ -442,7 +456,9 @@ function buildPremiumCard(plan: IDerivedSubscriptionPlan): IPremiumCard {
         subtitle:
           plan.managedOn === "apple"
             ? "Bought on the App Store — manage it on an Apple device"
-            : "Bought on Google Play — manage it on an Android device",
+            : StoreRuntime_isIos()
+              ? "Bought on another device — manage it there"
+              : "Bought on Google Play — manage it on an Android device",
         actionLabel: "View",
         showCancel: false,
       };

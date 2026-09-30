@@ -5,7 +5,7 @@ shortDescription: "Connect AI assistants like Claude or ChatGPT to Liftosaur - c
 order: 2
 category: "Integrations"
 datePublished: "2026-03-07"
-dateModified: "2026-06-20"
+dateModified: "2026-08-24"
 ---
 
 ## What is MCP?
@@ -130,19 +130,14 @@ claude mcp add liftosaur --transport http https://www.liftosaur.com/mcp \
 
 ### ChatGPT
 
-ChatGPT calls MCP connections "Apps" (previously "Connectors"). You'll need ChatGPT Plus, Pro, Team, Enterprise, or Edu.
+Liftosaur is available in ChatGPT's Plugin Directory. You don't need to enable Developer Mode or enter the MCP server URL manually.
 
-1. Open ChatGPT
-2. Go to **Settings** -> **Apps & Connectors**
-3. Scroll down and enable **Developer Mode** under Advanced settings
-4. Go to **Settings** -> **Connectors** -> **Create**
-5. Fill in:
-   - **Name**: Liftosaur
-   - **Description**: Manage weightlifting programs and workout history
-   - **Connector URL**: `https://www.liftosaur.com/mcp`
-6. Click **Create**
-7. ChatGPT will verify the connection and show available tools
-8. On first use, you'll be redirected to sign in with your Liftosaur account
+1. Open [Liftosaur in the ChatGPT Plugin Directory](https://chatgpt.com/plugins/plugin_asdk_app_6a5bb283d24481918813e6efbc3d66ad), or open **Plugins** in ChatGPT and search for **Liftosaur**
+2. Select **Connect**
+3. Sign in with your Liftosaur account and approve access
+4. In a chat, mention **@Liftosaur** in your prompt. You can also select **+** -> **More**, then choose Liftosaur
+
+Plugin availability depends on your ChatGPT plan, region, and workspace settings. If **Connect** is disabled by your workspace administrator, ask them to enable Liftosaur for your role. See [OpenAI's guide to plugins in ChatGPT](https://help.openai.com/en/articles/20001256-plugins-in-chatgpt-and-codex) for more details.
 
 ### Gemini CLI
 
@@ -267,11 +262,11 @@ These are the tools the AI assistant can call on your behalf:
 
 | Tool | What it does |
 |------|-------------|
-| `list_measurements` | Overview of tracked body measurements (bodyweight, body parts, bodyfat): count + latest value per key |
-| `get_measurement` | Get the recorded history for one key (e.g. `weight`, `chest`, `bodyfat`), newest-first, paginated |
-| `add_measurement` | Record a new value with a unit suffix (e.g. `180lb`, `37cm`, `18%`); timestamp defaults to now |
+| `list_measurements` | Overview of tracked measurements — body (bodyweight, body parts, bodyfat) and daily health metrics (sleep, calories, protein): count + latest value per key |
+| `get_measurement` | Get the recorded history for one key (e.g. `weight`, `chest`, `bodyfat`, `sleep`, `calories`), newest-first, paginated |
+| `add_measurement` | Record a new value with a unit suffix (e.g. `180lb`, `37cm`, `18%`); timestamp defaults to now. Health keys are read-only |
 | `update_measurement` | Change the reading at a given timestamp (the timestamp itself is fixed — re-date via delete + add) |
-| `delete_measurement` | Delete a single recorded value |
+| `delete_measurement` | Delete a single recorded value (imported health records are hidden rather than deleted) |
 
 ### Testing and Analysis
 
@@ -288,6 +283,7 @@ These tools don't need authentication - the AI can call them anytime:
 |------|-------------|
 | `get_liftoscript_reference` | Liftoscript language reference - syntax, progressions, templates |
 | `get_liftoscript_examples` | Complete program examples (5/3/1, GZCLP, PPL, etc.) |
+| `get_program_design_guide` | Evidence-based program design guide - volume targets, progressions, splits, deloads |
 | `get_liftohistory_reference` | Liftoscript Workouts format reference for workout records |
 | `list_exercises` | All built-in exercise names and equipment variants |
 | `list_builtin_programs` | List of built-in programs available in the app |

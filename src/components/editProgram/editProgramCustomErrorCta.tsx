@@ -6,19 +6,21 @@ import { IPlannerState } from "../../pages/planner/models/types";
 import { ILensDispatch } from "../../utils/useLensReducer";
 import { IShortDayData } from "../../types";
 import { Exercise_createCustomExercise } from "../../models/exercise";
+import type { IEditorError } from "../../editorTypes";
 
 interface IPlannerEditorCustomCtaProps {
-  err: string;
+  err: IEditorError;
   dayData: IShortDayData;
   dispatch: ILensDispatch<IPlannerState>;
+  isInvertedColors?: boolean;
 }
 
 export function EditProgramCustomErrorCta(props: IPlannerEditorCustomCtaProps): JSX.Element {
-  const match = props.err.match(/Unknown exercise ([^\(]+)/);
-  if (!match) {
+  const details = props.err.details;
+  if (details.type !== "unknownExercise") {
     return <></>;
   }
-  const customExerciseName = match[1].trim();
+  const customExerciseName = details.data.name;
   return (
     <Pressable
       className="inline-block nm-planner-add-custom-exercise"
@@ -46,7 +48,11 @@ export function EditProgramCustomErrorCta(props: IPlannerEditorCustomCtaProps): 
         );
       }}
     >
-      <Text className="inline-block underline text-text-alwayswhite">Add custom exercise</Text>
+      <Text
+        className={`inline-block underline ${props.isInvertedColors ? "text-text-alwayswhite" : "text-xs text-text-error"}`}
+      >
+        Add custom exercise
+      </Text>
     </Pressable>
   );
 }

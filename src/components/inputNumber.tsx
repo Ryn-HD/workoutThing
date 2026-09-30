@@ -1,5 +1,6 @@
 import { JSX, useEffect, useState } from "react";
-import { View, Pressable, TextInput, Platform } from "react-native";
+import { View, Pressable, Platform } from "react-native";
+import { TextInput } from "./primitives/textInput";
 import { Text } from "./primitives/text";
 import { MathUtils_clamp, MathUtils_normalizeNumStr } from "../utils/math";
 import { StringUtils_dashcase } from "../utils/string";
@@ -12,6 +13,7 @@ interface IInputNumberProps {
   max?: number;
   type?: string;
   className?: string;
+  size?: "md" | "lg";
   onUpdate: (value: number) => void;
   "data-name"?: string;
   "data-testid"?: string;
@@ -20,6 +22,9 @@ interface IInputNumberProps {
 
 export function InputNumber(props: IInputNumberProps): JSX.Element {
   const { value = 0, label, step = 1, min, max, onUpdate } = props;
+  const isLarge = props.size === "lg";
+  const buttonCn = `items-center justify-center ${isLarge ? "w-scaled-14 h-scaled-14" : "w-scaled-10 h-scaled-10"} border rounded-lg bg-background-purpledark border-border-neutral`;
+  const signCn = isLarge ? "text-3xl font-bold leading-scaled-10" : "text-xl font-bold leading-scaled-8";
   const [text, setText] = useState(String(value));
   const testId = `input-${StringUtils_dashcase(label || "")}`;
 
@@ -37,10 +42,10 @@ export function InputNumber(props: IInputNumberProps): JSX.Element {
 
   return (
     <View className="w-full">
-      {label && <Text className="mb-1 text-xs text-text-secondary">{label}</Text>}
+      {label && <Text className={`mb-1 ${isLarge ? "text-sm" : "text-xs"} text-text-secondary`}>{label}</Text>}
       <View className="flex-row items-center gap-2">
         <Pressable
-          className="items-center justify-center w-10 h-10 border rounded-lg bg-background-purpledark border-border-neutral"
+          className={buttonCn}
           data-testid={`${testId}-minus`}
           testID={`${testId}-minus`}
           onPress={() => {
@@ -50,11 +55,11 @@ export function InputNumber(props: IInputNumberProps): JSX.Element {
             onUpdate(newValue);
           }}
         >
-          <Text className="text-xl font-bold leading-8">-</Text>
+          <Text className={signCn}>-</Text>
         </Pressable>
         <View className="flex-row items-center flex-1">
           <TextInput
-            className="w-full h-10 px-4 text-base leading-5 border rounded-lg bg-background-default border-border-prominent text-text-primary"
+            className={`w-full ${isLarge ? "h-scaled-14 text-2xl" : "h-scaled-10 text-base"} px-4 border rounded-lg bg-background-default border-border-prominent text-text-primary`}
             style={Platform.OS === "android" ? { paddingVertical: 0, includeFontPadding: false } : undefined}
             keyboardType="numeric"
             value={text}
@@ -76,7 +81,7 @@ export function InputNumber(props: IInputNumberProps): JSX.Element {
           />
         </View>
         <Pressable
-          className="items-center justify-center w-10 h-10 border rounded-lg bg-background-purpledark border-border-neutral"
+          className={buttonCn}
           data-testid={`${testId}-plus`}
           testID={`${testId}-plus`}
           onPress={() => {
@@ -86,7 +91,7 @@ export function InputNumber(props: IInputNumberProps): JSX.Element {
             onUpdate(newValue);
           }}
         >
-          <Text className="text-xl font-bold leading-8">+</Text>
+          <Text className={signCn}>+</Text>
         </Pressable>
       </View>
     </View>

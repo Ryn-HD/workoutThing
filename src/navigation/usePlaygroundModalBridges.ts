@@ -1,12 +1,14 @@
 import { useEffect, useRef } from "react";
 import { IState } from "../models/state";
 import { navigateToModal } from "./navigationService";
+import { Progress_getActiveSetTimer } from "../models/progress";
 
 interface IPlaygroundModalState {
   editSetModal: boolean;
   amrapModal: boolean;
   editModal: boolean;
   setTimerEditModal: boolean;
+  roundingModal: boolean;
   // The set-timer nonce (not a boolean) so we push only for a genuinely new timer, like workout mode does.
   setTimerNonce: number | undefined;
 }
@@ -26,8 +28,15 @@ function findActivePlaygroundModal(
       // Track the raw nonce (no amrap gating): a timed AMRAP keeps the same setTimer/nonce behind the amrap
       // modal, so the nonce comparison below naturally avoids re-pushing the set-timer route that's still
       // mounted underneath — gating on `amrapModal == null` here would instead read as a fresh open.
-      const setTimerNonce = progress.setTimer?.nonce;
-      if (ui?.editSetModal || progress.amrapModal || ui?.editModal || ui?.setTimerEditModal || setTimerNonce != null) {
+      const setTimerNonce = Progress_getActiveSetTimer(progress)?.nonce;
+      if (
+        ui?.editSetModal ||
+        progress.amrapModal ||
+        ui?.editModal ||
+        ui?.setTimerEditModal ||
+        ui?.roundingModal ||
+        setTimerNonce != null
+      ) {
         return {
           weekIndex,
           dayIndex,
@@ -36,6 +45,7 @@ function findActivePlaygroundModal(
             amrapModal: progress.amrapModal != null,
             editModal: ui?.editModal != null,
             setTimerEditModal: ui?.setTimerEditModal != null,
+            roundingModal: ui?.roundingModal != null,
             setTimerNonce,
           },
         };
@@ -52,6 +62,7 @@ export function usePlaygroundModalBridges(state: IState): void {
   const prevAmrapModal = useRef(false);
   const prevEditModal = useRef(false);
   const prevSetTimerEditModal = useRef(false);
+  const prevRoundingModal = useRef(false);
   const prevSetTimerNonce = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -102,6 +113,17 @@ export function usePlaygroundModalBridges(state: IState): void {
     }
     prevSetTimerEditModal.current = active?.modal.setTimerEditModal ?? false;
   }, [active?.modal.setTimerEditModal, active?.weekIndex, active?.dayIndex]);
+
+  useEffect(() => {
+    if (active?.modal.roundingModal && !prevRoundingModal.current) {
+      navigateToModal("roundingInfoModal", {
+        context: "playground",
+        weekIndex: active.weekIndex,
+        dayIndex: active.dayIndex,
+      });
+    }
+    prevRoundingModal.current = active?.modal.roundingModal ?? false;
+  }, [active?.modal.roundingModal, active?.weekIndex, active?.dayIndex]);
 
   useEffect(() => {
     const nonce = active?.modal.setTimerNonce;

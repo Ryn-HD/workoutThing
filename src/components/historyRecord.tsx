@@ -1,10 +1,10 @@
-import { JSX, memo } from "react";
+import { JSX, memo, useMemo } from "react";
 import { View, Pressable, Platform } from "react-native";
 import { Text } from "./primitives/text";
 import { IDispatch } from "../ducks/types";
 import { DateUtils_format } from "../utils/date";
 import { TimeUtils_formatHOrMin } from "../utils/time";
-import { Progress_isCurrent, Progress_isFullyEmptySet } from "../models/progress";
+import { Progress_isCurrent, Progress_isFullyEmptySet, Progress_getSupersetToColor } from "../models/progress";
 import { ComparerUtils_noFns } from "../utils/comparer";
 import { IHistoryRecord, ISettings } from "../types";
 import {
@@ -53,6 +53,7 @@ export const HistoryRecordView = memo((props: IProps): JSX.Element => {
   const description = isCurrent ? props.programDay?.description : undefined;
 
   const entries = historyRecord.entries;
+  const supersetToColor = useMemo(() => Progress_getSupersetToColor(entries), [entries]);
 
   const handleCardPress = (): void => {
     if (Progress_isCurrent(historyRecord)) {
@@ -113,6 +114,7 @@ export const HistoryRecordView = memo((props: IProps): JSX.Element => {
                   isOngoing={props.isOngoing}
                   isNext={isNext}
                   isLast={isNext && i === entries.length - 1}
+                  supersetColor={entry.superset != null ? supersetToColor[entry.superset] : undefined}
                   settings={props.settings}
                   showNotes={true}
                 />
@@ -169,7 +171,7 @@ interface IHistoryRecordStats {
 function HistoryRecordStats(props: IHistoryRecordStats): JSX.Element {
   const record = props.historyRecord;
   const { value: time, unit: timeUnit } = TimeUtils_formatHOrMin(History_workoutTime(record));
-  const totalWeight = History_totalRecordWeight(record, props.settings.units);
+  const totalWeight = History_totalRecordWeight(record, props.settings);
   const totalReps = History_totalRecordReps(record);
   const totalSets = History_totalRecordSets(record);
   const setsUnit = StringUtils_pluralize("set", totalSets);

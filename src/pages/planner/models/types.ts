@@ -64,6 +64,7 @@ export type IPlannerProgramExercise = {
   notused?: boolean;
   evaluatedSetVariations: IPlannerProgramExerciseEvaluatedSetVariation[];
   setVariations: IPlannerProgramExerciseSetVariation[];
+  exerciseVariations: IPlannerProgramExerciseVariation[];
   warmupSets?: IPlannerProgramExerciseWarmupSet[];
   descriptions: IProgramExerciseDescriptions;
   globals: IPlannerProgramExerciseGlobals;
@@ -82,6 +83,12 @@ export type IPlannerProgramExercise = {
 
 export interface IPlannerProgramExerciseSetVariation {
   sets: IPlannerProgramExerciseSet[];
+  isCurrent: boolean;
+}
+
+export interface IPlannerProgramExerciseVariation {
+  exerciseType?: IExerciseType;
+  name: string;
   isCurrent: boolean;
 }
 
@@ -210,6 +217,8 @@ export interface IPlannerUiFocusedExercise {
 
 export type IPlannerUiMode = "full" | "perday";
 
+export type IPlannerEditMode = "grid" | "ui" | "perday" | "full";
+
 export interface IModalExerciseUi {
   focusedExercise: IPlannerUiFocusedExercise;
   types: IExerciseKind[];
@@ -239,9 +248,6 @@ export interface IPlannerUi {
   dayUi: {
     collapsed: Set<string>;
   };
-  weekUi: {
-    collapsed: Set<string>;
-  };
   editExerciseModal?: {
     plannerExercise: IPlannerProgramExercise;
   };
@@ -264,10 +270,10 @@ export interface IPlannerUi {
   showMuscleGroupsOverride?: IExerciseType;
   showPreview?: boolean;
   fullTextError?: PlannerSyntaxError;
-  focusedDay?: IDayData & { key?: string };
   showSettingsModal?: boolean;
   tabIndex?: number;
-  mode?: "reorder" | "ui" | "perday" | "full";
+  mode?: IPlannerEditMode;
+  gridScale?: number;
 }
 
 export interface IPlannerExerciseUiEditSetBottomSheet {
@@ -280,8 +286,11 @@ export interface IPlannerExerciseUiEditSetBottomSheet {
 export interface IPlannerExerciseUi {
   modalExercise?: IModalExerciseUi;
   exercisePickerState?: IExercisePickerState;
+  exercisePickerChange?: "variationAdd" | "variationEdit";
+  exercisePickerVariationIndex?: number;
   isProgressEnabled?: boolean;
   isUpdateEnabled?: boolean;
+  isExerciseVariationsEnabled?: boolean;
   showAddStateVariableModal?: boolean;
   showEditProgressScriptModal?: boolean;
   showEditUpdateScriptModal?: boolean;

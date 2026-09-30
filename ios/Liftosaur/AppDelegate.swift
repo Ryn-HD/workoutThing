@@ -3,15 +3,11 @@ import OSLog
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
-import TikTokOpenSDKCore
 import RollbarNotifier
 import GoogleAdsOnDeviceConversion
-import AppsFlyerLib
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
-  var window: UIWindow?
-
   var reactNativeDelegate: ReactNativeDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
 
@@ -37,6 +33,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     LiftosaurEventReporterImpl.shared.registerWithMetricKit()
     _ = LiftosaurWorkoutMirroringImpl.shared
+    // A launch from a watch message never reaches setEventEmitter, so the session is activated here.
+    LiftosaurWatchImpl.shared.activateIfNeeded()
 
     if let cachedUserId = UserDefaults.standard.string(forKey: "LiftosaurCachedUserId") {
       let config = Rollbar.configuration().mutableCopy()
@@ -47,6 +45,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     ConversionManager.sharedInstance.setFirstLaunchTime(Date())
 
     RCTFastTextRegistrar.registerComponent()
+    RCTLiftoEditorRegistrar.registerComponent()
 
     let delegate = ReactNativeDelegate()
     let factory = RCTReactNativeFactory(delegate: delegate)
@@ -55,49 +54,35 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
-    window = UIWindow(frame: UIScreen.main.bounds)
-
-    factory.startReactNative(
-      withModuleName: "Liftosaur",
-      in: window,
-      launchOptions: launchOptions
-    )
-
     return true
+  }
+
+  func application(
+    _ application: UIApplication,
+    configurationForConnecting connectingSceneSession: UISceneSession,
+    options: UIScene.ConnectionOptions
+  ) -> UISceneConfiguration {
+    UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
   }
 
   func applicationWillTerminate(_ application: UIApplication) {
     LiftosaurEventReporterImpl.shared.markGracefulTermination()
   }
 
-  func application(
-    _ app: UIApplication,
-    open url: URL,
-    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-  ) -> Bool {
-    AppsFlyerLib.shared().handleOpen(url, options: options)
-    if TikTokURLHandler.handleOpenURL(url) {
-      return true
-    }
-    if RCTLinkingManager.application(app, open: url, options: options) {
-      return true
-    }
-    return false
+  func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+    LiftosaurPushImpl.shared.didRegister(deviceToken: deviceToken)
+  }
+
+  func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+    Logger.notifications.error("registerForRemoteNotifications failed: \(error.localizedDescription)")
   }
 
   func application(
     _ application: UIApplication,
-    continue userActivity: NSUserActivity,
-    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
-  ) -> Bool {
-    AppsFlyerLib.shared().continue(userActivity, restorationHandler: nil)
-    if TikTokURLHandler.handleOpenURL(userActivity.webpageURL) {
-      return true
-    }
-    if RCTLinkingManager.application(application, continue: userActivity, restorationHandler: restorationHandler) {
-      return true
-    }
-    return false
+    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    LiftosaurPushImpl.shared.didReceive(userInfo: userInfo, completion: completionHandler)
   }
 }
 
@@ -108,11 +93,48 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 
   override func bundleURL() -> URL? {
 #if DEBUG
-    RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
+    guard let hostPort = MetroLocation.hostPort() else {
+      return RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
+    }
+    // jsLocation drives the dev menu, the inspector and Metro-initiated reloads.
+    RCTBundleURLProvider.sharedSettings().jsLocation = hostPort
+    // The instance method silently falls back to guessing localhost:8081 when the packager isn't up
+    // yet, which in a worktree means loading another checkout's JS. The class method has no fallback.
+    return RCTBundleURLProvider.jsBundleURL(
+      forBundleRoot: "index",
+      packagerHost: hostPort,
+      enableDev: RCTBundleURLProvider.sharedSettings().enableDev,
+      enableMinification: RCTBundleURLProvider.sharedSettings().enableMinification,
+      inlineSourceMap: RCTBundleURLProvider.sharedSettings().inlineSourceMap
+    )
 #elseif DISABLE_OTA
-    Bundle.main.url(forResource: "main", withExtension: "jsbundle")
+    return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #else
-    LftUpdaterPath.effectiveBundleURL()
+    return LftUpdaterPath.effectiveBundleURL()
 #endif
   }
 }
+
+#if DEBUG
+// React-Core is a prebuilt xcframework, so RCT_METRO_PORT is fixed at 8081 inside it and every
+// worktree would attach to the base repo's Metro. ios/scripts/write-metro-port.sh writes the real
+// port into the app bundle at build time.
+private enum MetroLocation {
+  static func hostPort() -> String? {
+    guard let port = bundledString(resource: "metro-port") else { return nil }
+#if targetEnvironment(simulator)
+    return "localhost:\(port)"
+#else
+    guard let ip = bundledString(resource: "ip") else { return nil }
+    return "\(ip):\(port)"
+#endif
+  }
+
+  private static func bundledString(resource: String) -> String? {
+    guard let url = Bundle.main.url(forResource: resource, withExtension: "txt"),
+          let contents = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+    let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+}
+#endif

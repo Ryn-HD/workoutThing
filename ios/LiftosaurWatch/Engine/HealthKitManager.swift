@@ -9,7 +9,12 @@ import Combine
 import OSLog
 
 extension Logger {
-    static let healthKit = Logger(subsystem: "com.liftosaur.watch", category: "HealthKit")
+    static let healthKit = DualLogger(subsystem: "com.liftosaur.watch", category: "HealthKit", isSyncCategory: true)
+}
+
+struct HKFinishResult {
+    let saved: Bool
+    let reason: String?
 }
 
 @MainActor
@@ -36,6 +41,8 @@ class HealthKitManager: NSObject, ObservableObject {
     // When the current session was started this launch. Used to protect a freshly started session
     // from a no-active-workout teardown before its workout's storage has had time to sync.
     private var sessionStartedAt: Date?
+
+    private weak var mirroringRequestedFor: HKWorkoutSession?
 
     override init() {
         super.init()
@@ -164,6 +171,7 @@ class HealthKitManager: NSObject, ObservableObject {
             // reaching here by the phone's guaranteed-delivery finish (which ends it on reconnect)
             // and by startWorkoutSessionFromPhone replacing any existing session on a mirrored
             // start. (Back-to-back A->B keeping A's session for B is a benign attribution edge.)
+            startMirroring()
             return
         }
 
@@ -325,6 +333,13 @@ class HealthKitManager: NSObject, ObservableObject {
             return
         }
 
+        if session != nil, !sessionWasRecovered, let startedAt = sessionStartedAt,
+           Date().timeIntervalSince(startedAt) < recentStartGrace {
+            Logger.healthKit.info("Keeping the session this launch started \(Int(Date().timeIntervalSince(startedAt)))s ago for the phone-initiated workout")
+            startMirroring()
+            return
+        }
+
         // If we already have a session (even if beginCollection hasn't finished), end it first
         if session != nil {
             Logger.healthKit.info("Ending existing session before starting phone-initiated session")
@@ -361,7 +376,8 @@ class HealthKitManager: NSObject, ObservableObject {
         }
     }
 
-    func endWorkoutSession(save: Bool) async {
+    @discardableResult
+    func endWorkoutSession(save: Bool) async -> HKFinishResult {
         Logger.sync.info(">>> endWorkoutSession called, save: \(save), session=\(self.session != nil), builder=\(self.builder != nil), isSessionActive=\(self.isSessionActive)")
         guard let session = session else {
             Logger.sync.info(">>> endWorkoutSession: no active session to end")
@@ -370,7 +386,7 @@ class HealthKitManager: NSObject, ObservableObject {
             sessionStartedAt = nil
             heartRate = nil
             isSessionActive = false
-            return
+            return HKFinishResult(saved: false, reason: "no-session")
         }
 
         // Capture the builder BEFORE session.end(): ending can fire the .ended delegate which
@@ -390,21 +406,43 @@ class HealthKitManager: NSObject, ObservableObject {
         // Only finish (save) a session that was actually running; a mid-start session has no
         // meaningful data, so discard it regardless of `save` to avoid writing an empty workout.
         let shouldSave = save && wasRunning
+        var saved = false
+        var reason: String? = save && !wasRunning ? "not-running-discarded" : nil
         if let builder = builder {
             do {
                 Logger.sync.info(">>> endWorkoutSession: ending collection...")
                 try await builder.endCollection(at: Date())
                 if shouldSave {
-                    try await builder.finishWorkout()
-                    Logger.sync.info(">>> endWorkoutSession: workout SAVED to HealthKit")
+                    do {
+                        try await builder.finishWorkout()
+                        saved = true
+                        Logger.sync.info(">>> endWorkoutSession: workout SAVED to HealthKit")
+                    } catch {
+                        // finishWorkout can fail transiently right after end(); retry once before
+                        // giving up so the phone's estimated fallback stays a last resort.
+                        Logger.sync.error(">>> endWorkoutSession: finishWorkout failed, retrying: \(error.localizedDescription)")
+                        do {
+                            try await Task.sleep(nanoseconds: 1_000_000_000)
+                            try await builder.finishWorkout()
+                            saved = true
+                            Logger.sync.info(">>> endWorkoutSession: workout SAVED to HealthKit (retry)")
+                        } catch {
+                            reason = "finish-workout-failed:\(Self.errorCode(error))"
+                            Logger.sync.error(">>> endWorkoutSession: finishWorkout retry FAILED: \(error.localizedDescription)")
+                            builder.discardWorkout()
+                        }
+                    }
                 } else {
                     builder.discardWorkout()
                     Logger.sync.info(">>> endWorkoutSession: workout DISCARDED (save=\(save), wasRunning=\(wasRunning))")
                 }
             } catch {
-                Logger.sync.error(">>> endWorkoutSession: FAILED: \(error.localizedDescription)")
+                reason = shouldSave ? "end-collection-failed:\(Self.errorCode(error))" : reason
+                Logger.sync.error(">>> endWorkoutSession: endCollection FAILED: \(error.localizedDescription)")
                 builder.discardWorkout()
             }
+        } else if shouldSave {
+            reason = "no-builder"
         }
 
         self.session = nil
@@ -413,7 +451,15 @@ class HealthKitManager: NSObject, ObservableObject {
         sessionStartedAt = nil
         heartRate = nil
         isSessionActive = false
-        Logger.sync.info(">>> endWorkoutSession: completed")
+        Logger.sync.info(">>> endWorkoutSession: completed, saved=\(saved), reason=\(reason ?? "none")")
+        return HKFinishResult(saved: saved, reason: reason)
+    }
+
+    // Reasons feed low-cardinality telemetry, so report errors as domain.code instead of
+    // free-form localized descriptions.
+    private static func errorCode(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(nsError.domain).\(nsError.code)"
     }
 
     func pauseWorkoutSession() {
@@ -432,6 +478,35 @@ class HealthKitManager: NSObject, ObservableObject {
         }
         session.resume()
         Logger.healthKit.info("Workout session resumed")
+    }
+
+    private func startMirroring() {
+        guard let session = session, session !== mirroringRequestedFor,
+              session.state == .running || session.state == .paused else {
+            return
+        }
+        mirroringRequestedFor = session
+        Task {
+            do {
+                try await session.startMirroringToCompanionDevice()
+                Logger.healthKit.info("Workout session mirrored to iPhone")
+            } catch {
+                let nsError = error as NSError
+                Logger.healthKit.error("Failed to mirror workout session: \(nsError.domain).\(nsError.code) \(error.localizedDescription)")
+                if mirroringRequestedFor === session {
+                    mirroringRequestedFor = nil
+                }
+            }
+        }
+    }
+
+    fileprivate func sendHeartRateToPhone(_ bpm: Double, measuredAt: Date, from workoutBuilder: HKLiveWorkoutBuilder) {
+        guard let session = session, workoutBuilder === builder else { return }
+        let payload: [String: Double] = ["bpm": bpm, "measuredAt": measuredAt.timeIntervalSince1970 * 1000]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        Task {
+            try? await session.sendToRemoteWorkoutSession(data: data)
+        }
     }
 }
 
@@ -454,6 +529,8 @@ extension HealthKitManager: HKWorkoutSessionDelegate {
             case .running:
                 isSessionActive = true
                 Logger.healthKit.info("Session state: running")
+                // Mirroring requested before .running can silently fail on watchOS/iOS 26 (DTS workaround, FB20723311).
+                startMirroring()
             case .paused:
                 Logger.healthKit.info("Session state: paused")
             case .ended:
@@ -499,9 +576,11 @@ extension HealthKitManager: HKLiveWorkoutBuilderDelegate {
 
             if let mostRecentQuantity = statistics?.mostRecentQuantity() {
                 let heartRateValue = mostRecentQuantity.doubleValue(for: heartRateUnit)
+                let measuredAt = statistics?.mostRecentQuantityDateInterval()?.end ?? Date()
 
                 Task { @MainActor in
                     self.heartRate = heartRateValue
+                    self.sendHeartRateToPhone(heartRateValue, measuredAt: measuredAt, from: workoutBuilder)
                 }
             } else {
                 Logger.healthKit.warning("No most recent heart rate quantity available")

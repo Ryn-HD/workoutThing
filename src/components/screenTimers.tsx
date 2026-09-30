@@ -24,6 +24,9 @@ export function ScreenTimers(props: IProps): JSX.Element {
   const onChange = (key: keyof ISettingsTimers) => {
     return (newValue?: string) => {
       const v = newValue != null && newValue !== "" ? parseInt(newValue, 10) : undefined;
+      if (v != null && isNaN(v)) {
+        return;
+      }
       const lensRecording = Lens.buildLensRecording(lb<ISettings>().p("timers").p(key), v);
       props.dispatch({ type: "UpdateSettings", lensRecording, desc: `Update ${key} timer` });
     };
@@ -32,7 +35,7 @@ export function ScreenTimers(props: IProps): JSX.Element {
   useNavOptions({ navTitle: "Rest Timers", navHelpKey: "timers" });
 
   return (
-    <View className="px-4">
+    <View className="px-gutter">
       <GroupHeader name="Rest Timers between sets" />
       <MenuItemEditable
         name="Warmup"
@@ -54,6 +57,14 @@ export function ScreenTimers(props: IProps): JSX.Element {
         value={props.timers.superset?.toString()}
         valueUnits="sec"
         onChange={onChange("superset")}
+      />
+      <GroupHeader name="Timed sets" topPadding={true} />
+      <MenuItemEditable
+        name="Get ready"
+        type="number"
+        value={props.timers.getReady?.toString()}
+        valueUnits="sec"
+        onChange={onChange("getReady")}
       />
       {((SendMessage_isIos() && SendMessage_iosVersion() >= 10) ||
         Platform.OS === "ios" ||

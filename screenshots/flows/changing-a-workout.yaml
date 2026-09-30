@@ -1,0 +1,159 @@
+appId: ${APP_ID}
+---
+- runFlow: lib/login.yaml
+- tapOn:
+    id: footer-workout
+- takeScreenshot: changing-a-workout-next-workout
+- tapOn:
+    id: change-next-day
+- takeScreenshot: changing-a-workout-pick-day
+- tapOn:
+    id: menu-item-next-day-picker-1
+- tapOn:
+    text: ".*Demo Program.*"
+- tapOn:
+    id: exercise-options
+    index: 0
+- waitForAnimationToEnd
+- tapOn:
+    text: "Edit Program Exercise"
+- extendedWaitUntil:
+    visible:
+      id: exercise-liftoeditor-save
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: changing-a-workout-edit-exercise
+- tapOn:
+    id: exercise-liftoeditor-save
+- tapOn:
+    id: workout-menu
+- waitForAnimationToEnd
+- tapOn:
+    text: "Edit Program Day"
+- extendedWaitUntil:
+    visible:
+      id: day-liftoeditor-save
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: changing-a-workout-edit-day
+- tapOn:
+    id: day-liftoeditor-save
+- tapOn:
+    id: exercise-options
+    index: 0
+- waitForAnimationToEnd
+- tapOn:
+    text: "Swap Exercise"
+- extendedWaitUntil:
+    visible:
+      id: exercise-picker-confirm
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: changing-a-workout-swap-adhoc
+- tapOn:
+    id: tab-from-program
+- extendedWaitUntil:
+    visible:
+      id: exercise-picker-program-bench-press-1-1
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: changing-a-workout-swap-from-program
+- tapOn:
+    id: tab-ad-hoc-exercise
+- waitForAnimationToEnd
+- tapOn:
+    id: exercise-filter-by-name
+- inputText: "Incline Bench"
+- tapOn:
+    id: menu-item-incline-bench-press-barbell
+- pressKey: Enter
+- hideKeyboard
+- tapOn:
+    id: exercise-picker-confirm
+- scrollUntilVisible:
+    element:
+      id: exercise-options
+      index: 0
+    direction: UP
+- tapOn:
+    id: exercise-options
+    index: 0
+- waitForAnimationToEnd
+- tapOn:
+    text: "Swap Exercise"
+- extendedWaitUntil:
+    visible:
+      id: exercise-picker-confirm
+    timeout: 10000
+- waitForAnimationToEnd
+- tapOn:
+    id: exercise-filter-by-name
+- inputText: "Bench Press"
+- tapOn:
+    id: menu-item-bench-press-barbell
+- pressKey: Enter
+- hideKeyboard
+- tapOn:
+    id: exercise-picker-confirm
+- tapOn:
+    id: exercise-options
+    index: 0
+- waitForAnimationToEnd
+- tapOn:
+    text: "Swap Exercise"
+- extendedWaitUntil:
+    visible:
+      id: exercise-picker-confirm
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: changing-a-workout-swap-recent
+- tapOn:
+    id: menu-item-incline-bench-press-barbell
+- tapOn:
+    id: exercise-picker-confirm
+- tapOn:
+    id: finish-workout
+- tapOn:
+    text: "OK"
+    optional: true
+- tapOn:
+    id: finish-day-continue
+- tapOn:
+    text: "Not Now"
+    optional: true
+- tapOn:
+    id: footer-workout
+- tapOn:
+    id: start-empty-workout
+- extendedWaitUntil:
+    visible:
+      id: exercise-picker-confirm
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: changing-a-workout-adhoc-picker
+- tapOn:
+    id: exercise-filter-by-name
+- inputText: "Chest Dip"
+- tapOn:
+    id: menu-item-chest-dip-bodyweight
+- pressKey: Enter
+- hideKeyboard
+- tapOn:
+    id: exercise-picker-confirm
+- tapOn:
+    id: add-workout-set
+- takeScreenshot: changing-a-workout-adhoc
+- tapOn:
+    id: finish-workout
+- tapOn:
+    text: "OK"
+    optional: true
+- swipe:
+    start: 50%, 85%
+    end: 50%, 25%
+    duration: 400
+- waitForAnimationToEnd
+- takeScreenshot: changing-a-workout-create-program-day
+- tapOn:
+    id: create-program-day
+- takeScreenshot: changing-a-workout-program-day

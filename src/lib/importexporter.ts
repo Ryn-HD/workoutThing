@@ -17,7 +17,10 @@ import { Settings_build } from "../models/settings";
 import { PersonalFork_exportPrefix } from "../utils/personalFork";
 
 export function ImportExporter_exportStorage(storage: IStorage): void {
-  Exporter_toFile(`${PersonalFork_exportPrefix}-${DateUtils_formatYYYYMMDD(Date.now())}.json`, JSON.stringify(storage, null, 2));
+  Exporter_toFile(
+    `${PersonalFork_exportPrefix}-${DateUtils_formatYYYYMMDD(Date.now())}.json`,
+    JSON.stringify(storage, null, 2)
+  );
 }
 
 function isPlanProgram(program: IExportedProgram | IExportedPlannerProgram): program is IExportedPlannerProgram {

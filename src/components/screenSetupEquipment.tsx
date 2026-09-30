@@ -61,8 +61,8 @@ export function ScreenSetupEquipment(props: IScreenSetupEquipmentProps): JSX.Ele
   useNavOptions({ navHidden: true });
 
   return (
-    <View className="flex flex-col flex-1 h-screen bg-background-default" style={{ paddingTop: insets.top }}>
-      <ScrollView className="flex-1 px-4 pt-8 pb-4">
+    <View className="flex flex-col flex-1 bg-background-default" style={{ paddingTop: insets.top }}>
+      <ScrollView className="flex-1" contentContainerClassName="px-4 pt-8 pb-4">
         <View className="items-center p-4">
           <Image
             source={{ uri: ImagePreloader_uri("/images/dinoequipment.png") }}
@@ -142,7 +142,7 @@ export function ScreenSetupEquipment(props: IScreenSetupEquipmentProps): JSX.Ele
         </View>
       </ScrollView>
       <View className="bg-background-default" style={[{ paddingBottom: insets.bottom || 8 }, getFooterShadowStyle()]}>
-        <View className="flex-row px-4 pt-2 pb-2" style={{ gap: 8 }}>
+        <View className="flex-row px-gutter pt-2 pb-2" style={{ gap: 8 }}>
           <Button
             className="flex-1 ls-onboarding-equipment-skip"
             name="setup-equipment-skip"
@@ -150,7 +150,7 @@ export function ScreenSetupEquipment(props: IScreenSetupEquipmentProps): JSX.Ele
             buttonSize="lg"
             data-testid="setup-equipment-skip"
             testID="setup-equipment-skip"
-            onClick={() => props.dispatch(Thunk_pushScreen("programselect"))}
+            onClick={() => props.dispatch(Thunk_pushScreen("hearaboutus"))}
           >
             Skip
           </Button>
@@ -218,7 +218,7 @@ export function ScreenSetupPlates(props: IScreenSetupPlatesProps): JSX.Element {
   );
 
   children.push(
-    <View key="intro" className="px-4 pb-4">
+    <View key="intro" className="px-gutter pb-4">
       <Text className="mb-2 text-xl font-bold text-center text-text-primary">Set up your plates</Text>
       <Text className="text-sm text-center text-text-secondary">
         Configure the <Text className="text-sm font-bold text-text-secondary">bar weight</Text> and{" "}
@@ -314,7 +314,7 @@ export function ScreenSetupPlates(props: IScreenSetupPlatesProps): JSX.Element {
           name="setup-plates-continue"
           kind="purple"
           buttonSize="lg"
-          onClick={() => props.dispatch(Thunk_pushScreen("programselect"))}
+          onClick={() => props.dispatch(Thunk_pushScreen("hearaboutus"))}
           data-testid="setup-plates-continue"
           testID="setup-plates-continue"
         >

@@ -4,7 +4,9 @@ import { IDispatch } from "../../ducks/types";
 import { ModalAmrap } from "../modalAmrap";
 import { Modal } from "../modal";
 import { SetTimerBannerContent } from "../setTimerBanner";
+import { Progress_getActiveSetTimer } from "../../models/progress";
 import { SetTimerEditContent } from "../setTimerEdit";
+import { WeightRoundingInfoContent } from "../weightRoundingInfo";
 import { BottomSheetEditTarget } from "../bottomSheetEditTarget";
 import { ProgramPreviewPlaygroundExerciseEditModal } from "./programPreviewPlaygroundExerciseEditModal";
 import { lb } from "lens-shmens";
@@ -15,7 +17,7 @@ import {
   Program_getDayData,
   Program_stateValue,
 } from "../../models/program";
-import { Exercise_toKey } from "../../models/exercise";
+import { Exercise_toKey, Exercise_getIsUnilateral } from "../../models/exercise";
 import { Weight_build } from "../../models/weight";
 import { PlannerProgramExercise_getState } from "../../pages/planner/models/plannerProgramExercise";
 
@@ -35,7 +37,7 @@ export function WebWorkoutModals(props: IWebWorkoutModalsProps): JSX.Element {
     ? Program_getProgramExercise(props.day, props.program, editModalProgramExerciseId)
     : undefined;
 
-  const setTimerModal = props.progress.setTimer;
+  const setTimerModal = Progress_getActiveSetTimer(props.progress);
   // A timed AMRAP set keeps setTimer set behind the amrap modal (see Progress_proceedAfterTimedSet) — yield to
   // the amrap modal here like SetTimerBannerContent does, so the set-timer shell doesn't show behind it.
   const showSetTimerModal = setTimerModal != null && props.progress.amrapModal == null;
@@ -52,6 +54,17 @@ export function WebWorkoutModals(props: IWebWorkoutModalsProps): JSX.Element {
       type: "UpdateProgress",
       lensRecordings: [lb<IHistoryRecord>().pi("ui", {}).p("setTimerEditModal").record(undefined)],
       desc: "close-set-timer-edit",
+    });
+  };
+
+  const roundingModal = props.progress.ui?.roundingModal;
+  const roundingEntry = roundingModal ? props.progress.entries[roundingModal.entryIndex] : undefined;
+  const roundingSet = roundingModal ? roundingEntry?.sets[roundingModal.setIndex] : undefined;
+  const closeRoundingModal = (): void => {
+    props.dispatch({
+      type: "UpdateProgress",
+      lensRecordings: [lb<IHistoryRecord>().pi("ui", {}).p("roundingModal").record(undefined)],
+      desc: "close-rounding-info",
     });
   };
 
@@ -87,7 +100,20 @@ export function WebWorkoutModals(props: IWebWorkoutModalsProps): JSX.Element {
             set={setTimerEditSet}
             entryIndex={setTimerEditModal.entryIndex}
             setIndex={setTimerEditModal.setIndex}
+            isUnilateral={Exercise_getIsUnilateral(
+              props.progress.entries[setTimerEditModal.entryIndex].exercise,
+              props.settings
+            )}
             dispatch={props.dispatch}
+          />
+        </Modal>
+      )}
+      {roundingModal && roundingEntry && roundingSet && (
+        <Modal maxWidth="480px" isHidden={false} isFullWidth={true} shouldShowClose={true} onClose={closeRoundingModal}>
+          <WeightRoundingInfoContent
+            set={roundingSet}
+            exerciseType={roundingEntry.exercise}
+            settings={props.settings}
           />
         </Modal>
       )}

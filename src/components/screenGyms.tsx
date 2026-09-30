@@ -31,7 +31,7 @@ export function ScreenGyms(props: IProps): JSX.Element {
   useNavOptions({ navTitle: "Gyms" });
 
   return (
-    <View className="px-4">
+    <View className="px-gutter">
       {gyms.map((gym) => {
         return (
           <MenuItem
@@ -103,13 +103,6 @@ export function ScreenGyms(props: IProps): JSX.Element {
                                   settings = { ...settings, currentGymId: newGyms[0].id };
                                 }
                                 return { ...settings, gyms: newGyms };
-                              }),
-                            lb<IState>()
-                              .p("storage")
-                              .p("settings")
-                              .p("deletedGyms")
-                              .recordModify((dg) => {
-                                return Array.from(new Set([...dg, gym.id]));
                               }),
                           ],
                           "Delete gym"

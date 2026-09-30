@@ -26,10 +26,10 @@ test("Copy Workout as Text", async ({ page }) => {
   });
 
   await page.goto(startpage + "?skipintro=1&nosync=true");
-  PlaywrightUtils_disableTours(page);
+  await PlaywrightUtils_disableTours(page);
   await PlaywrightUtils_selectBuiltin(page);
   await page.getByRole("button", { name: "Basic Beginner Routine" }).click();
-  PlaywrightUtils_disableSubscriptions(page);
+  await PlaywrightUtils_disableSubscriptions(page);
   await page.getByTestId("clone-program").click();
 
   await page.getByTestId("footer-workout").click();
@@ -58,7 +58,8 @@ test("Copy Workout as Text", async ({ page }) => {
   await page.getByTestId("finish-day-continue").click();
 
   await page.getByTestId("history-record").nth(1).click();
-  await page.locator(".nm-past-workout-share").click();
+  await page.getByTestId("workout-menu").click();
+  await page.getByTestId("workout-menu-share").click();
   await page.getByTestId("bottom-sheet-share-to-text").click();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

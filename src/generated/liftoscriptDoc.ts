@@ -33,7 +33,7 @@ Bench Press / 1x5, 1x3, 1x1, 5x5
 
 That would be 8 sets total - first 5 reps, then 3 reps, 1 rep, and then 5 sets of 5 reps.
 
-If you don't specify the weight and RPE, it'll keep the weight empty during workout, so user would have to specify it themselves to finish a set. If the set specified the \`RPE though - it'll infer the weight calculated from
+If you don't specify the weight and RPE, it'll keep the weight empty during workout, so user would have to specify it themselves to finish a set. If the set specifies the RPE though - it'll infer the weight calculated from
 <abbr title="RPE - Rate of Perceived Exertion - is a way to measure how close you are to failure. It's a scale from 1 to 10, where 1 is very easy, and 10 is failure.">RPE</abbr>
 tables, like [this one](/blog/images/rpetable.png). 
 
@@ -122,6 +122,8 @@ Plank / 2x1 30s|60s, 1x1 30s+|60s
 \`\`\`
 
 The target and the recorded set timer are available in \`progress\` and \`update\` blocks as the \`setTime\` and \`completedSetTime\` arrays (e.g. \`setTime[1] += 5\`, or \`setTime[1] = completedSetTime[1] + 5\`).
+
+On a unilateral exercise the clock runs once per side, and \`completedSetTime[n]\` is the right side. The left side is \`completedSetTimeLeft[n]\`, matching how \`completedReps\` and \`completedRepsLeft\` already split.
 
 There's also an \`auto\` keyword - when present, the workout automatically advances to the next set after the rest timer ends. Combined with set timers, this lets you build circuits like **EMOM** or **Tabata**:
 
@@ -707,7 +709,8 @@ This is the list of available variables you can get values from in your \`progre
 - \`completedRPE[n]\` - if exercise has RPE, and the set is marked as Log RPE - RPE that user entered for an N set.
 - \`timers[n]\` - if the exercise sets have explicit rest timer set up - value of that timer
 - \`setTime[n]\` - if the exercise sets have an active set timer (\`60s|30s\`) - the target value of that timer
-- \`completedSetTime[n]\` - the actual recorded duration of the set timer for an N set
+- \`completedSetTime[n]\` - the actual recorded duration of the set timer for an N set (the right side, on a unilateral exercise)
+- \`completedSetTimeLeft[n]\` - the recorded duration of the left side, on a unilateral exercise
 - \`rm1\` - 1 Rep Max of a current exercise. You can set it in the Exercise Stats section (if you tap on exercise name on the workout screen)
 - \`bodyweight\` - user's current bodyweight.
 - \`day\` - current day number, starting from 1.
@@ -717,6 +720,7 @@ This is the list of available variables you can get values from in your \`progre
 - \`numberOfSets\` or \`ns\` - how many sets were in the exercise (could be changed by adding/removing sets during workout).
 - \`completedNumberOfSets\` - how many sets are completed (by a checkmark).
 - \`setVariationIndex\` - current set variation index (see below about set variations)
+- \`exerciseVariationIndex\` - current exercise variation index (see below about exercise variations)
 - \`descriptionIndex\` - current description index
 - \`amraps[n]\` - whether the set is AMRAP, \`1\` for AMRAP, \`0\` for not AMRAP
 - \`logrpes[n]\` - whether to ask user what was the actual RPE, \`1\` to ask, \`0\` to not ask
@@ -770,9 +774,10 @@ Bench Press / 3x8 / progress: custom() {~
 You can also set the values of the following variables:
 
 - \`setVariationIndex\`
+- \`exerciseVariationIndex\`
 - \`descriptionIndex\`
 
-But more about those below in the section about "Set Variations" and "Advanced Descriptions"
+But more about those below in the section about "Set Variations", "Exercise Variations" and "Advanced Descriptions"
 
 ### State Variables
 
@@ -935,6 +940,7 @@ So, the list of variables you can get values from is pretty much the same:
 - \`numberOfSets\`
 - \`completedNumberOfSets\`
 - \`setVariationIndex\`
+- \`exerciseVariationIndex\`
 - \`descriptionIndex\`
 - \`amraps\`
 - \`logrpes\`
@@ -1094,6 +1100,34 @@ Squat / 5x3 / ! 6x2 / 10x1 / progress: custom() {~
 Note the exclamation mark \`!\` at \`6x2\` - that means that this is the current set variation. Putting that exclamation mark in front of a set variation makes it currently selected.
 
 So, to define the set variations you just list them separated by \`/\`, and then use the \`setVariationIndex\` in the script to define the logic when to choose which set variation. And the app tracks which one is the current one by the \`!\` character.
+
+### Exercise Variations
+
+While set variations let you switch between different **sets x reps schemes**, exercise variations let you switch between different **exercises** (movements) within the same program exercise. This is useful for **progression ladders** - for example, the r/bodyweightfitness Recommended Routine, where you graduate from an easier movement to a harder one once you can do enough reps.
+
+To define exercise variations, list the exercises separated by \`|\` in the exercise name section:
+
+\`\`\`
+Squat, Bodyweight | Pistol Squat | Front Squat / 3x8 / progress: custom() {~
+  if (completedReps >= reps) {
+    exerciseVariationIndex += 1
+  }
+~}
+\`\`\`
+
+There, once you hit the target reps, \`exerciseVariationIndex\` increments, which switches the current exercise from \`Squat\` to \`Pistol Squat\`, and then to \`Front Squat\`. The current variation is marked with a \`!\` (same convention as set variations), and the app moves the \`!\` as \`exerciseVariationIndex\` changes:
+
+\`\`\`
+Squat, Bodyweight | ! Pistol Squat | Front Squat / 3x8 / progress: custom() {~
+\`\`\`
+
+The first variation is the current one by default, so you don't need to put a \`!\` on it. \`exerciseVariationIndex\` is 1-based and wraps around (assigning past the last variation goes back to the first).
+
+A few important notes:
+
+- The **sets, reps, weights, and progress logic are shared** by all variations - only the movement itself changes. If you need a different set scheme per movement, combine this with set variations. Note that \`%\` and RPE weights resolve against the **current** variation's own 1RM, so the same \`75%\` gives a movement-appropriate load on each rung.
+- An exercise with multiple variations **cannot be used as a reuse target** (e.g. \`...Squat\`). If you need to share sets/progress from a laddered exercise, move them into a \`used: none\` template and reuse that instead. A multi-variation exercise can still be a reuse **consumer**.
+- Each variation's name (other than the first) can't include a label - the label is taken from the first variation.
 
 ### Advanced Descriptions
 
@@ -1276,6 +1310,7 @@ You cannot assign values to them, but you can use their values. They are:
 - \`numberOfSets\` or \`ns\` - how many sets were in the exercise.
 - \`completedNumberOfSets\` - how many sets are completed (by a checkmark).
 - \`setVariationIndex\` - current set variation index (see below about set variations)
+- \`exerciseVariationIndex\` - current exercise variation index (see below about exercise variations)
 - \`descriptionIndex\` - current description index
 - \`amraps[n]\` - whether the set is AMRAP, \`1\` for AMRAP, \`0\` for not AMRAP
 - \`logrpes[n]\` - whether to ask user what was the actual RPE, \`1\` to ask, \`0\` to not ask
@@ -1301,6 +1336,7 @@ You assign new values to them.
 - \`askweights[week:day:setvariation:set]\` - whether to ask user what was the actual weight, \`1\` to ask, \`0\` to not ask
 - \`rm1\` - 1 Rep Max of a current exercise.
 - \`setVariationIndex\` - index of the current set variation
+- \`exerciseVariationIndex\` - index of the current exercise variation
 - \`descriptionIndex\` - index of the current description
 - \`numberOfSets[week:day:setvariation]\` - number of sets for the exercise in this workout
 

@@ -1,29 +1,27 @@
 import { JSX, memo, useCallback, useEffect, useMemo, useRef } from "react";
-import { Pressable, Platform, InteractionManager } from "react-native";
+import { Platform, InteractionManager, View } from "react-native";
+import { useTrackClick } from "../utils/clickTracking";
 import { IHistoryRecord, IProgram, ISettings, IStats, ISubscription } from "../types";
 import { IDispatch } from "../ducks/types";
 import { Program_evaluate, Program_getProgramDay } from "../models/program";
-import {
-  History_workoutTime,
-  History_isPaused,
-  History_resumeWorkoutAction,
-  History_pauseWorkoutAction,
-} from "../models/history";
-import { Progress_lbProgress, Progress_isCurrent } from "../models/progress";
+import { History_workoutTime, History_isPaused } from "../models/history";
+import { Progress_lbProgress, Progress_isCurrent, Progress_getActiveSetTimer } from "../models/progress";
 import { INavCommon, updateState } from "../models/state";
 import { DateUtils_format } from "../utils/date";
 import { TimeUtils_formatHHMM } from "../utils/time";
-import { IconTrash } from "./icons/iconTrash";
 import { useNavOptions } from "../navigation/useNavOptions";
 import { Timer } from "./timer";
+import { WorkoutHeartRate } from "./workoutHeartRate";
 import { Workout } from "./workout";
-import { Thunk_updateLiveActivity, Thunk_deleteProgress } from "../ducks/thunks";
+import { WorkoutFinishButton } from "./workoutFinishButton";
+import { WorkoutMenu } from "./workoutMenu";
+import { Thunk_updateLiveActivity, Thunk_deleteProgress, Thunk_pauseWorkout } from "../ducks/thunks";
 import { Reps_findNextSetIndex } from "../models/set";
 import { Subscriptions_hasSubscription } from "../utils/subscriptions";
-import { workoutTourConfig } from "./tour/workoutTourConfig";
 import { navigateToModal, getCurrentRouteName } from "../navigation/navigationService";
 import { Dialog_confirm } from "../utils/dialog";
 import { usePerfRenderCount } from "../utils/usePerfRenderCount";
+import { IWorkoutProgressView, WorkoutProgressView_next } from "../utils/workoutProgressView";
 
 interface IScreenWorkoutProps {
   progress: IHistoryRecord;
@@ -118,7 +116,7 @@ function ScreenWorkoutInner(props: IScreenWorkoutProps): JSX.Element | null {
     prevEditSetModal.current = editSetModal;
   }, [editSetModal]);
 
-  const setTimerModal = progress.setTimer;
+  const setTimerModal = Progress_getActiveSetTimer(progress);
   const prevSetTimerNonce = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (setTimerModal && setTimerModal.nonce !== prevSetTimerNonce.current) {
@@ -136,7 +134,17 @@ function ScreenWorkoutInner(props: IScreenWorkoutProps): JSX.Element | null {
     prevSetTimerEditModal.current = setTimerEditModal;
   }, [setTimerEditModal, progress.id]);
 
+  const roundingModal = progress.ui?.roundingModal;
+  const prevRoundingModal = useRef<typeof roundingModal>(undefined);
+  useEffect(() => {
+    if (roundingModal && !prevRoundingModal.current) {
+      navigateToModal("roundingInfoModal", { context: "workout", progressId: progress.id });
+    }
+    prevRoundingModal.current = roundingModal;
+  }, [roundingModal, progress.id]);
+
   const dispatch = props.dispatch;
+  const trackClick = useTrackClick();
   const isCurrent = Progress_isCurrent(progress);
   const onDeletePress = useCallback(async (): Promise<void> => {
     const confirmed = await Dialog_confirm(
@@ -148,10 +156,12 @@ function ScreenWorkoutInner(props: IScreenWorkoutProps): JSX.Element | null {
   }, [dispatch, isCurrent, progress.id]);
 
   const onDeletePressHandler = useCallback(() => {
+    trackClick("workout-delete");
     onDeletePress().catch(() => undefined);
-  }, [onDeletePress]);
+  }, [onDeletePress, trackClick]);
 
   const onTitleClick = useCallback(() => {
+    trackClick("workout-change-date");
     dispatch({
       type: "ChangeDate",
       id: progress.id,
@@ -159,50 +169,45 @@ function ScreenWorkoutInner(props: IScreenWorkoutProps): JSX.Element | null {
       time: History_workoutTime(progress),
     });
     navigateToModal("dateModal", { progressId: progress.id });
-  }, [dispatch, progress]);
+  }, [dispatch, progress, trackClick]);
 
   const onPauseResume = useCallback(() => {
+    trackClick(History_isPaused(props.progress.intervals) ? "workout-resume" : "workout-pause");
     if (History_isPaused(props.progress.intervals)) {
-      History_resumeWorkoutAction(dispatch, false, props.settings, Subscriptions_hasSubscription(props.subscription));
+      dispatch({
+        type: "ResumeWorkoutAction",
+        isPlayground: false,
+        hasSubscription: Subscriptions_hasSubscription(props.subscription),
+      });
       const currentEntryIndex = props.progress.currentEntryIndex || 0;
       const currentEntry = props.progress.entries[currentEntryIndex];
       const setIndex = currentEntry ? Reps_findNextSetIndex(currentEntry) : 0;
       dispatch(Thunk_updateLiveActivity(currentEntryIndex, setIndex, props.progress.timer, props.progress.timerSince));
     } else {
-      History_pauseWorkoutAction(dispatch);
+      dispatch(Thunk_pauseWorkout());
     }
-  }, [dispatch, props.progress, props.settings, props.subscription]);
+  }, [dispatch, props.progress, props.settings, props.subscription, trackClick]);
 
+  const progressStartTime = progress.startTime;
+  const progressEndTime = progress.endTime;
+  const progressIntervals = progress.intervals;
   const navSubtitle = useMemo(() => {
-    return !isCurrent && progress.endTime ? (
-      TimeUtils_formatHHMM(History_workoutTime(progress))
+    return !isCurrent && progressEndTime ? (
+      TimeUtils_formatHHMM(
+        History_workoutTime({ startTime: progressStartTime, endTime: progressEndTime, intervals: progressIntervals })
+      )
     ) : (
-      <Timer progress={progress} onPauseResume={onPauseResume} />
+      <View className="flex-row items-center">
+        <Timer
+          startTime={progressStartTime}
+          endTime={progressEndTime}
+          intervals={progressIntervals}
+          onPauseResume={onPauseResume}
+        />
+        <WorkoutHeartRate />
+      </View>
     );
-  }, [isCurrent, progress, onPauseResume]);
-
-  const navRightButtons = useMemo(
-    () => [
-      <Pressable
-        key="delete"
-        data-testid="delete-progress"
-        testID="delete-progress"
-        className="p-2"
-        onPress={onDeletePressHandler}
-      >
-        <IconTrash />
-      </Pressable>,
-    ],
-    [onDeletePressHandler]
-  );
-
-  useNavOptions({
-    navHelpTourId: workoutTourConfig.id,
-    navTitle: isCurrent ? "Ongoing workout" : `${DateUtils_format(progress.date)}`,
-    navOnTitleClick: !isCurrent ? onTitleClick : undefined,
-    navSubtitle,
-    navRightButtons,
-  });
+  }, [isCurrent, progressStartTime, progressEndTime, progressIntervals, onPauseResume]);
 
   const progressId = progress.id;
   const onShare = useCallback(() => {
@@ -210,11 +215,55 @@ function ScreenWorkoutInner(props: IScreenWorkoutProps): JSX.Element | null {
       navigateToModal("workoutShareModal", { progressId });
     }
   }, [isCurrent, progressId]);
+  const onConvertToProgram = useCallback(() => {
+    navigateToModal("dayFromAdhocModal", { progressId });
+  }, [progressId]);
+
+  // A ref, so these elements survive a set completion. A new element re-renders the navbar header.
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
+  const navRightButtons = useMemo(
+    () => [
+      <WorkoutFinishButton
+        key="finish"
+        progressRef={progressRef}
+        isCurrent={isCurrent}
+        settings={props.settings}
+        dispatch={dispatch}
+      />,
+    ],
+    [isCurrent, props.settings, dispatch]
+  );
+  const renderHeaderMenu = useCallback(
+    (onOpenChange: (isOpen: boolean) => void) => (
+      <WorkoutMenu
+        progress={progressRef.current}
+        program={evaluatedProgram}
+        allPrograms={props.allPrograms}
+        settings={settings}
+        dispatch={dispatch}
+        onShare={onShare}
+        onConvertToProgram={onConvertToProgram}
+        onDelete={onDeletePressHandler}
+        onOpenChange={onOpenChange}
+      />
+    ),
+    [settings, dispatch, evaluatedProgram, props.allPrograms, onShare, onConvertToProgram, onDeletePressHandler]
+  );
+  const progressViewRef = useRef<IWorkoutProgressView | undefined>(undefined);
+  const progressView = WorkoutProgressView_next(progressViewRef.current, progress);
+  progressViewRef.current = progressView;
+
+  useNavOptions({
+    navTitle: isCurrent ? "Ongoing workout" : `${DateUtils_format(progress.date)}`,
+    navOnTitleClick: !isCurrent ? onTitleClick : undefined,
+    navSubtitle,
+    navRightButtons,
+  });
 
   if (progress != null) {
     return (
       <Workout
-        onShare={onShare}
         stats={props.navCommon.stats}
         allPrograms={props.allPrograms}
         subscription={props.subscription}
@@ -224,8 +273,9 @@ function ScreenWorkoutInner(props: IScreenWorkoutProps): JSX.Element | null {
         program={evaluatedProgram}
         isTimerShown={true}
         programDay={programDay}
-        progress={progress}
+        progress={progressView}
         dispatch={props.dispatch}
+        renderHeaderMenu={renderHeaderMenu}
       />
     );
   } else {

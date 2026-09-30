@@ -19,7 +19,6 @@ import { FocusedInputFlush_flush } from "../../utils/focusedInputFlush";
 import { ReactUtils_usePropToRef } from "../../utils/react";
 import { pickerStateFromPlannerExercise } from "../editProgram/editProgramUtils";
 import { Tailwind_semantic } from "../../utils/tailwindConfig";
-import { useRem } from "../../utils/useRem";
 
 interface IEditProgramExerciseNavbarProps {
   state: IPlannerExerciseState;
@@ -39,7 +38,6 @@ export function EditProgramExerciseNavbar(props: IEditProgramExerciseNavbarProps
 
   const undoEnabled = canUndo(props.state);
   const redoEnabled = canRedo(props.state);
-  const rem = useRem();
 
   return (
     <View className="flex-row items-center justify-between gap-2 py-1 pl-2 pr-4 border-b bg-background-default border-background-subtle">
@@ -78,8 +76,8 @@ export function EditProgramExerciseNavbar(props: IEditProgramExerciseNavbarProps
           <View>
             <ExerciseImage
               settings={props.settings}
-              width={rem * 1.5}
-              className="w-6"
+              width={24}
+              className="w-scaled-6"
               exerciseType={exerciseType}
               size="small"
             />
@@ -105,7 +103,10 @@ export function EditProgramExerciseNavbar(props: IEditProgramExerciseNavbarProps
                   lb<IPlannerExerciseState>()
                     .p("ui")
                     .p("exercisePickerState")
-                    .record(pickerStateFromPlannerExercise(props.settings, props.plannerExercise)),
+                    .record({
+                      ...pickerStateFromPlannerExercise(props.settings, props.plannerExercise),
+                      hideLabel: true,
+                    }),
                   "Open exercise modal"
                 );
               }}

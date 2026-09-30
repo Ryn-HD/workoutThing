@@ -1,5 +1,5 @@
 import { IHistoryRecord, IHistoryEntry, ISet, ISettings, IProgram } from "../types";
-import { Exercise_get, Exercise_fullName } from "../models/exercise";
+import { Exercise_get, Exercise_fullName, Exercise_sanitizeName } from "../models/exercise";
 import { Weight_print } from "../models/weight";
 import { emptyProgramId, Program_evaluate, Program_isEmpty } from "../models/program";
 import { n } from "../utils/math";
@@ -87,7 +87,9 @@ function serializeWorkoutRecord(record: IHistoryRecord, settings: ISettings, pro
 
 function serializeEntry(entry: IHistoryEntry, settings: ISettings): string {
   const exercise = Exercise_get(entry.exercise, settings.exercises);
-  let line = Exercise_fullName(exercise, settings);
+  // Legacy custom exercise names may contain characters the liftohistory grammar rejects,
+  // which would make the export unparseable on re-import.
+  let line = Exercise_fullName({ ...exercise, name: Exercise_sanitizeName(exercise.name) }, settings);
 
   const completedStr = serializeCompletedSets(entry.sets);
   if (completedStr) {
@@ -116,6 +118,10 @@ function serializeCompletedSets(sets: ISet[]): string {
   return groups.map(([set, count]) => formatCompletedSet(set, count)).join(", ");
 }
 
+function formatSeconds(seconds: number): string {
+  return `${Math.round(seconds)}s`;
+}
+
 function formatCompletedSet(set: ISet, count: number): string {
   const reps = set.completedReps ?? 0;
   let str = `${count}x`;
@@ -129,6 +135,11 @@ function formatCompletedSet(set: ISet, count: number): string {
   }
   if (set.completedRpe != null) {
     str += ` @${n(set.completedRpe)}`;
+  }
+  if (set.isUnilateral && set.completedSetTimerLeft != null) {
+    str += ` ${set.completedSetTimer != null ? formatSeconds(set.completedSetTimer) : "?"}|${formatSeconds(set.completedSetTimerLeft)}`;
+  } else if (set.completedSetTimer != null) {
+    str += ` ${formatSeconds(set.completedSetTimer)}`;
   }
   if (set.label) {
     str += ` (${set.label})`;
@@ -167,8 +178,10 @@ function formatTargetSet(set: ISet, count: number): string {
       str += "+";
     }
   }
-  if (set.timer != null) {
-    str += ` ${set.timer}s`;
+  if (set.setTimer != null) {
+    str += ` ${formatSeconds(set.setTimer)}${set.isOverflowSetTimer ? "+" : ""}|${set.timer != null ? formatSeconds(set.timer) : "?"}`;
+  } else if (set.timer != null) {
+    str += ` ${formatSeconds(set.timer)}`;
   }
   if (set.label) {
     str += ` (${set.label})`;

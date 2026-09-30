@@ -38,6 +38,7 @@ import {
   Exercise_createCustomExercise,
   Exercise_editCustomExercise,
   Exercise_deleteCustomExercise,
+  Exercise_nameError,
 } from "../../src/models/exercise";
 import { Playground_run, Playground_validateProgramText } from "../../src/playground/playground";
 import {
@@ -64,10 +65,27 @@ function ok<T>(data: T): IApiResult<T> {
   return { success: true, data };
 }
 
-function syntaxErrorDetails(
-  errors: (LiftohistorySyntaxError | PlannerSyntaxError)[]
-): { line: number; offset: number; from: number; to: number; message: string }[] {
-  return errors.map((e) => ({ line: e.line, offset: e.offset, from: e.from, to: e.to, message: e.message }));
+function syntaxErrorDetails(errors: (LiftohistorySyntaxError | PlannerSyntaxError)[]): {
+  line: number;
+  offset: number;
+  from: number;
+  to: number;
+  message: string;
+  type?: string;
+  data?: unknown;
+}[] {
+  return errors.map((e) => {
+    const details = "details" in e ? e.details : undefined;
+    return {
+      line: e.line,
+      offset: e.offset,
+      from: e.from,
+      to: e.to,
+      message: e.message,
+      type: details?.type,
+      data: details != null && "data" in details ? details.data : undefined,
+    };
+  });
 }
 
 function parseDate(dateStr: string): string {
@@ -136,6 +154,7 @@ export async function ApiV1_createHistory(
   userId: string,
   user: ILimitedUserDao,
   text: string,
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<{ id: number; text: string }>> {
   const settings = user.storage.settings;
@@ -159,7 +178,7 @@ export async function ApiV1_createHistory(
 
   const history = await userDao.getHistoryByUserId(userId);
   user.storage = { ...user.storage, history };
-  await userDao.applyStorageUpdate(user, (old) => ({ ...old, history: [...(old.history || []), record] }), [
+  await userDao.applyStorageUpdate(user, (old) => ({ ...old, history: [...(old.history || []), record] }), deviceId, [
     userDao.saveHistoryRecord(userId, record),
   ]);
 
@@ -217,6 +236,7 @@ export async function ApiV1_updateHistory(
   user: ILimitedUserDao,
   recordId: number,
   text: string,
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<{ id: number; text: string }>> {
   const settings = user.storage.settings;
@@ -248,6 +268,7 @@ export async function ApiV1_updateHistory(
   await userDao.applyStorageUpdate(
     user,
     (old) => ({ ...old, history: (old.history || []).map((h) => (h.id === recordId ? record : h)) }),
+    deviceId,
     [userDao.saveHistoryRecord(userId, record)]
   );
 
@@ -258,6 +279,7 @@ export async function ApiV1_deleteHistory(
   userId: string,
   user: ILimitedUserDao,
   recordId: number,
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<{ deleted: true }>> {
   const userDao = new UserDao(di);
@@ -271,6 +293,7 @@ export async function ApiV1_deleteHistory(
   await userDao.applyStorageUpdate(
     user,
     (old) => ({ ...old, history: (old.history || []).filter((h) => h.id !== recordId) }),
+    deviceId,
     [userDao.deleteHistoryRecord(userId, recordId)]
   );
 
@@ -320,6 +343,7 @@ export async function ApiV1_createProgram(
   user: ILimitedUserDao,
   name: string,
   text: string,
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<{ id: string; name: string; text: string }>> {
   const settings = user.storage.settings;
@@ -350,9 +374,12 @@ export async function ApiV1_createProgram(
   const userDao = new UserDao(di);
   const programs = await userDao.getProgramsByUserId(userId);
   user.storage = { ...user.storage, programs };
-  await userDao.applyStorageUpdate(user, (old) => ({ ...old, programs: [...(old.programs || []), program] }), [
-    userDao.saveProgram(userId, program),
-  ]);
+  await userDao.applyStorageUpdate(
+    user,
+    (old) => ({ ...old, programs: [...(old.programs || []), program] }),
+    deviceId,
+    [userDao.saveProgram(userId, program)]
+  );
 
   return ok({ id: program.id, name: program.name, text });
 }
@@ -363,6 +390,7 @@ export async function ApiV1_updateProgram(
   programId: string,
   text: string,
   name: string | undefined,
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<{ id: string; name: string; text: string; isCurrent: boolean }>> {
   const settings = user.storage.settings;
@@ -397,6 +425,7 @@ export async function ApiV1_updateProgram(
   await userDao.applyStorageUpdate(
     user,
     (old) => ({ ...old, programs: (old.programs || []).map((p) => (p.id === resolvedId ? updatedProgram : p)) }),
+    deviceId,
     [userDao.saveProgram(userId, updatedProgram)]
   );
 
@@ -414,6 +443,7 @@ export async function ApiV1_deleteProgram(
   userId: string,
   user: ILimitedUserDao,
   programId: string,
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<{ deleted: true }>> {
   if (programId === user.storage.currentProgramId) {
@@ -430,6 +460,7 @@ export async function ApiV1_deleteProgram(
   await userDao.applyStorageUpdate(
     user,
     (old) => ({ ...old, programs: (old.programs || []).filter((p) => p.id !== programId) }),
+    deviceId,
     [userDao.deleteProgram(userId, programId)]
   );
 
@@ -515,7 +546,7 @@ export function ApiV1_programStats(user: ILimitedUserDao, programText: string): 
   for (let dayIndex = 0; dayIndex < week1.days.length; dayIndex++) {
     const day = week1.days[dayIndex];
     const exercises = day.exercises.filter((e: IPlannerProgramExercise) => !e.notused);
-    const timeMs = PlannerStatsUtils_dayApproxTimeMs(exercises, defaultRestTimer);
+    const timeMs = PlannerStatsUtils_dayApproxTimeMs(exercises, defaultRestTimer, settings.timers.superset);
     const totalSets = exercises.reduce((acc: number, e: IPlannerProgramExercise) => {
       return acc + PlannerProgramExercise_sets(e).reduce((a: number, s) => a + (s.repRange?.numberOfSets ?? 0), 0);
     }, 0);
@@ -633,10 +664,12 @@ export async function ApiV1_createCustomExercise(
   targetMuscles: IMuscle[],
   synergistMuscles: IMuscle[],
   types: IExerciseKind[],
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<ICustomExerciseResponse>> {
-  if (!name.trim()) {
-    return err(400, "invalid_input", "Exercise name is required");
+  const nameError = Exercise_nameError(name);
+  if (nameError) {
+    return err(400, "invalid_input", nameError);
   }
   const validation = validateExerciseFields(targetMuscles, synergistMuscles, types);
   if (validation) {
@@ -660,26 +693,34 @@ export async function ApiV1_createCustomExercise(
       existing.largeImageUrl
     );
     const userDao = new UserDao(di);
-    await userDao.applyStorageUpdate(user, (old) => ({
-      ...old,
-      settings: {
-        ...old.settings,
-        exercises: { ...(old.settings?.exercises || {}), [existing.id]: updated },
-      },
-    }));
+    await userDao.applyStorageUpdate(
+      user,
+      (old) => ({
+        ...old,
+        settings: {
+          ...old.settings,
+          exercises: { ...(old.settings?.exercises || {}), [existing.id]: updated },
+        },
+      }),
+      deviceId
+    );
     return ok(formatCustomExercise(updated));
   }
 
   const exercise = Exercise_createCustomExercise(trimmedName, targetMuscles, synergistMuscles, types);
   const userDao = new UserDao(di);
 
-  await userDao.applyStorageUpdate(user, (old) => ({
-    ...old,
-    settings: {
-      ...old.settings,
-      exercises: { ...(old.settings?.exercises || {}), [exercise.id]: exercise },
-    },
-  }));
+  await userDao.applyStorageUpdate(
+    user,
+    (old) => ({
+      ...old,
+      settings: {
+        ...old.settings,
+        exercises: { ...(old.settings?.exercises || {}), [exercise.id]: exercise },
+      },
+    }),
+    deviceId
+  );
 
   return ok(formatCustomExercise(exercise));
 }
@@ -689,6 +730,7 @@ export async function ApiV1_updateCustomExercise(
   user: ILimitedUserDao,
   exerciseId: string,
   fields: { name?: string; targetMuscles?: IMuscle[]; synergistMuscles?: IMuscle[]; types?: IExerciseKind[] },
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<ICustomExerciseResponse>> {
   const exercises = user.storage.settings.exercises || {};
@@ -698,7 +740,13 @@ export async function ApiV1_updateCustomExercise(
   }
 
   const newName = fields.name?.trim() ?? existing.name;
-  if (!newName) {
+  // Only validate an incoming name — a legacy invalid name shouldn't block updates to other fields.
+  if (fields.name != null) {
+    const newNameError = Exercise_nameError(fields.name);
+    if (newNameError) {
+      return err(400, "invalid_input", newNameError);
+    }
+  } else if (!newName) {
     return err(400, "invalid_input", "Exercise name cannot be empty");
   }
   const validation = validateExerciseFields(
@@ -721,13 +769,17 @@ export async function ApiV1_updateCustomExercise(
   );
 
   const userDao = new UserDao(di);
-  await userDao.applyStorageUpdate(user, (old) => ({
-    ...old,
-    settings: {
-      ...old.settings,
-      exercises: { ...(old.settings?.exercises || {}), [exerciseId]: updated },
-    },
-  }));
+  await userDao.applyStorageUpdate(
+    user,
+    (old) => ({
+      ...old,
+      settings: {
+        ...old.settings,
+        exercises: { ...(old.settings?.exercises || {}), [exerciseId]: updated },
+      },
+    }),
+    deviceId
+  );
 
   return ok(formatCustomExercise(updated));
 }
@@ -736,6 +788,7 @@ export async function ApiV1_deleteCustomExercise(
   userId: string,
   user: ILimitedUserDao,
   exerciseId: string,
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<{ deleted: true }>> {
   const exercises = user.storage.settings.exercises || {};
@@ -746,13 +799,17 @@ export async function ApiV1_deleteCustomExercise(
 
   const updated = Exercise_deleteCustomExercise(exercises, exerciseId);
   const userDao = new UserDao(di);
-  await userDao.applyStorageUpdate(user, (old) => ({
-    ...old,
-    settings: {
-      ...old.settings,
-      exercises: updated,
-    },
-  }));
+  await userDao.applyStorageUpdate(
+    user,
+    (old) => ({
+      ...old,
+      settings: {
+        ...old.settings,
+        exercises: updated,
+      },
+    }),
+    deviceId
+  );
 
   return ok({ deleted: true as const });
 }

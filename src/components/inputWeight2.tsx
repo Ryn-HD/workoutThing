@@ -26,6 +26,9 @@ interface IInputWeight2Props {
   min?: number;
   autowidth?: boolean;
   width?: number;
+  size?: "md" | "lg";
+  fill?: boolean;
+  fillFlex?: number;
   showUnitInside?: boolean;
   placeholder?: string;
   exerciseType?: IExerciseType;
@@ -38,6 +41,7 @@ interface IInputWeight2Props {
   onInput?: (value: IWeight | IPercentage | undefined) => void;
   subscription?: ISubscription;
   tabIndex?: number;
+  tabStop?: boolean;
   inputCommitMode?: IInputCommitMode;
   inputDebounceMs?: number;
   "data-testid"?: string;
@@ -160,10 +164,13 @@ function InputWeight2Inner(props: IInputWeight2Props): JSX.Element {
   }, [showPlates, evaluatedWeight, props.settings, props.exerciseType, props.addOn]);
 
   return (
-    <View>
+    <View style={props.fill ? { flex: props.fillFlex ?? 1 } : undefined}>
       <InputNumber2
         width={props.width}
+        size={props.size}
+        fill={props.fill}
         tabIndex={props.tabIndex}
+        tabStop={props.tabStop}
         placeholder={props.placeholder}
         after={props.after}
         autowidth={props.autowidth}
@@ -200,7 +207,7 @@ interface IPlatesCalculatorProps {
   exerciseType: IExerciseType;
 }
 
-const PlatesCalculator = memo(function PlatesCalculator(props: IPlatesCalculatorProps): JSX.Element {
+export const PlatesCalculator = memo(function PlatesCalculator(props: IPlatesCalculatorProps): JSX.Element {
   const { plates, totalWeight: weight } = Weight_calculatePlates(
     props.weight,
     props.settings,

@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Locator, Page, expect } from "@playwright/test";
-import { localdomain } from "../src/localdomain";
+import { localdomain, localport } from "../src/localdomain";
 
-export const startpage = `https://${localdomain}.liftosaur.com:8080/app/`;
+export const startpage = `https://${localdomain}.liftosaur.com:${localport}/app/`;
 
 export function PlaywrightUtils_activeScreen(page: Page): Locator {
   return page.getByTestId("screen").and(page.locator(":visible")).last();
@@ -76,6 +76,21 @@ export async function PlaywrightUtils_select(page: Page, locator: Locator, name:
     .click();
 }
 
+// The barrel under `menu-item-<name>` is opened by tapping `menu-item-name-<name>`, but that tap
+// is a toggle, and the expanded state can survive navigating away and back (screens stay mounted).
+// Blindly tapping the label would then close the barrel and the item would never become visible.
+export async function PlaywrightUtils_selectFromBarrel(page: Page, name: string, value: string): Promise<void> {
+  const item = page.getByTestId(`menu-item-${name}`).getByTestId(`scroll-barrel-item-${value}`);
+  await expect(async () => {
+    if (!(await item.isVisible())) {
+      await page.getByTestId(`menu-item-name-${name}`).click();
+    }
+    await expect(item).toBeVisible({ timeout: 1000 });
+  }).toPass();
+  await item.scrollIntoViewIfNeeded();
+  await item.click();
+}
+
 export async function PlaywrightUtils_swipeLeft(page: Page, locator: Locator): Promise<void> {
   await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
@@ -94,6 +109,31 @@ export async function PlaywrightUtils_swipeLeft(page: Page, locator: Locator): P
     await page.waitForTimeout(100);
     await page.mouse.up();
   }
+}
+
+export async function PlaywrightUtils_readCodeMirror(page: Page, dataCy: string): Promise<string> {
+  await expect(page.getByTestId(dataCy).locator("css=.cm-content").first()).toBeVisible();
+  return page.evaluate((theDataCy) => {
+    const cmContent = document.querySelector(`[data-testid=${theDataCy}] .cm-content`) as any;
+    return cmContent.cmView.view.state.doc.toString() as string;
+  }, dataCy);
+}
+
+// A mouse drag in the grid arms on distance rather than on a long press (gridDragHandle.tsx), so
+// the pointer has to clear that threshold in a move of its own before the one that carries it to
+// the target — a single jump from press to destination looks like a click that teleported.
+export async function PlaywrightUtils_dragBy(page: Page, locator: Locator, dx: number, dy: number): Promise<void> {
+  const box = await locator.boundingBox();
+  if (box == null) {
+    throw new Error("Can't drag an element that isn't on the screen");
+  }
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + Math.sign(dx) * 6, y + Math.sign(dy) * 6, { steps: 3 });
+  await page.mouse.move(x + dx, y + dy, { steps: 20 });
+  await page.mouse.up();
 }
 
 export function PlaywrightUtils_typeCodeMirror(
@@ -124,8 +164,16 @@ export async function PlaywrightUtils_type(value: string, locator: () => Locator
   await locator().blur();
 }
 
-export function PlaywrightUtils_disableSubscriptions(page: Page): Promise<void> {
-  return page.evaluate(() => {
+// window.state is only assigned on the first reducer dispatch, which can happen
+// well after the page "load" event when tests run in parallel — wait for it
+// before evaluating anything that touches it.
+async function PlaywrightUtils_waitForState(page: Page): Promise<void> {
+  await page.waitForFunction(() => (window as any).state?.storage != null);
+}
+
+export async function PlaywrightUtils_disableSubscriptions(page: Page): Promise<void> {
+  await PlaywrightUtils_waitForState(page);
+  await page.evaluate(() => {
     (window as any).state.storage.subscription.key = "test";
   }, []);
 }
@@ -138,8 +186,9 @@ export async function PlaywrightUtils_forEach(locator: Locator, cb: (el: Locator
 }
 
 export async function PlaywrightUtils_clickAll(locator: Locator): Promise<void> {
-  for (const el of await locator.elementHandles()) {
-    await el.click();
+  const count = await locator.count();
+  for (let i = 0; i < count; i += 1) {
+    await locator.nth(i).click();
   }
 }
 
@@ -166,8 +215,19 @@ export async function PlaywrightUtils_closeTour(page: Page): Promise<void> {
   await page.getByTestId("tour-close").click();
 }
 
-export function PlaywrightUtils_disableTours(page: Page): Promise<void> {
-  return page.evaluate(() => {
+// The edit-exercise pencil (and the workout kebab's Edit Program Exercise) opens the
+// Liftoscript editor sheet; replace the whole exercise text there and save.
+export async function PlaywrightUtils_saveExerciseInSheet(page: Page, text: string): Promise<void> {
+  await expect(page.getByTestId("exercise-liftoeditor")).toBeVisible();
+  await PlaywrightUtils_clearCodeMirror(page, "exercise-liftoeditor");
+  await PlaywrightUtils_typeCodeMirror(page, "exercise-liftoeditor", text);
+  await page.getByTestId("exercise-liftoeditor").getByTestId("exercise-liftoeditor-save").click();
+  await expect(page.getByTestId("exercise-liftoeditor")).toBeHidden();
+}
+
+export async function PlaywrightUtils_disableTours(page: Page): Promise<void> {
+  await PlaywrightUtils_waitForState(page);
+  await page.evaluate(() => {
     const tourHelps = [
       "workout.howItWorks",
       "workout.completingSets",
@@ -193,5 +253,9 @@ export function PlaywrightUtils_disableTours(page: Page): Promise<void> {
       "editProgramExercise.reuse",
     ];
     (window as any).state.storage.helps.push(...tourHelps);
+    // skipintro bypasses the onboarding survey, so on any reload with a program present the
+    // "How did you hear about us?" backfill sheet would open and block clicks — mark it done.
+    // hearAboutUs.spec.ts clears this to exercise the real survey flow.
+    (window as any).state.storage.hearAboutUs = { requests: [], done: true };
   });
 }

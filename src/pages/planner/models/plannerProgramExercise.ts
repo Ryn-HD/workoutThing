@@ -5,12 +5,14 @@ import {
   IPlannerProgramExerciseGlobals,
   IPlannerProgramExerciseSet,
   IPlannerProgramExerciseSetVariation,
+  IPlannerProgramExerciseVariation,
   IPlannerProgramExerciseWithType,
   IPlannerProgramExerciseWarmupSet,
   IProgramExerciseProgress,
   IProgramExerciseProgressType,
 } from "./types";
 import { IPlannerEvalResult, PlannerExerciseEvaluator } from "../plannerExerciseEvaluator";
+import type { IPlannerErrorDetails } from "../../../syntaxErrorTypes";
 import { ObjectUtils_clone, ObjectUtils_filter, ObjectUtils_values } from "../../../utils/object";
 import {
   Weight_rpeMultiplier,
@@ -403,6 +405,18 @@ export function PlannerProgramExercise_currentEvaluatedSetVariation(
   return exercise.evaluatedSetVariations[index];
 }
 
+export function PlannerProgramExercise_currentExerciseVariationIndex(exercise: IPlannerProgramExercise): number {
+  const index = (exercise.exerciseVariations ?? []).findIndex((v) => v.isCurrent);
+  return index === -1 ? 0 : index;
+}
+
+export function PlannerProgramExercise_currentExerciseVariation(
+  exercise: IPlannerProgramExercise
+): IPlannerProgramExerciseVariation | undefined {
+  const index = PlannerProgramExercise_currentExerciseVariationIndex(exercise);
+  return exercise.exerciseVariations?.[index];
+}
+
 export function PlannerProgramExercise_currentDescription(exercise: IPlannerProgramExercise): string | undefined {
   const index = PlannerProgramExercise_currentDescriptionIndex(exercise);
   return exercise.descriptions.values[index]?.value;
@@ -497,14 +511,26 @@ export function PlannerProgramExercise_isReusingSetsProgress(exercise: IPlannerP
   );
 }
 
-export function PlannerProgramExercise_getState(exercise: IPlannerProgramExercise): IProgramState {
+// `visited` only matters while a program is being evaluated: PlannerEvaluator_checkReuseLoops
+// rejects reuse loops, but it can't run until every reuse is wired, and the evaluator calls this
+// before then. Without the guard a loop is an unbounded recursion that kills the whole process
+// instead of failing that one program.
+export function PlannerProgramExercise_getState(
+  exercise: IPlannerProgramExercise,
+  visited?: Set<IPlannerProgramExercise>
+): IProgramState {
   if (exercise.progress?.state && !exercise.progress.reuse) {
     return exercise.progress.state;
   } else {
+    const seen = visited ?? new Set<IPlannerProgramExercise>();
+    if (seen.has(exercise)) {
+      return {};
+    }
+    seen.add(exercise);
     const originalState = exercise.progress?.reuse?.exercise
-      ? PlannerProgramExercise_getState(exercise.progress.reuse.exercise)
+      ? PlannerProgramExercise_getState(exercise.progress.reuse.exercise, seen)
       : exercise.reuse?.exercise
-        ? PlannerProgramExercise_getState(exercise.reuse.exercise)
+        ? PlannerProgramExercise_getState(exercise.reuse.exercise, seen)
         : {};
 
     return { ...originalState, ...exercise.progress?.state };
@@ -533,14 +559,22 @@ export function PlannerProgramExercise_getOnlyChangedState(exercise: IPlannerPro
   ) as IProgramState;
 }
 
-export function PlannerProgramExercise_getStateMetadata(exercise: IPlannerProgramExercise): IProgramStateMetadata {
+export function PlannerProgramExercise_getStateMetadata(
+  exercise: IPlannerProgramExercise,
+  visited?: Set<IPlannerProgramExercise>
+): IProgramStateMetadata {
   if (exercise.progress?.stateMetadata && !exercise.progress.reuse) {
     return exercise.progress.stateMetadata;
   } else {
+    const seen = visited ?? new Set<IPlannerProgramExercise>();
+    if (seen.has(exercise)) {
+      return {};
+    }
+    seen.add(exercise);
     const originalState = exercise.progress?.reuse?.exercise
-      ? PlannerProgramExercise_getStateMetadata(exercise.progress.reuse.exercise)
+      ? PlannerProgramExercise_getStateMetadata(exercise.progress.reuse.exercise, seen)
       : exercise.reuse?.exercise
-        ? PlannerProgramExercise_getStateMetadata(exercise.reuse.exercise)
+        ? PlannerProgramExercise_getStateMetadata(exercise.reuse.exercise, seen)
         : {};
 
     return { ...originalState, ...exercise.progress?.stateMetadata };
@@ -761,7 +795,7 @@ export function PlannerProgramExercise_buildProgress(
     reuseFullname?: string;
     script?: string;
   } = {}
-): IEither<IProgramExerciseProgress, string> {
+): IEither<IProgramExerciseProgress, { message: string; details: IPlannerErrorDetails }> {
   switch (type) {
     case "none": {
       return {
@@ -870,14 +904,14 @@ for (var.i in completedReps) {
     }
     case "custom": {
       const script = opts.script;
-      let errorMessage: string | undefined;
-      const { state, stateMetadata } = PlannerExerciseEvaluator.fnArgsToStateVars(args, (message) => {
-        errorMessage = message;
+      let error: { message: string; details: IPlannerErrorDetails } | undefined;
+      const { state, stateMetadata } = PlannerExerciseEvaluator.fnArgsToStateVars(args, (message, value) => {
+        error = { message, details: { type: "invalidStateVariable", data: { value } } };
       });
-      if (errorMessage) {
+      if (error) {
         return {
           success: false,
-          error: errorMessage,
+          error,
         };
       }
       return {
@@ -997,11 +1031,13 @@ export function PlannerProgramExercise_createExerciseFromEntry(
     order: 0,
     text: "",
     tags: [],
+    superset: entry.superset != null ? { name: entry.superset } : undefined,
     equipment,
     name,
     line: 1,
     evaluatedSetVariations: [],
     setVariations: setVariations,
+    exerciseVariations: [{ exerciseType, name, isCurrent: true }],
     warmupSets: groupedWarmupSets.map((group) => ({
       type: "warmup",
       numberOfSets: group.length,

@@ -45,16 +45,8 @@ describe("Progress", () => {
   describe(".getNextWorkoutStep()", () => {
     it("alternates two myo-rep exercises after both activation sets and starts timers on superset wraps", () => {
       const progress = buildProgress([
-        buildEntry(0, "a", [
-          buildSet(0, "myoActivation", true),
-          buildSet(1, "myoMini"),
-          buildSet(2, "myoMini"),
-        ]),
-        buildEntry(1, "b", [
-          buildSet(0, "myoActivation"),
-          buildSet(1, "myoMini"),
-          buildSet(2, "myoMini"),
-        ]),
+        buildEntry(0, "a", [buildSet(0, "myoActivation", true), buildSet(1, "myoMini"), buildSet(2, "myoMini")]),
+        buildEntry(1, "b", [buildSet(0, "myoActivation"), buildSet(1, "myoMini"), buildSet(2, "myoMini")]),
       ]);
 
       expect(Progress_getNextWorkoutStep(progress, 0, 0)).to.eql({

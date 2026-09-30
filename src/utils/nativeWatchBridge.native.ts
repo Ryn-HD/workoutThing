@@ -1,81 +1,103 @@
 import { Platform } from "react-native";
-import NativeLiftosaurWatch, { WatchEvent, WatchAuth } from "../specs/NativeLiftosaurWatch";
+import NativeLiftosaurWatch from "../specs/NativeLiftosaurWatch";
+import { INativeWatchAuth, INativeWatchEvent, IWatchBridge } from "./watchBridge";
 
-export type INativeWatchEvent = WatchEvent;
-export type INativeWatchAuth = WatchAuth;
+export type { INativeWatchAuth, INativeWatchEvent } from "./watchBridge";
 
-export function NativeWatchBridge_isAvailable(): boolean {
-  return Platform.OS === "ios";
-}
-
-export function NativeWatchBridge_subscribeToWatchEvents(handler: (event: WatchEvent) => void): () => void {
-  if (Platform.OS !== "ios") {
-    return () => {};
+export class WatchBridge implements IWatchBridge {
+  public isAvailable(): boolean {
+    return Platform.OS === "ios";
   }
-  const subscription = NativeLiftosaurWatch!.onWatchEvent(handler);
-  NativeLiftosaurWatch!.flushPendingEvents().catch(() => {});
-  return () => subscription.remove();
-}
 
-export function NativeWatchBridge_sendStorageToWatch(filteredStorageJson: string): void {
-  if (Platform.OS !== "ios") {
-    return;
+  // Paired and installed, not reachable: a watch off the wrist still gets the storage through the
+  // application context when it wakes. An iPhone with no watch at all should build no payload.
+  public hasWatchApp(): boolean {
+    if (!this.isAvailable()) {
+      return false;
+    }
+    try {
+      return NativeLiftosaurWatch!.isWatchPaired() && NativeLiftosaurWatch!.isWatchAppInstalled();
+    } catch (e) {
+      return false;
+    }
   }
-  NativeLiftosaurWatch!.sendStorageToWatch(filteredStorageJson).catch(() => {});
-}
 
-export function NativeWatchBridge_sendAuthToWatch(auth: WatchAuth): void {
-  if (Platform.OS !== "ios") {
-    return;
+  public subscribeToWatchEvents(handler: (event: INativeWatchEvent) => void): () => void {
+    if (!this.isAvailable()) {
+      return () => {};
+    }
+    const subscription = NativeLiftosaurWatch!.onWatchEvent(handler);
+    NativeLiftosaurWatch!.flushPendingEvents().catch(() => {});
+    return () => subscription.remove();
   }
-  NativeLiftosaurWatch!.sendAuthToWatch(auth).catch(() => {});
-}
 
-export function NativeWatchBridge_sendNoAuthToWatch(): void {
-  if (Platform.OS !== "ios") {
-    return;
+  public sendStorageToWatch(filteredStorageJson: string): void {
+    if (!this.isAvailable()) {
+      return;
+    }
+    NativeLiftosaurWatch!.sendStorageToWatch(filteredStorageJson).catch(() => {});
   }
-  NativeLiftosaurWatch!.sendNoAuthToWatch().catch(() => {});
-}
 
-export function NativeWatchBridge_sendClearAuthToWatch(): void {
-  if (Platform.OS !== "ios") {
-    return;
+  public sendAuthToWatch(auth: INativeWatchAuth): void {
+    if (!this.isAvailable()) {
+      return;
+    }
+    NativeLiftosaurWatch!.sendAuthToWatch(auth).catch(() => {});
   }
-  NativeLiftosaurWatch!.sendClearAuthToWatch().catch(() => {});
-}
 
-export function NativeWatchBridge_clearWatchStorage(): void {
-  if (Platform.OS !== "ios") {
-    return;
+  public sendStorageAckToWatch(historyIds: string[]): void {
+    if (!this.isAvailable()) {
+      return;
+    }
+    NativeLiftosaurWatch!.sendStorageAckToWatch(historyIds).catch(() => {});
   }
-  NativeLiftosaurWatch!.clearWatchStorage().catch(() => {});
-}
 
-export function NativeWatchBridge_sendFinishWorkoutToWatch(saveToHealth: boolean): Promise<boolean> {
-  if (Platform.OS !== "ios") {
-    return Promise.resolve(false);
+  public sendNoAuthToWatch(): void {
+    if (!this.isAvailable()) {
+      return;
+    }
+    NativeLiftosaurWatch!.sendNoAuthToWatch().catch(() => {});
   }
-  return NativeLiftosaurWatch!.sendFinishWorkoutToWatch(saveToHealth).catch(() => false);
-}
 
-export function NativeWatchBridge_sendDiscardWorkoutToWatch(): void {
-  if (Platform.OS !== "ios") {
-    return;
+  public sendClearAuthToWatch(): void {
+    if (!this.isAvailable()) {
+      return;
+    }
+    NativeLiftosaurWatch!.sendClearAuthToWatch().catch(() => {});
   }
-  NativeLiftosaurWatch!.sendDiscardWorkoutToWatch().catch(() => {});
-}
 
-export function NativeWatchBridge_requestWatchLogs(): Promise<string> {
-  if (Platform.OS !== "ios") {
-    return Promise.resolve("");
+  public clearWatchStorage(): void {
+    if (!this.isAvailable()) {
+      return;
+    }
+    NativeLiftosaurWatch!.clearWatchStorage().catch(() => {});
   }
-  return NativeLiftosaurWatch!.requestWatchLogs().catch(() => "");
-}
 
-export function NativeWatchBridge_isWatchPaired(): boolean {
-  if (Platform.OS !== "ios") {
-    return false;
+  public sendFinishWorkoutToWatch(saveToHealth: boolean): Promise<boolean> {
+    if (!this.isAvailable()) {
+      return Promise.resolve(false);
+    }
+    return NativeLiftosaurWatch!.sendFinishWorkoutToWatch(saveToHealth).catch(() => false);
   }
-  return NativeLiftosaurWatch!.isWatchPaired();
+
+  public sendDiscardWorkoutToWatch(): void {
+    if (!this.isAvailable()) {
+      return;
+    }
+    NativeLiftosaurWatch!.sendDiscardWorkoutToWatch().catch(() => {});
+  }
+
+  public requestWatchLogs(): Promise<string> {
+    if (!this.isAvailable()) {
+      return Promise.resolve("");
+    }
+    return NativeLiftosaurWatch!.requestWatchLogs().catch(() => "");
+  }
+
+  public isWatchPaired(): boolean {
+    if (!this.isAvailable()) {
+      return false;
+    }
+    return NativeLiftosaurWatch!.isWatchPaired();
+  }
 }

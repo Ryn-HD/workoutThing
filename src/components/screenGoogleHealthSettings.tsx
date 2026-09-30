@@ -6,7 +6,7 @@ import { MenuItemEditable } from "./menuItemEditable";
 import { ISettings } from "../types";
 import { INavCommon } from "../models/state";
 import { useNavOptions } from "../navigation/useNavOptions";
-import { Thunk_requestHealthPermissions } from "../ducks/thunks";
+import { Thunk_requestHealthPermissions, Thunk_syncHealthKit } from "../ducks/thunks";
 
 interface IProps {
   dispatch: IDispatch;
@@ -18,7 +18,7 @@ export function ScreenGoogleHealthSettings(props: IProps): JSX.Element {
   useNavOptions({ navTitle: "Google Health Connect" });
 
   return (
-    <View className="px-4">
+    <View className="px-gutter">
       <MenuItemEditable
         name="Sync Workouts"
         type="boolean"
@@ -64,6 +64,23 @@ export function ScreenGoogleHealthSettings(props: IProps): JSX.Element {
           });
           if (newValue === "true") {
             props.dispatch(Thunk_requestHealthPermissions());
+          }
+        }}
+      />
+      <MenuItemEditable
+        name="Sync Sleep & Nutrition"
+        type="boolean"
+        value={props.settings.googleHealthSyncSleepNutrition ? "true" : "false"}
+        onChange={(newValue?: string) => {
+          props.dispatch({
+            type: "UpdateSettings",
+            lensRecording: lb<ISettings>()
+              .p("googleHealthSyncSleepNutrition")
+              .record(newValue === "true"),
+            desc: "Toggle Google Health sleep & nutrition",
+          });
+          if (newValue === "true") {
+            props.dispatch(Thunk_syncHealthKit());
           }
         }}
       />

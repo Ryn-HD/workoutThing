@@ -77,7 +77,7 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
   }
 
   const allPrs = History_getPersonalRecords(props.history);
-  const totalWeight = History_totalRecordWeight(record, props.settings.units);
+  const totalWeight = History_totalRecordWeight(record, props.settings);
 
   const startedEntries = History_getStartedEntries(record);
   const totalReps = History_totalRecordReps(record);
@@ -104,7 +104,7 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
 
   return (
     <>
-      <View className="px-4 pb-6">
+      <View className="px-gutter pb-6">
         <View className="flex-row items-center justify-center pb-2">
           {Platform.OS === "web" ? (
             <SvgUri uri={HostConfig_resolveUrl(ImagePreloader_dynohappy)} width={170} height={150} />
@@ -112,7 +112,7 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
             <SvgXml xml={BundledImages_svgXml(ImagePreloader_dynohappy) ?? ""} width={170} height={150} />
           )}
         </View>
-        <View className="items-center px-4 pb-2">
+        <View className="items-center px-gutter pb-2">
           <Text className="text-sm text-text-secondary">{record.programName}</Text>
           <Text className="text-base">{record.dayName}</Text>
         </View>
@@ -177,14 +177,14 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
           </View>
         </View>
 
-        <View className="px-4 py-4 mt-4">
+        <View className="px-gutter py-4 mt-4">
           <PersonalRecords prs={allPrs} historyRecords={[record]} settings={props.settings} />
         </View>
 
         {isMobile ? (
-          <MobileShare userId={props.userId} history={props.history} settings={props.settings} />
+          <MobileShare userId={props.userId} history={props.history} record={record} settings={props.settings} />
         ) : (
-          <WebappShare userId={props.userId} history={props.history} settings={props.settings} />
+          <WebappShare userId={props.userId} history={props.history} record={record} settings={props.settings} />
         )}
 
         {eligibleForCreateProgramDay && (
@@ -232,19 +232,22 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
 
 interface IMobileShareProps {
   history: IHistoryRecord[];
+  record: IHistoryRecord;
   settings: ISettings;
   userId?: string;
 }
 
 function MobileShare(props: IMobileShareProps): JSX.Element {
+  const historyRecordId = props.record.id;
   return (
-    <View className="px-4 py-4">
+    <View className="px-gutter py-4">
       <GroupHeader name="Share it!" />
       <View className="flex-row justify-between gap-4">
         <View className="items-center">
           <Pressable
+            testID="finish-day-share-igstory"
             className="nm-finishday-share-igstory"
-            onPress={() => navigateToModal("socialShareModal", { type: "igstory" })}
+            onPress={() => navigateToModal("socialShareModal", { type: "igstory", historyRecordId })}
           >
             <IconInstagram />
           </Pressable>
@@ -252,8 +255,9 @@ function MobileShare(props: IMobileShareProps): JSX.Element {
         </View>
         <View className="items-center">
           <Pressable
+            testID="finish-day-share-igfeed"
             className="nm-finishday-share-igfeed"
-            onPress={() => navigateToModal("socialShareModal", { type: "igfeed" })}
+            onPress={() => navigateToModal("socialShareModal", { type: "igfeed", historyRecordId })}
           >
             <IconInstagram />
           </Pressable>
@@ -261,8 +265,9 @@ function MobileShare(props: IMobileShareProps): JSX.Element {
         </View>
         <View className="items-center">
           <Pressable
+            testID="finish-day-share-tiktok"
             className="nm-finishday-share-tiktok"
-            onPress={() => navigateToModal("socialShareModal", { type: "tiktok" })}
+            onPress={() => navigateToModal("socialShareModal", { type: "tiktok", historyRecordId })}
           >
             <IconTiktok />
           </Pressable>
@@ -270,9 +275,10 @@ function MobileShare(props: IMobileShareProps): JSX.Element {
         </View>
         <View className="items-center">
           <Pressable
-            className="items-center justify-center w-10 h-10 rounded-full nm-finishday-share-text bg-background-subtle"
+            testID="finish-day-share-text"
+            className="items-center justify-center w-scaled-10 h-scaled-10 rounded-full nm-finishday-share-text bg-background-subtle"
             onPress={() => {
-              const text = LiftohistorySerializer_serialize(props.history[0], props.settings);
+              const text = LiftohistorySerializer_serialize(props.record, props.settings);
               ClipboardUtils_copy(text);
               Dialog_alert("Copied!");
             }}
@@ -284,7 +290,7 @@ function MobileShare(props: IMobileShareProps): JSX.Element {
         <View className="items-center">
           <WorkoutShareButton
             history={props.history}
-            record={props.history[0]}
+            record={props.record}
             settings={props.settings}
             icon={<IconKebab />}
           />
@@ -296,7 +302,7 @@ function MobileShare(props: IMobileShareProps): JSX.Element {
           name="copy-workout-link"
           onPress={() => {
             if (props.userId) {
-              const link = Share_generateLink(props.userId, props.history[0].id);
+              const link = Share_generateLink(props.userId, props.record.id);
               ClipboardUtils_copy(link);
               Dialog_alert("Copied!");
             } else {
@@ -313,6 +319,7 @@ function MobileShare(props: IMobileShareProps): JSX.Element {
 
 interface IWebappShareProps {
   history: IHistoryRecord[];
+  record: IHistoryRecord;
   userId?: string;
   settings: ISettings;
 }
@@ -322,13 +329,13 @@ function WebappShare(props: IWebappShareProps): JSX.Element {
   const userId = props.userId;
 
   return (
-    <View className="px-4 py-4">
+    <View className="px-gutter py-4">
       <GroupHeader name="Share it!" />
       <View className="flex-row justify-between gap-4">
         <View className="items-center">
           <WorkoutShareButton
             history={props.history}
-            record={props.history[0]}
+            record={props.record}
             settings={props.settings}
             icon={<IconPicture />}
           />
@@ -337,9 +344,9 @@ function WebappShare(props: IWebappShareProps): JSX.Element {
         <View className="items-center">
           <Pressable
             testID="finishday-share-text"
-            className="items-center justify-center w-10 h-10 rounded-full bg-background-subtle"
+            className="items-center justify-center w-scaled-10 h-scaled-10 rounded-full bg-background-subtle"
             onPress={() => {
-              const text = LiftohistorySerializer_serialize(props.history[0], props.settings);
+              const text = LiftohistorySerializer_serialize(props.record, props.settings);
               ClipboardUtils_copy(text);
               Dialog_alert("Copied!");
             }}
@@ -350,10 +357,10 @@ function WebappShare(props: IWebappShareProps): JSX.Element {
         </View>
         <View className="items-center">
           <Pressable
-            className="items-center justify-center w-10 h-10 rounded-full bg-background-subtle"
+            className="items-center justify-center w-scaled-10 h-scaled-10 rounded-full bg-background-subtle"
             onPress={() => {
               if (userId) {
-                const link = Share_generateLink(userId, props.history[0].id);
+                const link = Share_generateLink(userId, props.record.id);
                 ClipboardUtils_copy(link);
                 setCopiedLink(link);
               } else {

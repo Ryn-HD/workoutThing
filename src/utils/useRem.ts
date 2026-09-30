@@ -1,10 +1,16 @@
 import { useSyncExternalStore } from "react";
+import { SCALED_SPACINGS, SCALED_LEADINGS } from "./scaledSpacings.generated";
 
 const BASE_REM = 16;
 const listeners = new Set<() => void>();
+let currentRem: number | undefined = undefined;
 
 export function useRem(): number {
   return useSyncExternalStore(remSubscribe, remGet, remServerGet);
+}
+
+export function useRemScale(): number {
+  return useRem() / BASE_REM;
 }
 
 export function Rem_set(size: number): void {
@@ -12,8 +18,10 @@ export function Rem_set(size: number): void {
     const root = document.documentElement;
     root.style.fontSize = `${size}px`;
     const scale = size / BASE_REM;
+    // --spacing is deliberately absent: paddings, margins and gaps are constant at every text
+    // size. Only type, and the boxes that have to keep containing it, grow.
     const vars: Record<string, string> = {
-      "--spacing": `${4 * scale}px`,
+      "--text-2xs": `${10 * scale}px`,
       "--text-xs": `${12 * scale}px`,
       "--text-sm": `${14 * scale}px`,
       "--text-base": `${16 * scale}px`,
@@ -24,21 +32,33 @@ export function Rem_set(size: number): void {
       "--text-4xl": `${36 * scale}px`,
       "--text-5xl": `${48 * scale}px`,
     };
+    for (const n of SCALED_SPACINGS) {
+      vars[`--spacing-scaled-${n}`] = `${n * 4 * scale}px`;
+    }
+    for (const n of SCALED_LEADINGS) {
+      vars[`--leading-scaled-${n}`] = `${n * 4 * scale}px`;
+    }
     for (const [k, v] of Object.entries(vars)) {
       root.style.setProperty(k, v);
     }
   }
+  currentRem = size;
   for (const l of listeners) {
     l();
   }
 }
 
+// getSnapshot runs on every render of every subscriber (and there's one per icon),
+// so it must not call getComputedStyle - that forces a style recalc each time.
 function remGet(): number {
-  if (typeof document === "undefined") {
-    return BASE_REM;
+  if (currentRem == null) {
+    if (typeof document === "undefined") {
+      return BASE_REM;
+    }
+    const fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    currentRem = isNaN(fs) ? BASE_REM : fs;
   }
-  const fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
-  return isNaN(fs) ? BASE_REM : fs;
+  return currentRem;
 }
 
 function remServerGet(): number {

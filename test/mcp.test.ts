@@ -8,13 +8,15 @@ import { EQUIPMENT_WRITABLE_FIELDS } from "../lambda/utils/apiv1Equipment";
 import { EXERCISE_DATA_WRITABLE_FIELDS } from "../lambda/utils/apiv1ExerciseData";
 import { buildMockDi, IMockDI } from "./utils/mockDi";
 import { MockLogUtil } from "./utils/mockLogUtil";
-import { userTableNames } from "../lambda/dao/userDao";
+import { UserDao, userTableNames } from "../lambda/dao/userDao";
+import { ICollectionVersions } from "../src/models/versionTracker";
 import { freeUsersTableNames } from "../lambda/dao/freeUserDao";
 import { OauthDao } from "../lambda/dao/oauthDao";
 import { ApiKeyDao } from "../lambda/dao/apiKeyDao";
 import { Storage_getDefault } from "../src/models/storage";
 import { MockFetch } from "./utils/mockFetch";
 import sinon from "sinon";
+import JWT from "jsonwebtoken";
 
 function buildMcpEvent(body: unknown, headers?: Record<string, string>): APIGatewayProxyEvent {
   return {
@@ -26,6 +28,29 @@ function buildMcpEvent(body: unknown, headers?: Record<string, string>): APIGate
     path: "/mcp",
     pathParameters: {},
     queryStringParameters: {},
+    multiValueQueryStringParameters: {},
+    stageVariables: {},
+    requestContext: {} as any,
+    resource: "",
+  };
+}
+
+function buildEvent(args: {
+  method: string;
+  path: string;
+  query?: Record<string, string>;
+  headers?: Record<string, string>;
+  body?: string;
+}): APIGatewayProxyEvent {
+  return {
+    body: args.body ?? null,
+    headers: args.headers || {},
+    multiValueHeaders: {},
+    httpMethod: args.method,
+    isBase64Encoded: false,
+    path: args.path,
+    pathParameters: {},
+    queryStringParameters: args.query || {},
     multiValueQueryStringParameters: {},
     stageVariables: {},
     requestContext: {} as any,
@@ -147,6 +172,9 @@ describe("MCP", () => {
       expect(toolNames).to.include("get_history");
       expect(toolNames).to.include("run_playground");
       expect(toolNames).to.include("get_liftoscript_reference");
+      for (const tool of body.result.tools) {
+        expect(tool.outputSchema?.type).to.equal("object");
+      }
     });
 
     it("returns error for unknown method", async () => {
@@ -157,6 +185,175 @@ describe("MCP", () => {
 
     it("rejects invalid JSON-RPC", async () => {
       const result = await handler(buildMcpEvent({ not: "jsonrpc" }), ctx);
+      expect(result.statusCode).to.equal(400);
+    });
+  });
+
+  describe("oauth authorize consent", () => {
+    async function registerClient(redirectUri = "https://client.example/cb"): Promise<string> {
+      const client = await new OauthDao(di).createClient([redirectUri], "Test MCP Client");
+      return client.clientId;
+    }
+
+    function sessionCookie(id: string): string {
+      return `session=${JWT.sign({ userId: id }, "cookieSecret")}`;
+    }
+
+    function authorizeQuery(clientId: string, redirectUri = "https://client.example/cb"): Record<string, string> {
+      return {
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        code_challenge: "abc123challenge",
+        code_challenge_method: "S256",
+        state: "xyz",
+      };
+    }
+
+    function extractConsentToken(html: string): string {
+      const match = html.match(/name="consent_token" value="([^"]+)"/);
+      if (!match) {
+        throw new Error("No consent_token in page");
+      }
+      return match[1];
+    }
+
+    async function getConsentPage(clientId: string, redirectUri?: string): Promise<APIGatewayProxyResult> {
+      return handler(
+        buildEvent({
+          method: "GET",
+          path: "/oauth/authorize",
+          query: authorizeQuery(clientId, redirectUri),
+          headers: { Cookie: sessionCookie(userId) },
+        }),
+        ctx
+      );
+    }
+
+    function postConsent(
+      consentToken: string | undefined,
+      decision: string,
+      cookie?: string
+    ): Promise<APIGatewayProxyResult> {
+      const params = new URLSearchParams();
+      if (consentToken != null) {
+        params.set("consent_token", consentToken);
+      }
+      params.set("decision", decision);
+      return handler(
+        buildEvent({
+          method: "POST",
+          path: "/oauth/authorize",
+          headers: {
+            Cookie: cookie ?? sessionCookie(userId),
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: params.toString(),
+        }),
+        ctx
+      );
+    }
+
+    it("redirects an unauthenticated user to login without minting anything", async () => {
+      const clientId = await registerClient();
+      const result = await handler(
+        buildEvent({ method: "GET", path: "/oauth/authorize", query: authorizeQuery(clientId) }),
+        ctx
+      );
+      expect(result.statusCode).to.equal(302);
+      expect(result.headers!.location).to.include("/login?url=");
+    });
+
+    it("GET renders a consent page and does NOT mint a code", async () => {
+      const clientId = await registerClient();
+      const result = await getConsentPage(clientId);
+      expect(result.statusCode).to.equal(200);
+      expect(result.headers!["content-type"]).to.include("text/html");
+      expect(result.body).to.include("Test MCP Client");
+      // The whole point: a GET must not produce a redirect back to the client with a code.
+      expect(result.body).to.not.include("code=");
+      expect(result.headers!.location).to.equal(undefined);
+    });
+
+    it("GET consent page surfaces the redirect host and an unverified warning", async () => {
+      // Client name is self-asserted, so the page must show where the code
+      // actually goes plus a caution that the name isn't verified.
+      const clientId = await registerClient("https://evil.example/cb");
+      const result = await getConsentPage(clientId, "https://evil.example/cb");
+      expect(result.body).to.include("evil.example");
+      expect(result.body.toLowerCase()).to.include("verified");
+    });
+
+    it("GET consent page forbids framing (anti-clickjacking)", async () => {
+      const clientId = await registerClient();
+      const result = await getConsentPage(clientId);
+      expect(result.headers!["x-frame-options"]).to.equal("DENY");
+      expect(result.headers!["content-security-policy"]).to.include("frame-ancestors 'none'");
+    });
+
+    it("POST allow mints a code and redirects to the client with state", async () => {
+      const clientId = await registerClient();
+      const page = await getConsentPage(clientId);
+      const token = extractConsentToken(page.body);
+      const result = await postConsent(token, "allow");
+      expect(result.statusCode).to.equal(302);
+      const loc = new URL(result.headers!.location as string);
+      expect(loc.origin + loc.pathname).to.equal("https://client.example/cb");
+      expect(loc.searchParams.get("code")).to.be.a("string").and.not.empty;
+      expect(loc.searchParams.get("state")).to.equal("xyz");
+    });
+
+    it("POST deny redirects with access_denied and no code", async () => {
+      const clientId = await registerClient();
+      const page = await getConsentPage(clientId);
+      const token = extractConsentToken(page.body);
+      const result = await postConsent(token, "deny");
+      expect(result.statusCode).to.equal(302);
+      const loc = new URL(result.headers!.location as string);
+      expect(loc.searchParams.get("error")).to.equal("access_denied");
+      expect(loc.searchParams.get("code")).to.equal(null);
+    });
+
+    it("POST rejects a forged/unsigned consent token", async () => {
+      const forged = JWT.sign(
+        {
+          userId,
+          clientId: "whatever",
+          redirectUri: "https://client.example/cb",
+          codeChallenge: "x",
+          codeChallengeMethod: "S256",
+        },
+        "wrong-secret"
+      );
+      const result = await postConsent(forged, "allow");
+      expect(result.statusCode).to.equal(400);
+      expect(parseBody(result).error).to.equal("invalid_request");
+    });
+
+    it("POST rejects a valid token replayed under a different session (CSRF binding)", async () => {
+      const clientId = await registerClient();
+      const page = await getConsentPage(clientId);
+      const token = extractConsentToken(page.body);
+      // Attacker's own valid session, victim-issued token.
+      const result = await postConsent(token, "allow", sessionCookie("someone-else"));
+      expect(result.statusCode).to.equal(401);
+      expect(parseBody(result).error).to.equal("access_denied");
+    });
+
+    it("POST rejects the consent token being used as its own session cookie", async () => {
+      const clientId = await registerClient();
+      const page = await getConsentPage(clientId);
+      const token = extractConsentToken(page.body);
+      // The consent token carries userId; if it were signed with the raw cookie
+      // secret it would also validate as a session. Submitting it in both slots
+      // must fail - the derived signing key makes it invalid as a session cookie.
+      const result = await postConsent(token, "allow", `session=${token}`);
+      expect(result.statusCode).to.equal(401);
+      expect(parseBody(result).error).to.equal("access_denied");
+    });
+
+    it("POST rejects a missing consent token", async () => {
+      const result = await postConsent(undefined, "allow");
       expect(result.statusCode).to.equal(400);
     });
   });
@@ -270,6 +467,14 @@ describe("MCP", () => {
       expect(result.statusCode).to.equal(200);
       const body = parseBody(result);
       expect(body.result.content[0].text).to.include("Liftoscript");
+      expect(body.result.structuredContent.text).to.include("Liftoscript");
+    });
+
+    it("returns program design guide", async () => {
+      const result = await handler(buildMcpEvent(toolCall("get_program_design_guide")), ctx);
+      expect(result.statusCode).to.equal(200);
+      const body = parseBody(result);
+      expect(body.result.content[0].text).to.include("Program Design Guide");
     });
 
     it("returns liftohistory reference", async () => {
@@ -334,6 +539,7 @@ describe("MCP", () => {
       const data = JSON.parse(body.result.content[0].text);
       expect(data.id).to.be.a("string");
       expect(data.stats).to.not.be.undefined;
+      expect(body.result.structuredContent.id).to.equal(data.id);
     });
 
     it("creates and gets a program", async () => {
@@ -375,6 +581,30 @@ describe("MCP", () => {
       expect(updateBody.result.isError).to.be.undefined;
       const updateData = JSON.parse(updateBody.result.content[0].text);
       expect(updateData.stats).to.not.be.undefined;
+    });
+
+    it("keeps a vector clock on the planner after an update, attributed to the MCP client", async () => {
+      const programText = "# Week 1\n## Day 1\nSquat / 3x5 / 135lb / progress: lp(5lb)";
+      const createResult = await handler(
+        buildMcpEvent(toolCall("create_program", { name: "Test Program", text: programText }), authHeaders(token)),
+        ctx
+      );
+      const createData = JSON.parse(parseBody(createResult).result.content[0].text);
+
+      const updatedText = "# Week 1\n## Day 1\nSquat / 5x5 / 185lb / progress: lp(10lb)";
+      await handler(
+        buildMcpEvent(toolCall("update_program", { id: createData.id, text: updatedText }), authHeaders(token)),
+        ctx
+      );
+
+      const user = await new UserDao(di).getLimitedById(userId);
+      const programVersions = (user!.storage._versions!.programs as ICollectionVersions).items!;
+      const planner = Object.values(programVersions)[0] as any;
+      // A bare timestamp here means the clock was destroyed: every device's counter resets to 0, and a
+      // replica holding a pre-reset count then outranks the server forever.
+      expect(planner.planner.vc).to.be.an("object");
+      expect(Object.keys(planner.planner.vc)).to.have.length(1);
+      expect(Object.keys(planner.planner.vc)[0]).to.match(/^mcp_|^api_/);
     });
 
     it("deletes a program", async () => {
@@ -510,6 +740,94 @@ describe("MCP", () => {
       expect(data.updatedProgramText).to.include("Squat");
     });
 
+    it("completes a set with no weight and progresses it (auto-answers the ask-weight modal)", async () => {
+      // A bodyweight set has no weight, so completing it opens the ask-weight modal in the app. The playground
+      // must auto-answer it, otherwise the set never finalizes and progression can't fire.
+      const programText = "# Week 1\n## Day 1\nPull Up / 3x5 / progress: lp(1lb)";
+      const commands = JSON.stringify([
+        "complete_set(1, 1)",
+        "complete_set(1, 2)",
+        "complete_set(1, 3)",
+        "finish_workout()",
+      ]);
+      const result = await handler(
+        buildMcpEvent(toolCall("run_playground", { programText, commands }), authHeaders(token)),
+        ctx
+      );
+      expect(result.statusCode).to.equal(200);
+      const data = JSON.parse(parseBody(result).result.content[0].text);
+      // The completed exercise shows up in the serialized workout (empty before the fix).
+      expect(data.workout).to.include("Pull Up");
+      // lp(1lb) fired, bumping the weight from empty to 1lb.
+      expect(data.updatedProgramText).to.include("Pull Up / 3x5 / 1lb");
+    });
+
+    it("completes an AMRAP set and progresses it (auto-answers the AMRAP modal)", async () => {
+      const programText = "# Week 1\n## Day 1\nSquat / 2x5 100lb, 1x5+ 100lb / progress: lp(5lb)";
+      const commands = JSON.stringify([
+        "complete_set(1, 1)",
+        "complete_set(1, 2)",
+        "complete_set(1, 3)",
+        "finish_workout()",
+      ]);
+      const result = await handler(
+        buildMcpEvent(toolCall("run_playground", { programText, commands }), authHeaders(token)),
+        ctx
+      );
+      expect(result.statusCode).to.equal(200);
+      const data = JSON.parse(parseBody(result).result.content[0].text);
+      expect(data.workout).to.include("Squat");
+      expect(data.updatedProgramText).to.include("105lb");
+    });
+
+    it("completes a timed (isometric hold) set and records the held time so progression fires", async () => {
+      // Completing a timed set opens the set-timer clock in the app and finishes on a second "Stop & Record"
+      // signal. The playground must fire that second signal itself, recording the programmed hold duration -
+      // otherwise the set stays uncompleted and the hold progression never runs.
+      // The progression graduates once the held time reaches the programmed target (completedSetTime >= setTime),
+      // which is the realistic hold pattern used by the Recommended Routine.
+      const programText =
+        "# Week 1\n## Day 1\nPlank / 3x1 0lb 20s|60s / progress: custom(hold: 0) {~\n  if (completedSetTime >= setTime) {\n    state.hold += 5\n  }\n~}";
+      const commands = JSON.stringify([
+        "complete_set(1, 1)",
+        "complete_set(1, 2)",
+        "complete_set(1, 3)",
+        "finish_workout()",
+      ]);
+      const result = await handler(
+        buildMcpEvent(toolCall("run_playground", { programText, commands }), authHeaders(token)),
+        ctx
+      );
+      expect(result.statusCode).to.equal(200);
+      const data = JSON.parse(parseBody(result).result.content[0].text);
+      expect(data.workout).to.include("Plank");
+      // Held the full 20s target, so completedSetTime >= setTime fired and bumped hold from 0 to 5.
+      expect(data.updatedProgramText).to.include("hold: 5");
+    });
+
+    it("change_set_time overrides only the recorded held time, not the target, so short holds fail progression", async () => {
+      const programText =
+        "# Week 1\n## Day 1\nPlank / 3x1 0lb 20s|60s / progress: custom(hold: 0) {~\n  if (completedSetTime >= setTime) {\n    state.hold += 5\n  }\n~}";
+      const commands = JSON.stringify([
+        "complete_set(1, 1)",
+        "complete_set(1, 2)",
+        "complete_set(1, 3)",
+        "change_set_time(1, 1, 10)",
+        "change_set_time(1, 2, 10)",
+        "change_set_time(1, 3, 10)",
+        "finish_workout()",
+      ]);
+      const result = await handler(
+        buildMcpEvent(toolCall("run_playground", { programText, commands }), authHeaders(token)),
+        ctx
+      );
+      expect(result.statusCode).to.equal(200);
+      const data = JSON.parse(parseBody(result).result.content[0].text);
+      // change_set_time lowered completedSetTime to 10 but left the 20s target intact, so
+      // completedSetTime (10) >= setTime (20) is false and the progression does not fire.
+      expect(data.updatedProgramText).to.include("hold: 0");
+    });
+
     it("returns error for invalid playground program", async () => {
       const result = await handler(
         buildMcpEvent(toolCall("run_playground", { programText: "invalid" }), authHeaders(token)),
@@ -519,6 +837,45 @@ describe("MCP", () => {
       const body = parseBody(result);
       expect(body.result.isError).to.equal(true);
       expect(body.result.content[0].text).to.include("Hint");
+    });
+
+    it("returns tool error when programText is missing (e.g. passed as 'program')", async () => {
+      const program = "# Week 1\n## Day 1\nSquat / 3x5 / 135lb / progress: lp(5lb)";
+      const result = await handler(buildMcpEvent(toolCall("run_playground", { program }), authHeaders(token)), ctx);
+      expect(result.statusCode).to.equal(200);
+      const body = parseBody(result);
+      expect(body.result.isError).to.equal(true);
+      expect(body.result.content[0].text).to.include("programText");
+    });
+
+    it("returns tool error instead of 500 for non-JSON commands", async () => {
+      const result = await handler(
+        buildMcpEvent(
+          toolCall("run_playground", {
+            programText: "Squat / 3x5 100lb / progress: lp(5lb)",
+            commands: "complete_all_sets(); finish_workout();",
+          }),
+          authHeaders(token)
+        ),
+        ctx
+      );
+      expect(result.statusCode).to.equal(200);
+      const body = parseBody(result);
+      expect(body.result.isError).to.equal(true);
+      expect(body.result.content[0].text).to.include("JSON array of command strings");
+    });
+
+    it("accepts commands as a native array", async () => {
+      const programText = "# Week 1\n## Day 1\nSquat / 3x5 / 135lb / progress: lp(5lb)";
+      const result = await handler(
+        buildMcpEvent(
+          toolCall("run_playground", { programText, commands: ["complete_set(1, 1)", "finish_workout()"] }),
+          authHeaders(token)
+        ),
+        ctx
+      );
+      expect(result.statusCode).to.equal(200);
+      expect(parseBody(result).result.isError).to.be.undefined;
     });
   });
 
@@ -583,7 +940,32 @@ describe("MCP", () => {
       expect(result.statusCode).to.equal(200);
       const body = parseBody(result);
       expect(body.result.isError).to.equal(true);
-      expect(body.result.content[0].text).to.include("name");
+      expect(body.result.content[0].text).to.include("Name cannot be empty");
+    });
+
+    it("rejects names with Liftoscript syntax characters", async () => {
+      const result = await handler(
+        buildMcpEvent(toolCall("create_custom_exercise", { name: "Press (Machine)" }), authHeaders(token)),
+        ctx
+      );
+      expect(result.statusCode).to.equal(200);
+      const body = parseBody(result);
+      expect(body.result.isError).to.equal(true);
+      expect(body.result.content[0].text).to.include("Name cannot contain special characters");
+    });
+
+    it("rejects valid JSON of the wrong shape for targetMuscles", async () => {
+      const result = await handler(
+        buildMcpEvent(
+          toolCall("create_custom_exercise", { name: "Sled Push", targetMuscles: "{}" }),
+          authHeaders(token)
+        ),
+        ctx
+      );
+      expect(result.statusCode).to.equal(200);
+      const body = parseBody(result);
+      expect(body.result.isError).to.equal(true);
+      expect(body.result.content[0].text).to.include("targetMuscles must be a JSON array of muscle names");
     });
 
     it("rejects invalid muscle names", async () => {
@@ -1233,6 +1615,21 @@ describe("MCP", () => {
 
       const bad = await callTool("set_exercise_data", { key: "squat_barbell", isUnilateral: "maybe" });
       expect(bad.isError).to.equal(true);
+    });
+
+    it("clamps volumeMultiplier into a sane range and neutralizes garbage", async () => {
+      const set = toolData(await callTool("set_exercise_data", { key: "shoulderPress_dumbbell", volumeMultiplier: 2 }));
+      expect(set.volumeMultiplier).to.equal(2);
+
+      const huge = toolData(
+        await callTool("set_exercise_data", { key: "shoulderPress_dumbbell", volumeMultiplier: 1000 })
+      );
+      expect(huge.volumeMultiplier).to.equal(10);
+
+      const negative = toolData(
+        await callTool("set_exercise_data", { key: "shoulderPress_dumbbell", volumeMultiplier: -5 })
+      );
+      expect(negative.volumeMultiplier).to.equal(1);
     });
 
     it("rejects an unknown exercise key", async () => {

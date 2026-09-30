@@ -350,3 +350,34 @@ Push/Pull/Lower/Upper/Upper program (the actual `type[...]` encoding he provided
 - **Rebase vs merge:** chose **rebase** (linear history, cleanly "my changes on top of latest"). Trade-off: rewrites the 19 commits → requires force-push to `origin`.
 - **Line endings:** normalize to **LF** and add `.gitattributes` to stop the churn recurring.
 - Whether any of the fork's *fixes* (myo-rep superset, bodyweight load, planner double-progression) are now redundant because upstream fixed them independently — check during conflict resolution.
+
+## Sync 2 (2026-09-30) — merged upstream `5eadf1a` (459 commits)
+
+Real `git merge upstream/master` (no squash, no history rewrite), so the next sync starts from
+this merge base. 14 conflicts: config, generated parsers, and the fork's myo/bodyweight/password code.
+
+- **Kept:** myo sequencing + rest rules (`progress.ts`), set types (`set.ts`, grammar), myo-aware
+  `dp()`, bodyweight "clear added load" (`workoutExerciseSet.tsx`), password "Enable Sync"
+  (`screenAccount.tsx`, `Thunk_passwordSignIn`), default-bilateral `Exercise_getIsUnilateral`.
+- **Adapted to upstream API changes:** timers/stop now take an `effects` array
+  (`Progress_startRestAfterSet(effects, ...)`); `handleLogin` takes `env`; planner errors need a
+  details object (added `invalidSetType` to `src/syntaxErrorTypes.ts`).
+- **Vercel backend:** `VersionTracker` now requires a writer id → `api/_lib/sync.ts` falls back to
+  `VersionTrackerUtils_UNIDENTIFIED_DEVICE_ID` like the lambda. Client now fetches missing history
+  by id after a dirty sync → `api/history.ts` supports `?ids=`.
+- **New fix:** myo minis with no explicit weight take the activation set's weight
+  (`Program_nextHistoryEntry`). Before, `@9` gave 5-rep minis a heavier RPE-derived load than the
+  12-rep activation.
+- Upstream's unilateral set-timer tests opt Bulgarian Split Squat into `isUnilateral`, since the
+  fork logs everything bilaterally by default.
+- Upstream added its own email/password sign-in (their cloud). Not wired up: the self-hosted
+  backend has no `/api/signin/email`, so the fork's "Enable Sync" button stays in its place.
+
+**Validation:** `tsc` clean except upstream's own errors (`paymentMix.test.ts`,
+`submitToAppStore.ts`). 2425 unit tests pass. PWA build clean. Browser walkthrough of Pull A
+(straight-set + myo superset, straight-set superset, standalone myo, bodyweight + added load)
+matched the expected rest/no-rest sequence at every set.
+
+**Running tests on Node ≥ 22.18:** Node's built-in type stripping hijacks `.ts` loading. Use
+`NODE_OPTIONS="--no-experimental-strip-types --max-old-space-size=8192" TS_NODE_TRANSPILE_ONLY=1 npm test`.
+Run `npm run build:programs` first (tests read `programdata/`).

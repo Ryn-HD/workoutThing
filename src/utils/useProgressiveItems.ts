@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { NavScreenScrollContext } from "../navigation/NavScreenScrollContext";
+import { ProgressiveReveal_onScroll } from "./progressiveReveal";
 
 interface IIdleGlobal {
   requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
@@ -20,6 +21,9 @@ interface IProgressiveOptions {
   batchSize?: number;
   threshold?: number;
   rateLimitMs?: number;
+  // When set, idle-time revealing stops at this count for good. Past it, only a scroll near the
+  // bottom reveals the next batch. 0 reveals on scroll only.
+  idleCap?: number;
   debugLabel?: string;
   resetKey?: unknown;
 }
@@ -29,6 +33,7 @@ export function useProgressiveCount(total: number, options?: IProgressiveOptions
   const batchSize = options?.batchSize ?? 4;
   const threshold = options?.threshold ?? 600;
   const rateLimitMs = options?.rateLimitMs ?? 200;
+  const idleCap = options?.idleCap;
   const debugLabel = options?.debugLabel;
   const resetKey = options?.resetKey;
 
@@ -60,35 +65,63 @@ export function useProgressiveCount(total: number, options?: IProgressiveOptions
     if (!ctx) {
       return undefined;
     }
-    return ctx.addScrollListener((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (countRef.current >= total) {
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastEvent: NativeScrollEvent | undefined;
+    const check = (): void => {
+      if (lastEvent == null) {
         return;
       }
       const now = Date.now();
-      if (now - lastBumpRef.current < rateLimitMs) {
-        return;
-      }
-      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-      if (contentOffset.y + layoutMeasurement.height > contentSize.height - threshold) {
+      const step = ProgressiveReveal_onScroll({
+        count: countRef.current,
+        total,
+        batchSize,
+        threshold,
+        rateLimitMs,
+        lastBumpAt: lastBumpRef.current,
+        now,
+        offsetY: lastEvent.contentOffset.y,
+        viewportHeight: lastEvent.layoutMeasurement.height,
+        contentHeight: lastEvent.contentSize.height,
+      });
+      if (step.kind === "retry" && retryTimer == null) {
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          check();
+        }, step.inMs);
+      } else if (step.kind === "bump") {
         lastBumpRef.current = now;
-        const next = Math.min(countRef.current + batchSize, total);
-        countRef.current = next;
-        dbg(debugLabel, `scroll bump → ${next}/${total}`);
-        setCount(next);
+        countRef.current = step.count;
+        dbg(debugLabel, `scroll bump → ${step.count}/${total}`);
+        setCount(step.count);
       }
+    };
+    const removeListener = ctx.addScrollListener((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      lastEvent = e.nativeEvent;
+      check();
     });
+    return () => {
+      removeListener();
+      if (retryTimer != null) {
+        clearTimeout(retryTimer);
+      }
+    };
   }, [ctx, total, batchSize, threshold, rateLimitMs, debugLabel]);
 
   useEffect(() => {
-    if (count >= total) {
+    const idleTarget = idleCap == null ? total : Math.min(idleCap, total);
+    if (count >= idleTarget) {
       if (count > 0 && count === total) {
         dbg(debugLabel, `complete: all ${total} items revealed`);
+      } else if (count === idleTarget) {
+        dbg(debugLabel, `idle cap reached at ${count}/${total}, waiting for scroll`);
       }
       return undefined;
     }
     const g = globalThis as unknown as IIdleGlobal;
     const tick = (): void => {
-      const next = Math.min(countRef.current + batchSize, total);
+      const cap = idleCap == null ? total : Math.min(idleCap, total);
+      const next = Math.min(countRef.current + batchSize, cap);
       countRef.current = next;
       dbg(debugLabel, `idle bump → ${next}/${total}`);
       setCount(next);
@@ -99,7 +132,7 @@ export function useProgressiveCount(total: number, options?: IProgressiveOptions
     }
     const handle = setTimeout(tick, 50) as unknown as number;
     return () => clearTimeout(handle);
-  }, [count, total, batchSize, debugLabel]);
+  }, [count, total, batchSize, idleCap, debugLabel]);
 
   return Math.min(effectiveCount, total);
 }

@@ -1,5 +1,7 @@
 import type { JSX } from "react";
 import { View, Pressable } from "react-native";
+import Animated from "react-native-reanimated";
+import { WorkoutLayoutTransition } from "./workoutLayoutTransition";
 import { Text } from "./primitives/text";
 import { IDispatch } from "../ducks/types";
 import {
@@ -12,7 +14,12 @@ import {
   ITargetType,
   IHistoryEntry,
   IStats,
+  IProgressMode,
 } from "../types";
+import { IPrevExerciseData } from "../models/history";
+import { IWorkoutExpandedSet } from "../utils/workoutSetExpansion";
+import { WorkoutSetPrevious_lines } from "../utils/workoutSetPrevious";
+import { WorkoutHints_isLearned } from "../utils/workoutHints";
 import { IPlannerProgramExercise } from "../pages/planner/models/types";
 import { updateProgress } from "../models/state";
 import { lb, LensBuilder } from "lens-shmens";
@@ -31,6 +38,8 @@ import { IEvaluatedProgram } from "../models/program";
 import { Exercise_getIsUnilateral } from "../models/exercise";
 import { memo, useCallback, useMemo } from "react";
 import { usePerfRenderCount } from "../utils/usePerfRenderCount";
+import { useTrackClick } from "../utils/clickTracking";
+import { useRem } from "../utils/useRem";
 
 interface IWorkoutExerciseAllSets {
   day: number;
@@ -44,7 +53,7 @@ interface IWorkoutExerciseAllSets {
   lastSets?: ISet[];
   helps?: string[];
   stats: IStats;
-  onStopShowingHint?: () => void;
+  expansion?: IWorkoutExerciseSetsExpansion;
   onTargetClick?: () => void;
   subscription?: ISubscription;
   userPromptedStateVars?: IProgramState;
@@ -53,6 +62,15 @@ interface IWorkoutExerciseAllSets {
   otherStates?: IByExercise<IProgramState>;
   settings: ISettings;
   dispatch: IDispatch;
+}
+
+export interface IWorkoutExerciseSetsExpansion {
+  expanded: IWorkoutExpandedSet | undefined;
+  onToggle: (mode: IProgressMode, setIndex: number) => void;
+  onComplete: (mode: IProgressMode, setIndex: number) => void;
+  prevData: IPrevExerciseData | undefined;
+  isMultiweek: boolean;
+  onMenuOpenChange: (isOpen: boolean) => void;
 }
 
 function getTargetColumnLabel(targetType: ITargetType): string {
@@ -83,7 +101,7 @@ function WorkoutExerciseAllSetsInner(props: IWorkoutExerciseAllSets): JSX.Elemen
   const targetLabel = getTargetColumnLabel(props.settings.workoutSettings.targetType);
   const lbEntry = useMemo(() => lb<IHistoryRecord>().p("entries").i(props.entryIndex), [props.entryIndex]);
   const isUnilateral = Exercise_getIsUnilateral(props.exerciseType, props.settings);
-  const remValue = props.settings.textSize ?? 16;
+  const remValue = useRem();
   const rpeLabel = useMemo(() => {
     const allSets = [...sets, ...warmupSets];
     let longest = "";
@@ -127,23 +145,48 @@ function WorkoutExerciseAllSetsInner(props: IWorkoutExerciseAllSets): JSX.Elemen
   );
   const lbSetByIndex = useMemo(() => sets.map((_, i) => props.lbSets.i(i)), [props.lbSets, sets.length]);
 
-  const { dispatch, lbWarmupSets, lbSets, lastSets, exerciseType, settings } = props;
+  const { dispatch, lbWarmupSets, lbSets, lastSets, exerciseType, settings, expansion } = props;
+  const trackClick = useTrackClick();
+  const helps = props.helps ?? [];
+  const showTargetHint = expansion != null && !WorkoutHints_isLearned(helps, "workout-target-switch");
+  const showExpandHint = expansion != null && !WorkoutHints_isLearned(helps, "workout-set-expand");
+  const expanded = expansion?.expanded;
+  const expandedSet =
+    expanded != null ? (expanded.mode === "warmup" ? warmupSets : sets)[expanded.setIndex] : undefined;
+  const isLastInColumn = settings.workoutSettings.targetType === "lasttime";
+  const previousLines = useMemo(
+    () =>
+      expansion && expanded && expandedSet
+        ? WorkoutSetPrevious_lines(
+            expanded.mode,
+            expanded.setIndex,
+            expandedSet,
+            expansion.prevData,
+            expansion.isMultiweek,
+            isLastInColumn
+          )
+        : undefined,
+    [expansion, expanded, expandedSet, isLastInColumn]
+  );
   const onAddWarmupSet = useCallback(() => {
+    trackClick("workout-add-warmup-set");
     const unilateral = Exercise_getIsUnilateral(exerciseType, settings);
     updateProgress(
       dispatch,
       [lbWarmupSets.recordModify((s) => Reps_addSet(s, unilateral, undefined, true))],
       "add-warmupset"
     );
-  }, [dispatch, exerciseType, lbWarmupSets, settings]);
+  }, [dispatch, exerciseType, lbWarmupSets, settings, trackClick]);
   const onAddSet = useCallback(() => {
+    trackClick("workout-add-set");
     const unilateral = Exercise_getIsUnilateral(exerciseType, settings);
+    const unit = Equipment_getUnitOrDefaultForExerciseType(settings, exerciseType);
     updateProgress(
       dispatch,
-      [lbSets.recordModify((s) => Reps_addSet(s, unilateral, lastSets ? lastSets[lastSets.length - 1] : undefined))],
+      [lbSets.recordModify((s) => Reps_addSet(s, unilateral, lastSets?.[lastSets.length - 1], false, unit))],
       "add-set"
     );
-  }, [dispatch, exerciseType, lbSets, lastSets, settings]);
+  }, [dispatch, exerciseType, lbSets, lastSets, settings, trackClick]);
 
   const onSuppressProgress = useCallback(
     (isSuppressed: boolean) => {
@@ -158,13 +201,22 @@ function WorkoutExerciseAllSetsInner(props: IWorkoutExerciseAllSets): JSX.Elemen
 
   return (
     <View className="overflow-hidden">
+      {props.onTargetClick && showTargetHint && (
+        <Text className="px-4 pb-1 text-xs text-text-secondary" testID="workout-target-hint">
+          Tap "{targetLabel}" to switch values
+        </Text>
+      )}
       <View className="flex-row items-center pb-1 border-b border-border-neutral">
         <View className="items-center" style={{ width: columnWidths.set }}>
           <Text className="text-xs text-text-secondary">Set</Text>
         </View>
-        <View className="flex-1">
-          <Pressable onPress={props.onTargetClick} className="flex-row items-center">
-            {targetLabel ? <Text className="mr-1 text-xs text-text-secondary">{targetLabel}</Text> : null}
+        <View className="flex-1 flex-row">
+          <Pressable onPress={props.onTargetClick} className="flex-row items-center py-2 pr-4 -my-2" hitSlop={8}>
+            {targetLabel ? (
+              <Text className={`mr-1 text-xs text-text-secondary ${props.onTargetClick ? "underline" : ""}`}>
+                {targetLabel}
+              </Text>
+            ) : null}
             {props.onTargetClick && <IconSwapSmall size={12} color={Tailwind_colors().lightgray[600]} />}
           </Pressable>
         </View>
@@ -202,6 +254,11 @@ function WorkoutExerciseAllSetsInner(props: IWorkoutExerciseAllSets): JSX.Elemen
             set={set}
             entryIndex={props.entryIndex}
             isNext={nextSetIndex === i}
+            isExpanded={expanded?.mode === "warmup" && expanded.setIndex === i}
+            onToggleExpand={expansion?.onToggle}
+            onCompleteExpansion={expansion?.onComplete}
+            previousLines={expanded?.mode === "warmup" && expanded.setIndex === i ? previousLines : undefined}
+            onMenuOpenChange={expansion?.onMenuOpenChange}
             setIndex={i}
             columnWidths={columnWidths}
             settings={props.settings}
@@ -214,8 +271,11 @@ function WorkoutExerciseAllSetsInner(props: IWorkoutExerciseAllSets): JSX.Elemen
             isCurrentProgress={props.isCurrentProgress}
             type="workout"
             key={`workout-${set.id}-${i}`}
-            onStopShowingHint={props.onStopShowingHint}
-            helps={props.helps}
+            isExpanded={expanded?.mode === "workout" && expanded.setIndex === i}
+            onToggleExpand={expansion?.onToggle}
+            onCompleteExpansion={expansion?.onComplete}
+            previousLines={expanded?.mode === "workout" && expanded.setIndex === i ? previousLines : undefined}
+            onMenuOpenChange={expansion?.onMenuOpenChange}
             isNext={nextSetIndex - warmupSets.length === i}
             programExercise={props.programExercise}
             day={props.day}
@@ -234,58 +294,65 @@ function WorkoutExerciseAllSetsInner(props: IWorkoutExerciseAllSets): JSX.Elemen
           />
         ))}
       </View>
+      <Animated.View layout={WorkoutLayoutTransition}>
+        {showExpandHint && (
+          <Text className="px-4 pt-1 text-xs text-text-secondary" testID="workout-expand-hint">
+            Tap a set to expand or collapse it
+          </Text>
+        )}
 
-      {props.programExercise && props.program ? (
-        <View className="mx-4 mt-2">
-          <ProgressStateChanges
-            entry={props.entry}
-            settings={props.settings}
-            dayData={props.programExercise.dayData}
-            programExercise={props.programExercise}
-            stats={props.stats}
-            program={props.program}
-            userPromptedStateVars={props.userPromptedStateVars}
-            onSuppressProgress={onSuppressProgress}
-          />
-        </View>
-      ) : (
-        props.entry.progressSnapshot && (
+        {props.programExercise && props.program ? (
           <View className="mx-4 mt-2">
-            <ProgressStateChangesView
-              diffState={props.entry.progressSnapshot.diffState}
-              diffVars={props.entry.progressSnapshot.diffVars}
-              prints={props.entry.progressSnapshot.prints}
-              updatePrints={props.entry.progressSnapshot.updatePrints}
-              isSuppressed={props.entry.isSuppressed}
+            <ProgressStateChanges
+              entry={props.entry}
+              settings={props.settings}
+              dayData={props.programExercise.dayData}
+              programExercise={props.programExercise}
+              stats={props.stats}
+              program={props.program}
+              userPromptedStateVars={props.userPromptedStateVars}
+              onSuppressProgress={onSuppressProgress}
             />
           </View>
-        )
-      )}
+        ) : (
+          props.entry.progressSnapshot && (
+            <View className="mx-4 mt-2">
+              <ProgressStateChangesView
+                diffState={props.entry.progressSnapshot.diffState}
+                diffVars={props.entry.progressSnapshot.diffVars}
+                prints={props.entry.progressSnapshot.prints}
+                updatePrints={props.entry.progressSnapshot.updatePrints}
+                isSuppressed={props.entry.isSuppressed}
+              />
+            </View>
+          )
+        )}
 
-      <View className="flex-row gap-2 px-4 mt-1 mb-2">
-        <View className="flex-1">
-          <Pressable
-            className={`${buttonBgColor} w-full py-2 rounded-md flex-row items-center justify-center`}
-            data-testid="add-warmup-set"
-            testID="add-warmup-set"
-            onPress={onAddWarmupSet}
-          >
-            <IconPlus2 size={10} color={Tailwind_colors().blue[400]} />
-            <Text className="ml-2 text-xs font-semibold text-text-link">Add Warmup Set</Text>
-          </Pressable>
+        <View className="flex-row gap-2 px-4 mt-1 mb-2">
+          <View className="flex-1">
+            <Pressable
+              className={`${buttonBgColor} w-full py-2 rounded-md flex-row items-center justify-center`}
+              data-testid="add-warmup-set"
+              testID="add-warmup-set"
+              onPress={onAddWarmupSet}
+            >
+              <IconPlus2 size={10} color={Tailwind_colors().blue[400]} />
+              <Text className="ml-2 text-xs font-semibold text-text-link">Add Warmup Set</Text>
+            </Pressable>
+          </View>
+          <View className="flex-1">
+            <Pressable
+              className={`${buttonBgColor} w-full py-2 rounded-md flex-row items-center justify-center`}
+              data-testid="add-workout-set"
+              testID="add-workout-set"
+              onPress={onAddSet}
+            >
+              <IconPlus2 size={10} color={Tailwind_colors().blue[400]} />
+              <Text className="ml-2 text-xs font-semibold text-text-link">Add Set</Text>
+            </Pressable>
+          </View>
         </View>
-        <View className="flex-1">
-          <Pressable
-            className={`${buttonBgColor} w-full py-2 rounded-md flex-row items-center justify-center`}
-            data-testid="add-workout-set"
-            testID="add-workout-set"
-            onPress={onAddSet}
-          >
-            <IconPlus2 size={10} color={Tailwind_colors().blue[400]} />
-            <Text className="ml-2 text-xs font-semibold text-text-link">Add Set</Text>
-          </Pressable>
-        </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }

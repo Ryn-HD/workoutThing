@@ -8,6 +8,7 @@ import {
   IProgram,
   IExerciseType,
   IWeight,
+  IProgramContentSettings,
 } from "../types";
 import { Weight_build, Weight_print } from "./weight";
 import { IExportedProgram, Program_evaluate, Program_getAllUsedProgramExercises } from "./program";
@@ -28,6 +29,7 @@ export function Settings_programContentBuild(): Pick<ISettings, "timers" | "unit
       warmup: 90,
       workout: 180,
       reminder: 900,
+      getReady: 5,
     },
     units: "lb",
     planner: Settings_buildPlannerSettings(),
@@ -267,6 +269,7 @@ export function Settings_build(): ISettings {
         equipment: Settings_defaultEquipment(),
       },
     ],
+    // Builds before 2026-09-26 require deletedGyms in VSettings. Drop with its removal migration.
     deletedGyms: [],
     volume: 1.0,
     vibration: false,
@@ -320,6 +323,14 @@ export function Settings_buildPlannerSettings(): IPlannerSettings {
   };
 }
 
+export function Settings_withWeeklyRangeSetsBound(
+  range: [number, number] | undefined,
+  bound: "min" | "max",
+  value: number
+): [number, number] {
+  return bound === "min" ? [value, range?.[1] ?? 0] : [range?.[0] ?? 0, value];
+}
+
 export function Settings_applyExportedProgram(settings: ISettings, exportedProgram: IExportedProgram): ISettings {
   const result = {
     ...settings,
@@ -327,18 +338,53 @@ export function Settings_applyExportedProgram(settings: ISettings, exportedProgr
       ...settings.exercises,
       ...exportedProgram.customExercises,
     },
-    units: settings.units || exportedProgram.settings.units,
     timers: {
       ...settings.timers,
       workout: settings.timers.workout ?? exportedProgram.settings.timers?.workout,
       warmup: settings.timers.warmup ?? exportedProgram.settings.timers?.warmup,
     },
-    planner: settings.planner || exportedProgram.settings.planner,
-    muscleGroups: settings.muscleGroups || exportedProgram.settings.muscleGroups,
     exerciseData: { ...settings.exerciseData, ...exportedProgram.settings.exerciseData },
     workoutSettings: { ...settings.workoutSettings, ...exportedProgram.settings.workoutSettings },
   };
   return result;
+}
+
+export function Settings_applyWebEditorSettings(
+  settings: ISettings,
+  update: IProgramContentSettings,
+  deletedExerciseDataKeys?: string[]
+): ISettings {
+  // A dictionary merge cannot express a removal, so clearing an exercise override needs its keys
+  // named explicitly - otherwise the stored entry is merged straight back in and the reset is lost
+  const exerciseData =
+    update.exerciseData != null ? { ...settings.exerciseData, ...update.exerciseData } : { ...settings.exerciseData };
+  for (const key of deletedExerciseDataKeys || []) {
+    delete exerciseData[key];
+  }
+
+  return {
+    ...settings,
+    units: update.units ?? settings.units,
+    // `workout: null` means the user turned the rest timer off, so presence of the key decides, not truthiness
+    timers: update.timers != null ? { ...settings.timers, ...update.timers } : settings.timers,
+    planner: update.planner ?? settings.planner,
+    muscleGroups: update.muscleGroups ?? settings.muscleGroups,
+    exerciseData,
+    workoutSettings:
+      update.workoutSettings != null
+        ? { ...settings.workoutSettings, ...update.workoutSettings }
+        : settings.workoutSettings,
+  };
+}
+
+export function Settings_webEditorSettingsUpdate(settings: ISettings): IProgramContentSettings {
+  return {
+    units: settings.units,
+    timers: { workout: settings.timers.workout },
+    planner: settings.planner,
+    muscleGroups: settings.muscleGroups,
+    exerciseData: settings.exerciseData,
+  };
 }
 
 export function Settings_activeCustomExercises(settings: ISettings): IAllCustomExercises {
@@ -376,6 +422,36 @@ export function Settings_toggleStarredExercise(dispatch: IDispatch, key: string)
         }
       }),
     `Toggle starred exercise ${key}`
+  );
+}
+
+export const settingsRecentExercisesLimit = 5;
+
+// Keys are never deleted from this map, only overwritten. VersionTracker's nested-object path bumps
+// versions per key present in the new object (versionTrackerUpdateVersions.ts:427), so a removed key
+// never gets its version bumped and the next merge resurrects it. Writing `[]` would sync; deleting
+// would not.
+export function Settings_withRecentSwap(
+  recentExercises: ISettings["recentExercises"],
+  from: IExerciseType,
+  to: IExerciseType
+): Partial<Record<string, string[]>> {
+  const fromKey = Exercise_toKey(from);
+  const toKey = Exercise_toKey(to);
+  const previous = recentExercises?.[fromKey] ?? [];
+  return {
+    ...recentExercises,
+    [fromKey]: [toKey, ...previous.filter((key) => key !== toKey)].slice(0, settingsRecentExercisesLimit),
+  };
+}
+
+export function Settings_addRecentSwap(dispatch: IDispatch, from: IExerciseType, to: IExerciseType): void {
+  updateSettings(
+    dispatch,
+    lb<ISettings>()
+      .p("recentExercises")
+      .recordModify((recentExercises) => Settings_withRecentSwap(recentExercises, from, to)),
+    `Record recent swap from ${Exercise_toKey(from)} to ${Exercise_toKey(to)}`
   );
 }
 
@@ -440,6 +516,26 @@ export function Settings_getTheme(settings: ISettings): "dark" | "light" {
         ? "dark"
         : "light"
       : "light";
+}
+
+export const TEXT_SIZE_MIN = 12;
+export const TEXT_SIZE_MAX = 24;
+export const TEXT_SIZE_STEP = 2;
+const TEXT_SIZE_BASE = 16;
+
+// An unset textSize follows the OS font scale, the same way an unset theme follows dark mode.
+// The OS scale is deliberately not applied on top of an explicit value - it is folded into the
+// rem here so that spacing and icons move with the type instead of the text alone growing.
+export function Settings_getTextSize(settings: ISettings, osFontScale: number): number {
+  if (settings.textSize != null) {
+    return clampTextSize(settings.textSize);
+  }
+  const scaled = TEXT_SIZE_BASE * osFontScale;
+  return clampTextSize(Math.round(scaled / TEXT_SIZE_STEP) * TEXT_SIZE_STEP);
+}
+
+function clampTextSize(size: number): number {
+  return Math.max(TEXT_SIZE_MIN, Math.min(TEXT_SIZE_MAX, size));
 }
 
 export function Settings_applyTheme(theme?: "dark" | "light"): void {

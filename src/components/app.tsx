@@ -18,15 +18,24 @@ import {
   Thunk_updateLiveActivity,
   Thunk_updateTimer,
   Thunk_handleWatchStorageMerge,
-  Thunk_reloadStorageFromDisk,
   Thunk_fetchInitial,
+  Thunk_debugTestLogin,
 } from "../ducks/thunks";
 import { Service } from "../api/service";
+import { NativeEffects_apply } from "../models/nativeEffects";
+import { ITimerBridge } from "../utils/timerBridge";
+import { WorkoutBridge } from "../utils/nativeWorkoutBridge";
+import { WatchBridge } from "../utils/nativeWatchBridge";
+import { Keychain } from "../utils/keychainStore";
+import { WorkoutMirroring } from "../utils/nativeWorkoutMirroringBridge";
+import { HeartRateStore } from "../utils/heartRateStore";
 import { IAudioInterface } from "../lib/audioInterface";
+import { Persistence } from "../utils/persistence";
 import { Progress_getCurrentProgress, Progress_lbProgress } from "../models/progress";
 import { IAttributionData, IEnv, IState, updateState } from "../models/state";
 import { Notification } from "./notification";
-import { WhatsNew_doesHaveNewUpdates } from "../models/whatsnew";
+import { Toast } from "./toast";
+import { useOnloadModals } from "../navigation/useOnloadModals";
 import {
   Subscriptions_cleanupOutdatedAppleReceipts,
   Subscriptions_cleanupOutdatedGooglePurchaseTokens,
@@ -40,8 +49,11 @@ import { AsyncQueue } from "../utils/asyncQueue";
 import { useLoopCatcher } from "../utils/useLoopCatcher";
 import RB from "rollbar";
 import { exceptionIgnores } from "../utils/rollbar";
+
+// typeof-guarded: Metro/webpack define __DEV__, but this module also runs under node (tests).
+declare let __DEV__: boolean | undefined;
 import { Settings_applyTheme } from "../models/settings";
-import { TextSize_apply } from "../utils/textSize";
+import { useAppliedTextSize } from "../utils/textSize";
 import { AppContext } from "./appContext";
 import { TourConfigs_findTourId } from "./tour/tourConfigs";
 import { NavigationContainer, DefaultTheme, type NavigationState } from "@react-navigation/native";
@@ -65,6 +77,8 @@ interface IProps {
   audio: IAudioInterface;
   initialState: IState;
   queue: AsyncQueue;
+  persistence: Persistence;
+  timer: ITimerBridge;
 }
 
 function getScreenNameFromNavState(navState: NavigationState | undefined): IScreen {
@@ -95,21 +109,36 @@ function getScreenNameFromNavState(navState: NavigationState | undefined): IScre
 }
 
 export function AppView(props: IProps): JSX.Element | null {
-  const { client, audio, queue } = props;
-  const env = useMemo<IEnv>(
-    () => ({ service: new Service(client), audio, queue, navigationRef, getCurrentScreenData }),
-    [client, audio, queue]
-  );
+  const { client, audio, queue, persistence } = props;
+  const timerBridge = props.timer;
+  const env = useMemo<IEnv>(() => {
+    const mirroring = new WorkoutMirroring();
+    return {
+      service: new Service(client),
+      audio,
+      queue,
+      persistence,
+      navigationRef,
+      getCurrentScreenData,
+      timer: timerBridge,
+      workout: new WorkoutBridge(),
+      watch: new WatchBridge(),
+      keychain: new Keychain(),
+      mirroring,
+      heartRate: new HeartRateStore(mirroring),
+    };
+  }, [client, audio, queue, persistence, timerBridge]);
   const service = env.service;
-  const reducer = useMemo(() => reducerWrapper(true), []);
+  const reducer = useMemo(
+    () => reducerWrapper(true, persistence, (effects) => NativeEffects_apply(env, effects)),
+    [persistence, env]
+  );
   const onActions = useMemo(() => defaultOnActions(env), [env]);
   const [state, dispatch] = useThunkReducer<IState, IAction, IEnv>(reducer, props.initialState, env, onActions);
   const stateRef = useRef<IState>(state);
   useEffect(() => {
     stateRef.current = state;
   });
-  const shouldShowWhatsNew = WhatsNew_doesHaveNewUpdates(state.storage.whatsNew) || state.showWhatsNew;
-
   useEffect(() => {
     SendMessage_toAndroid({ type: "setAlwaysOnDisplay", value: `${!!state.storage.settings.alwaysOnDisplay}` });
     SendMessage_toIos({ type: "setAlwaysOnDisplay", value: `${!!state.storage.settings.alwaysOnDisplay}` });
@@ -120,23 +149,22 @@ export function AppView(props: IProps): JSX.Element | null {
   }, []);
 
   useEffect(() => {
-    TextSize_apply(state.storage.settings.textSize ?? 16);
-  }, [state.storage.settings.textSize]);
+    if (typeof __DEV__ !== "undefined" && __DEV__) {
+      // setTimeout so a CDP-eval caller returns before the heavy login work saturates the JS
+      // thread — evaluating it inline can segfault Hermes' debugger VM
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).debugLogin = (apiKey?: string) =>
+        new Promise((resolve) => setTimeout(() => dispatch(Thunk_debugTestLogin(apiKey, resolve)), 0));
+    }
+  }, []);
+
+  useAppliedTextSize(state.storage.settings);
 
   useLoopCatcher();
 
   const [isNavReady, setIsNavReady] = useState(false);
 
-  const prevShouldShowWhatsNew = useRef(false);
-  useEffect(() => {
-    if (!isNavReady) {
-      return;
-    }
-    if (shouldShowWhatsNew && state.storage.whatsNew != null && !prevShouldShowWhatsNew.current) {
-      navigateToModal("whatsnewModal");
-    }
-    prevShouldShowWhatsNew.current = !!(shouldShowWhatsNew && state.storage.whatsNew != null);
-  }, [isNavReady, shouldShowWhatsNew, state.storage.whatsNew]);
+  useOnloadModals(state, dispatch, isNavReady);
 
   const showCorruptedState = state.errors.corruptedstorage != null;
   const prevShowCorruptedState = useRef(false);
@@ -337,8 +365,6 @@ export function AppView(props: IProps): JSX.Element | null {
         const storageJson = event.data.storage as string;
         const isLiveActivity = !!event.data.isLiveActivity;
         dispatch(Thunk_handleWatchStorageMerge(storageJson, isLiveActivity));
-      } else if (event.data?.type === "reloadStorageFromDisk") {
-        dispatch(Thunk_reloadStorageFromDisk());
       }
     });
     const userId = state.user?.id || state.storage.tempUserId;
@@ -483,6 +509,7 @@ export function AppView(props: IProps): JSX.Element | null {
           />
         )}
         <Notification dispatch={dispatch} notification={state.notification} />
+        <Toast toast={state.toast} dispatch={dispatch} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

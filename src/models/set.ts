@@ -9,6 +9,7 @@ import {
   Weight_build,
   Weight_convertTo,
   Weight_add,
+  Weight_is,
 } from "./weight";
 import { ISet, IHistoryRecord, IHistoryEntry, IWeight, IUnit, ISetType } from "../types";
 import { ObjectUtils_clone } from "../utils/object";
@@ -34,6 +35,7 @@ export interface IDisplaySet {
   isInRange?: boolean;
   timer?: number;
   setTimer?: number;
+  setTimerLeft?: number;
   isOverflowSetTimer?: boolean;
   auto?: boolean;
 }
@@ -73,6 +75,7 @@ function isSameDisplaySet(a: IDisplaySet, b: IDisplaySet): boolean {
     a.askWeight === b.askWeight &&
     a.timer === b.timer &&
     a.setTimer === b.setTimer &&
+    a.setTimerLeft === b.setTimerLeft &&
     a.isOverflowSetTimer === b.isOverflowSetTimer &&
     a.auto === b.auto
   );
@@ -101,15 +104,33 @@ export function Reps_setToDisplaySet(set: ISet, isNext: boolean, units: IUnit): 
     isCompleted: Reps_isCompletedSet(set),
     isRpeFailed: set.completedRpe != null && set.completedRpe > (set.rpe ?? 0),
     isInRange: set.minReps != null ? set.completedReps != null && set.completedReps >= set.minReps : undefined,
-    setTimer: isNext ? set.setTimer : (set.completedSetTimer ?? set.setTimer),
+    setTimer: isNext ? set.setTimer : set.completedSetTimer,
+    setTimerLeft: isNext ? undefined : set.completedSetTimerLeft,
     isOverflowSetTimer: isNext ? set.isOverflowSetTimer : undefined,
     timer: isNext ? set.timer : undefined,
     auto: set.auto,
   };
 }
 
-export function Reps_addSet(sets: ISet[], isUnilateral: boolean, lastSet?: ISet, isWarmup?: boolean): ISet[] {
-  lastSet = sets[sets.length - 1] || lastSet;
+function convertSetWeightsTo(set: ISet, unit: IUnit): ISet {
+  return {
+    ...set,
+    weight: set.weight ? Weight_convertTo(set.weight, unit) : undefined,
+    originalWeight: Weight_is(set.originalWeight) ? Weight_convertTo(set.originalWeight, unit) : set.originalWeight,
+    completedWeight: set.completedWeight ? Weight_convertTo(set.completedWeight, unit) : undefined,
+  };
+}
+
+export function Reps_addSet(
+  sets: ISet[],
+  isUnilateral: boolean,
+  previousWorkoutSet?: ISet,
+  isWarmup?: boolean,
+  unit?: IUnit
+): ISet[] {
+  let lastSet =
+    sets[sets.length - 1] ??
+    (previousWorkoutSet && unit ? convertSetWeightsTo(previousWorkoutSet, unit) : previousWorkoutSet);
   if (lastSet == null) {
     lastSet = Reps_newSet(isUnilateral, 0);
   } else {
@@ -130,6 +151,7 @@ export function Reps_addSet(sets: ISet[], isUnilateral: boolean, lastSet?: ISet,
         completedWeight: undefined,
         completedRpe: undefined,
         completedSetTimer: undefined,
+        completedSetTimerLeft: undefined,
       };
     }
   }
@@ -254,7 +276,7 @@ export function Reps_isFinishedSet(s: ISet): boolean {
 }
 
 export function Reps_toKey(set: ISet): string {
-  return `${Weight_printNull(set.weight)}-${Weight_printNull(set.completedWeight)}-${set.reps}-${set.minReps}-${Reps_setType(set)}-${set.rpe}-${set.askWeight}-${set.completedReps}-${set.completedRepsLeft}-${set.completedRpe}-${set.isCompleted}`;
+  return `${Weight_printNull(set.weight)}-${Weight_printNull(set.completedWeight)}-${set.reps}-${set.minReps}-${Reps_setType(set)}-${set.rpe}-${set.askWeight}-${set.completedReps}-${set.completedRepsLeft}-${set.completedRpe}-${set.isCompleted}-${set.completedSetTimer}-${set.completedSetTimerLeft}`;
 }
 
 export function Reps_isInRangeCompleted(sets: ISet[]): boolean {
@@ -314,7 +336,8 @@ export function Reps_group(sets: ISet[], isNext?: boolean): ISet[][] {
           (isNext && last.timer !== set.timer) ||
           (isNext && last.isOverflowSetTimer !== set.isOverflowSetTimer) ||
           last.auto !== set.auto ||
-          (!isNext && last.completedSetTimer !== set.completedSetTimer))
+          (!isNext && last.completedSetTimer !== set.completedSetTimer) ||
+          (!isNext && last.completedSetTimerLeft !== set.completedSetTimerLeft))
       ) {
         memo.push([]);
         lastGroup = memo[memo.length - 1];
@@ -404,8 +427,11 @@ export function Reps_completedSetKey(set: ISet): string {
   const repsLeft = set.isUnilateral ? (set.completedRepsLeft ?? 0) : -1;
   const w = set.completedWeight ? Weight_print(set.completedWeight) : "none";
   const rpe = set.completedRpe ?? -1;
+  const setTimer = set.completedSetTimer != null ? Math.round(set.completedSetTimer) : -1;
+  const setTimerLeft =
+    set.isUnilateral && set.completedSetTimerLeft != null ? Math.round(set.completedSetTimerLeft) : -1;
   const label = set.label ?? "";
-  return `${reps}-${repsLeft}-${w}-${rpe}-${label}`;
+  return `${reps}-${repsLeft}-${w}-${rpe}-${setTimer}-${setTimerLeft}-${label}`;
 }
 
 export function Reps_targetSetKey(set: ISet): string {
@@ -415,11 +441,13 @@ export function Reps_targetSetKey(set: ISet): string {
   const rpe = set.rpe ?? -1;
   const logRpe = set.logRpe ? 1 : 0;
   const timer = set.timer ?? -1;
+  const setTimer = set.setTimer ?? -1;
+  const overflow = set.isOverflowSetTimer ? 1 : 0;
   const setType = Reps_setType(set);
   const amrap = setType === "amrap" ? 1 : 0;
   const label = set.label ?? "";
   const askWeight = set.askWeight ? 1 : 0;
-  return `${reps}-${minReps}-${w}-${askWeight}-${rpe}-${logRpe}-${timer}-${setType}-${amrap}-${label}`;
+  return `${reps}-${minReps}-${w}-${askWeight}-${rpe}-${logRpe}-${timer}-${setTimer}-${overflow}-${setType}-${amrap}-${label}`;
 }
 
 export function Reps_volume(sets: ISet[], unit: IUnit): IWeight {

@@ -20,11 +20,16 @@ import {
   Program_nextHistoryEntry,
   Program_getDayData,
 } from "../../models/program";
-import { Settings_toggleStarredExercise, Settings_changePickerSettings } from "../../models/settings";
+import {
+  Settings_toggleStarredExercise,
+  Settings_changePickerSettings,
+  Settings_addRecentSwap,
+} from "../../models/settings";
 import { Exercise_handleCustomExerciseChange } from "../../models/exercise";
 import { updateState, updateProgress } from "../../models/state";
 import { useClearOnModalRemove } from "../useClearOnModalRemove";
 import { buildCustomDispatch } from "../../ducks/types";
+import { Thunk_postevent } from "../../ducks/thunks";
 import { ICustomExercise, IExercisePickerSelectedExercise, IHistoryRecord } from "../../types";
 import { lb } from "lens-shmens";
 import type { IRootStackParamList } from "../types";
@@ -65,6 +70,8 @@ export function NavModalExercisePicker(): JSX.Element {
   settingsRef.current = state.storage.settings;
   const statsRef = useRef(state.storage.stats);
   statsRef.current = state.storage.stats;
+  const historyRef = useRef(state.storage.history);
+  historyRef.current = state.storage.history;
   const programRef = useRef(program);
   programRef.current = program;
   const evaluatedCurrentProgramRef = useRef(evaluatedCurrentProgram);
@@ -101,9 +108,15 @@ export function NavModalExercisePicker(): JSX.Element {
           if (currentPickerState.entryIndex == null) {
             Progress_addExercise(dispatch, exercise.exerciseType, currentProgress.entries.length);
           } else {
+            const previousExercise = currentProgress.entries[currentPickerState.entryIndex]?.exercise;
+            if (previousExercise != null) {
+              Settings_addRecentSwap(dispatch, previousExercise, exercise.exerciseType);
+            }
             Progress_changeExercise(
               dispatch,
               currentSettings,
+              historyRef.current,
+              currentEvaluatedProgram,
               currentProgress.id,
               exercise.exerciseType,
               currentPickerState.entryIndex,
@@ -156,6 +169,13 @@ export function NavModalExercisePicker(): JSX.Element {
               );
             }
           }
+        }
+      }
+      if (selectedExercises.length > 0) {
+        if (currentPickerState.entryIndex == null) {
+          dispatch(Thunk_postevent("workout-add-exercise", { count: selectedExercises.length }));
+        } else {
+          dispatch(Thunk_postevent("workout-swap-exercise"));
         }
       }
       setTimeout(() => {

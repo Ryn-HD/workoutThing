@@ -1,9 +1,10 @@
 import { NativeAttributeValue } from "@aws-sdk/lib-dynamodb";
-import { IDynamoUtil } from "../../lambda/utils/dynamo";
+import { IDynamoCondition, IDynamoUtil } from "../../lambda/utils/dynamo";
 import { ILogUtil } from "../../lambda/utils/log";
 import deepmerge from "deepmerge";
 import { userTableNames } from "../../lambda/dao/userDao";
 import { apiKeyTableNames } from "../../lambda/dao/apiKeyDao";
+import { pushEndpointTableNames } from "../../lambda/dao/pushEndpointDao";
 import { oauthTableNames } from "../../lambda/dao/oauthDao";
 import { freeUsersTableNames } from "../../lambda/dao/freeUserDao";
 import { CollectionUtils_compact } from "../../src/utils/collection";
@@ -16,12 +17,15 @@ const idKeys: Partial<Record<string, string[]>> = {
   [userTableNames.prod.programs]: ["userId", "id"],
   [userTableNames.prod.stats]: ["userId", "name"],
   [apiKeyTableNames.prod.apiKeys]: ["key"],
+  [pushEndpointTableNames.prod.pushEndpoints]: ["userId", "deviceId"],
   [oauthTableNames.prod.clients]: ["clientId"],
   [oauthTableNames.prod.authCodes]: ["code"],
   [oauthTableNames.prod.tokens]: ["token"],
   [freeUsersTableNames.prod.freeUsers]: ["id"],
   lftSubscriptionDetails: ["userId"],
   lftPayments: ["userId", "transactionId"],
+  lftAffiliates: ["affiliateId", "userId"],
+  lftEmailAuthTokens: ["token"],
 };
 
 // Sort key used to order results when a query passes scanIndexForward. GSIs sort by a different attribute
@@ -30,6 +34,20 @@ const indexSortKeys: Partial<Record<string, string>> = {
   [userTableNames.prod.statsTimestamp]: "timestamp",
   [userTableNames.prod.historyRecordsDate]: "date",
 };
+
+const tableSortKeys: Partial<Record<string, string>> = {
+  [userTableNames.prod.historyRecords]: "id",
+};
+
+const userIndexProjectedAttributes: Partial<Record<string, string[]>> = {
+  [userTableNames.prod.usersGoogleIdKeys]: ["googleId", "id"],
+  [userTableNames.prod.usersAppleIdKeys]: ["appleId", "id"],
+  [userTableNames.prod.usersEmailKeys]: ["email", "id"],
+};
+
+function pickAttributes<T>(item: T, attributes: string[]): T {
+  return Object.fromEntries(Object.entries(item as object).filter(([key]) => attributes.includes(key))) as T;
+}
 
 function compareValues(a: unknown, b: unknown): number {
   const an = typeof a === "number" ? a : Number(a);
@@ -146,9 +164,7 @@ export class MockDynamoUtil implements IDynamoUtil {
       : () => true;
     values = values.filter((item) => keyCondition(item) && filterCondition(item));
 
-    // Only GSI queries get ordered here (by the index's sort key). Base-table query order is left as-is to
-    // match the mock's historical behavior — tests that care about base-table order assert insertion order.
-    const sortKey = args.indexName ? indexSortKeys[args.indexName] : undefined;
+    const sortKey = args.indexName ? indexSortKeys[args.indexName] : tableSortKeys[args.tableName];
     if (args.scanIndexForward !== undefined && sortKey) {
       values = [...values].sort((a, b) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -159,6 +175,11 @@ export class MockDynamoUtil implements IDynamoUtil {
 
     if (args.limit != null) {
       values = values.slice(0, args.limit);
+    }
+
+    const projectedAttributes = args.indexName ? userIndexProjectedAttributes[args.indexName] : undefined;
+    if (projectedAttributes) {
+      values = values.map((item) => pickAttributes(item, projectedAttributes));
     }
 
     return Promise.resolve(ObjectUtils_clone(values));
@@ -220,16 +241,94 @@ export class MockDynamoUtil implements IDynamoUtil {
     expression: string;
     attrs?: Record<string, string>;
     values?: Partial<Record<string, unknown>>;
-  }): Promise<void> {
-    // console.log("update", args);
+    returnValues?: "ALL_NEW" | "UPDATED_NEW";
+  }): Promise<Record<string, NativeAttributeValue> | undefined> {
+    const tableData = (this.data[args.tableName] = this.data[args.tableName] || {});
+    const storeKey = this.getKey(args.key);
+    const item: Record<string, unknown> = { ...args.key, ...((tableData[storeKey] as Record<string, unknown>) || {}) };
+    const resolveName = (n: string): string => args.attrs?.[n.trim()] ?? n.trim();
+    const resolveVal = (v: string): unknown => (args.values ? args.values[v.trim()] : undefined);
+
+    // Split on top-level commas only, so commas inside if_not_exists(a, b) don't split
+    const splitClauses = (s: string): string[] => {
+      const parts: string[] = [];
+      let depth = 0;
+      let current = "";
+      for (const ch of s) {
+        if (ch === "(") {
+          depth += 1;
+        } else if (ch === ")") {
+          depth -= 1;
+        }
+        if (ch === "," && depth === 0) {
+          parts.push(current);
+          current = "";
+        } else {
+          current += ch;
+        }
+      }
+      if (current.trim()) {
+        parts.push(current);
+      }
+      return parts;
+    };
+
+    const addMatch = args.expression.match(/ADD\s+(.+?)(?:\s+SET\s+|$)/i);
+    if (addMatch) {
+      for (const part of splitClauses(addMatch[1])) {
+        const [nameTok, valTok] = part.trim().split(/\s+/);
+        const name = resolveName(nameTok);
+        item[name] = (Number(item[name]) || 0) + (Number(resolveVal(valTok)) || 0);
+      }
+    }
+    const setMatch = args.expression.match(/SET\s+(.+?)(?:\s+ADD\s+|$)/i);
+    if (setMatch) {
+      for (const part of splitClauses(setMatch[1])) {
+        const m = part.trim().match(/^(\S+)\s*=\s*(.+)$/);
+        if (!m) {
+          continue;
+        }
+        const name = resolveName(m[1]);
+        const ifne = m[2].trim().match(/^if_not_exists\(\s*(\S+)\s*,\s*(\S+)\s*\)$/i);
+        if (ifne) {
+          if (item[resolveName(ifne[1])] === undefined) {
+            item[name] = resolveVal(ifne[2]);
+          }
+        } else {
+          item[name] = resolveVal(m[2]);
+        }
+      }
+    }
+    tableData[storeKey] = item;
+    return args.returnValues ? (ObjectUtils_clone(item) as Record<string, NativeAttributeValue>) : undefined;
   }
 
-  public async remove(args: { tableName: string; key: Record<string, NativeAttributeValue> }): Promise<void> {
+  public async remove(args: {
+    tableName: string;
+    key: Record<string, NativeAttributeValue>;
+    condition?: IDynamoCondition;
+  }): Promise<boolean> {
     const key = this.getKey(args.key);
+    const item = this.data[args.tableName]?.[key];
+    if (item != null && args.condition != null) {
+      const matches = this.buildCondition({
+        filterExpression: args.condition.expression,
+        attrs: args.condition.attrs,
+        values: args.condition.values,
+      });
+      if (!matches(item)) {
+        return false;
+      }
+    }
     delete this.data[args.tableName]?.[key];
+    return true;
   }
 
-  public async batchGet<T>(args: { tableName: string; keys: Record<string, NativeAttributeValue>[] }): Promise<T[]> {
+  public async batchGet<T>(args: {
+    tableName: string;
+    keys: Record<string, NativeAttributeValue>[];
+    consistentRead?: boolean;
+  }): Promise<T[]> {
     return CollectionUtils_compact(
       await Promise.all(args.keys.map((key) => this.get<T>({ tableName: args.tableName, key })))
     );

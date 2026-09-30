@@ -20,6 +20,8 @@ import {
 const MIN_ROUNDING = 0.1;
 const MAX_ROUNDING = 1000;
 const MAX_MUSCLE_MULTIPLIERS = 100;
+const MIN_VOLUME_MULTIPLIER = 1;
+const MAX_VOLUME_MULTIPLIER = 10;
 
 // `null` clears the field (reverts it to the computed default); `undefined`/absent keeps the current value.
 function nullable<TOutput>(schema: v.GenericSchema<unknown, TOutput>): v.GenericSchema<unknown, TOutput | null> {
@@ -64,6 +66,20 @@ const VExerciseDataUpdateInput = v.object({
     )
   ),
   isUnilateral: v.optional(nullable(v.boolean())),
+  // Falls back to 1 (a no-op) on non-finite input, then clamps to a sane range so a bad value
+  // can't corrupt volume/total-weight totals and graphs.
+  volumeMultiplier: v.optional(
+    nullable(
+      v.pipe(
+        v.number(),
+        v.transform((n) =>
+          Number.isFinite(n)
+            ? MathUtils_roundFloat(MathUtils_clamp(n, MIN_VOLUME_MULTIPLIER, MAX_VOLUME_MULTIPLIER), 2)
+            : 1
+        )
+      )
+    )
+  ),
 });
 
 export type IExerciseDataUpdateInput = v.InferOutput<typeof VExerciseDataUpdateInput>;
@@ -80,6 +96,7 @@ const EXERCISE_DATA_FIELD_POLICY = {
   notes: "writable",
   muscleMultipliers: "writable",
   isUnilateral: "writable",
+  volumeMultiplier: "writable",
 } as const satisfies Record<keyof IExerciseDataValue, IExerciseDataFieldPolicy>;
 
 export type IWritableExerciseDataField = {
@@ -206,6 +223,7 @@ function applyExerciseDataInput(
     notes: resolve(input.notes, base.notes),
     muscleMultipliers: resolve(input.muscleMultipliers, base.muscleMultipliers as Record<string, number> | undefined),
     isUnilateral: resolve(input.isUnilateral, base.isUnilateral),
+    volumeMultiplier: resolve(input.volumeMultiplier, base.volumeMultiplier),
   };
 
   // Drop undefined keys so cleared fields don't linger as `key: undefined` in storage.
@@ -234,6 +252,7 @@ interface IExerciseDataResponse {
   notes?: string;
   muscleMultipliers?: Record<string, number | undefined>;
   isUnilateral?: boolean;
+  volumeMultiplier?: number;
 }
 
 function formatEquipmentOverride(
@@ -272,6 +291,7 @@ function formatExerciseData(key: string, d: IExerciseDataValue, settings: ISetti
     notes: d.notes,
     muscleMultipliers: d.muscleMultipliers,
     isUnilateral: d.isUnilateral,
+    volumeMultiplier: d.volumeMultiplier,
   };
 }
 
@@ -305,15 +325,25 @@ function isEmptyExerciseData(d: IExerciseDataValue): boolean {
   return Object.keys(d).length === 0;
 }
 
-async function writeExerciseData(user: ILimitedUserDao, key: string, data: IExerciseDataValue, di: IDI): Promise<void> {
+async function writeExerciseData(
+  user: ILimitedUserDao,
+  key: string,
+  data: IExerciseDataValue,
+  deviceId: string,
+  di: IDI
+): Promise<void> {
   const userDao = new UserDao(di);
-  await userDao.applyStorageUpdate(user, (old) => ({
-    ...old,
-    settings: {
-      ...old.settings,
-      exerciseData: { ...old.settings.exerciseData, [key]: data },
-    },
-  }));
+  await userDao.applyStorageUpdate(
+    user,
+    (old) => ({
+      ...old,
+      settings: {
+        ...old.settings,
+        exerciseData: { ...old.settings.exerciseData, [key]: data },
+      },
+    }),
+    deviceId
+  );
 }
 
 // Upserts exercise data (rm1, rounding, equipment overrides, etc.) for an exercise key like
@@ -324,6 +354,7 @@ export async function ApiV1_setExerciseData(
   user: ILimitedUserDao,
   key: string,
   input: unknown,
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<IExerciseDataResponse>> {
   const settings = user.storage.settings;
@@ -347,7 +378,7 @@ export async function ApiV1_setExerciseData(
     return err(
       400,
       "invalid_input",
-      "At least one field (rm1, rounding, equipment, notes, muscleMultipliers, or isUnilateral) is required"
+      "At least one field (rm1, rounding, equipment, notes, muscleMultipliers, isUnilateral, or volumeMultiplier) is required"
     );
   }
   const base = settings.exerciseData[trimmedKey] ?? {};
@@ -356,7 +387,7 @@ export async function ApiV1_setExerciseData(
     return applied;
   }
 
-  await writeExerciseData(user, trimmedKey, applied.data, di);
+  await writeExerciseData(user, trimmedKey, applied.data, deviceId, di);
   return ok(formatExerciseData(trimmedKey, applied.data, user.storage.settings));
 }
 
@@ -364,6 +395,7 @@ export async function ApiV1_deleteExerciseData(
   userId: string,
   user: ILimitedUserDao,
   key: string,
+  deviceId: string,
   di: IDI
 ): Promise<IApiResult<{ deleted: true }>> {
   const existing = user.storage.settings.exerciseData[key];
@@ -373,6 +405,6 @@ export async function ApiV1_deleteExerciseData(
 
   // Empty the customization rather than removing the key — see writeExerciseData for why we never delete
   // keys (avoids a dictionary-field version tombstone). The emptied entry is hidden from list/get.
-  await writeExerciseData(user, key, {}, di);
+  await writeExerciseData(user, key, {}, deviceId, di);
   return ok({ deleted: true as const });
 }

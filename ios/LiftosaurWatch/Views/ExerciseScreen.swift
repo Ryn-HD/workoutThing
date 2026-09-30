@@ -17,19 +17,82 @@ enum SelectedField {
     case weight
 }
 
+// Crown edits are written to storage on a debounce (running the JS engine on every detent is too slow),
+// which leaves a window where what's on screen isn't yet in storage. This tracks those in-flight writes so
+// the two places that care can ask: completion folds still-pending values into itself instead of racing
+// them, and an incoming workout snapshot doesn't overwrite a field the user is still dialing.
+@MainActor
+final class PendingSetEdits {
+    private struct Key: Hashable {
+        let exerciseIndex: Int
+        let setIndex: Int
+        let field: SelectedField
+    }
+
+    private var tasks: [Key: Task<Void, Never>] = [:]
+    private var generations: [Key: Int] = [:]
+    private var lastGeneration: Int = 0
+
+    func schedule(exerciseIndex: Int, setIndex: Int, field: SelectedField, commit: @escaping () async -> Void) {
+        let key = Key(exerciseIndex: exerciseIndex, setIndex: setIndex, field: field)
+        tasks[key]?.cancel()
+        lastGeneration += 1
+        let generation = lastGeneration
+        generations[key] = generation
+        // The edit stays marked in-flight until the commit actually lands, not just until the debounce
+        // elapses — the storage round-trip is the slow part, and clearing at the start of it would let a
+        // snapshot arriving mid-write reset the field, or a completion in that window carry nothing.
+        tasks[key] = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: kDebounceNs)
+            guard !Task.isCancelled else { return }
+            await commit()
+            // A newer edit (or a completion that took this one over) may have replaced the entry while the
+            // commit was in flight; only the write that still owns the field may clear it.
+            guard generations[key] == generation else { return }
+            generations[key] = nil
+            tasks[key] = nil
+        }
+    }
+
+    func hasPending(exerciseIndex: Int, setIndex: Int, field: SelectedField) -> Bool {
+        tasks[Key(exerciseIndex: exerciseIndex, setIndex: setIndex, field: field)] != nil
+    }
+
+    // Cancels the pending writes for a set and hands back the values they would have written, so the caller
+    // can carry them instead. Callers that don't carry them would drop the edit, so this must not be used to
+    // merely discard. Untouched fields stay nil — see WatchSetLogValues.
+    func takePending(exerciseIndex: Int, setIndex: Int, from input: ExerciseScreen.SetInput) -> WatchSetLogValues {
+        var values = WatchSetLogValues()
+        for field in [SelectedField.reps, .repsLeft, .weight] {
+            let key = Key(exerciseIndex: exerciseIndex, setIndex: setIndex, field: field)
+            guard let task = tasks[key] else { continue }
+            task.cancel()
+            tasks[key] = nil
+            generations[key] = nil
+            switch field {
+            case .reps: values.reps = input.reps
+            case .repsLeft: values.repsLeft = input.repsLeft
+            case .weight: values.weight = input.weight
+            case .none: break
+            }
+        }
+        return values
+    }
+}
+
 struct ExerciseScreen: View {
     @StateObject private var workoutManager = WorkoutManager.shared
     let initialExerciseIndex: Int
     let startTime: Date?
     let heartRate: Double?
     let isCompletingSet: Bool
-    let onComplete: (Int, Int, Int, Double) async -> Void  // entryIndex, setIndex, reps, weight
+    let onComplete: (Int, Int, WatchSetLogValues) async -> Void  // entryIndex, setIndex, uncommitted crown edits
     let onGetNextEntryAndSetIndex: (Int, Int) async -> WatchNextEntryAndSetIndex?  // entryIndex, setIndex -> next entry/set
     let onGetValidWeights: (Int, Double, String?) async -> WatchValidWeights?  // entryIndex, currentWeight, unit -> validWeights
     let onUpdateReps: (Int, Int, Int) async -> Void  // entryIndex, setIndex, reps
     let onUpdateRepsLeft: (Int, Int, Int) async -> Void  // entryIndex, setIndex, repsLeft
     let onUpdateWeight: (Int, Int, Double) async -> Void  // entryIndex, setIndex, weight
-    let onUpdateCompletedSetTimer: (Int, Int, Int) async -> Void  // entryIndex, setIndex, seconds (<0 clears)
+    let onUpdateCompletedSetTimer: (Int, Int, Int, Int?) async -> Void  // entryIndex, setIndex, seconds (<0 clears), secondsLeft
     let onGetAmrapModal: () async -> WatchAmrapModal?
     let onCompleteSetWithAmrap: (Int?, Int?, Double?, Double?, [String: Any]?) async -> Void
     let restTimer: WatchRestTimer?
@@ -62,6 +125,7 @@ struct ExerciseScreen: View {
     @State private var localRestTimer: WatchRestTimer? = nil
     @State private var restTimerElapsed: Int = 0
     @State private var showRestTimerScreen: Bool = false
+    @State private var pendingEdits = PendingSetEdits()
     @FocusState private var isExerciseNavigationFocused: Bool
 
     struct SetInput {
@@ -83,6 +147,10 @@ struct ExerciseScreen: View {
                     }
             }
         }
+        // The set-timer overlay covers this screen but not the navigation chrome, so the back chevron would
+        // sit on top of the overlay's own X and navigate away with the clock still running. The sheet used
+        // to hide it for us.
+        .navigationBarBackButtonHidden(workoutManager.setTimerModal != nil)
     }
 
     @ViewBuilder
@@ -102,8 +170,9 @@ struct ExerciseScreen: View {
                         elapsedTime: elapsedTime,
                         selectedField: $selectedField,
                         isCompletingSet: isCompletingSet,
-                        onComplete: { setIndex, reps, weight in
-                            await onComplete(exerciseIndex, setIndex, reps, weight)
+                        pendingEdits: pendingEdits,
+                        onComplete: { setIndex, values in
+                            await onComplete(exerciseIndex, setIndex, values)
                             // Refresh rest timer after set completion
                             updateRestTimerElapsed()
                             // Check if AMRAP modal is needed
@@ -132,8 +201,8 @@ struct ExerciseScreen: View {
                         onUpdateWeight: { setIndex, weight in
                             await onUpdateWeight(exerciseIndex, setIndex, weight)
                         },
-                        onUpdateCompletedSetTimer: { setIndex, seconds in
-                            await onUpdateCompletedSetTimer(exerciseIndex, setIndex, seconds)
+                        onUpdateCompletedSetTimer: { setIndex, seconds, secondsLeft in
+                            await onUpdateCompletedSetTimer(exerciseIndex, setIndex, seconds, secondsLeft)
                         },
                         onAddSet: {
                             await onAddSet(exerciseIndex)
@@ -166,6 +235,11 @@ struct ExerciseScreen: View {
                     .padding(.vertical, 6)
                     .background(Color.black.opacity(0.6))
                     .cornerRadius(10)
+                    // Hit slop below the pill only. The pill itself sits inside the navbar strip, where
+                    // watchOS swallows the touch and pages the TabView back to the first exercise; this
+                    // reaches down past that strip so there is somewhere tappable. Applied after the
+                    // background so the visible pill doesn't move, and before contentShape so it counts.
+                    .padding(.bottom, 16)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -245,19 +319,15 @@ struct ExerciseScreen: View {
                 )
             }
         }
-        // Bound to the published clock state, so completing a timed set, an `auto` advance, or a clock
-        // started on the phone all present this automatically; it dismisses the moment the clock clears.
-        // The dismiss chrome (X / swipe) doubles as Discard: the binding's setter only fires on a
-        // user-initiated dismiss (not when the model clears the clock itself), so we discard only then.
-        .sheet(item: Binding(
-            get: { workoutManager.setTimerModal },
-            set: { newValue in
-                if newValue == nil, workoutManager.setTimerModal != nil {
-                    Task { await onCloseSetTimer() }
-                }
-            }
-        )) { _ in
-            SetTimerScreen(
+        // An overlay rather than a sheet, and that is load-bearing: watchOS freezes a sheet's content in the
+        // Always-On dimmed state, so a countdown presented in one stops the moment the wrist drops - exactly
+        // when you need it. Inline in this hierarchy it keeps updating, because the workout session buys the
+        // whole screen ~1Hz redraws. Still bound to the published clock state, so completing a timed set, an
+        // `auto` advance, or a clock started on the phone all show it automatically, and it goes away the
+        // moment the clock clears. Discard is now the screen's own X (onDismiss) - there is no sheet chrome.
+        .overlay {
+            if workoutManager.setTimerModal != nil {
+                SetTimerScreen(
                 workoutManager: workoutManager,
                 heartRate: heartRate,
                 onRecord: { seconds in
@@ -271,14 +341,22 @@ struct ExerciseScreen: View {
                     guard let modal = workoutManager.setTimerModal else { return }
                     // The clock keeps running (set is logged but not closed). A timed AMRAP set still needs its
                     // reps/weight, so present the amrap prompt if it opened; otherwise stay on this screen (the
-                    // set-timer sheet re-presents via its binding once amrap resolves).
+                    // overlay comes back on its own once amrap resolves and the clock is set again).
                     await onRecordSetTimer(modal.entryIndex, modal.setIndex, true, seconds)
                     _ = await presentAmrapAfterSetTimer()
                 },
                 onCheck: {
                     await runCheckSetTimer()
+                },
+                onStartNow: {
+                    await workoutManager.startSetTimerWork()
+                },
+                onDismiss: {
+                    Task { await onCloseSetTimer() }
                 }
-            )
+                )
+                .background(LiftosaurColor.backgroundDefault.ignoresSafeArea())
+            }
         }
         .onAppear {
             currentExerciseIndex = initialExerciseIndex
@@ -342,13 +420,30 @@ struct ExerciseScreen: View {
     @MainActor
     private func handleActiveWorkoutChange(_ newWorkout: WatchWorkout?) {
         guard let newWorkout = newWorkout else { return }
-        inputValues = newWorkout.exercises.map { exercise in
-            exercise.sets.map { set in
-                SetInput(
+        let previousInputValues = inputValues
+        inputValues = newWorkout.exercises.enumerated().map { exerciseIndex, exercise in
+            exercise.sets.enumerated().map { setIndex, set in
+                var input = SetInput(
                     reps: set.completedReps ?? set.reps ?? 0,
                     repsLeft: set.completedRepsLeft ?? set.reps ?? 0,
                     weight: set.completedWeight?.value ?? set.weight?.value ?? 0
                 )
+                // Snapshots land on every mutation and on every incoming phone sync. A field whose write is
+                // still debouncing isn't in this one yet, so taking its value would snap the number back to
+                // the stored one under the user mid-scroll.
+                guard exerciseIndex < previousInputValues.count,
+                      setIndex < previousInputValues[exerciseIndex].count else { return input }
+                let previous = previousInputValues[exerciseIndex][setIndex]
+                if pendingEdits.hasPending(exerciseIndex: exerciseIndex, setIndex: setIndex, field: .reps) {
+                    input.reps = previous.reps
+                }
+                if pendingEdits.hasPending(exerciseIndex: exerciseIndex, setIndex: setIndex, field: .repsLeft) {
+                    input.repsLeft = previous.repsLeft
+                }
+                if pendingEdits.hasPending(exerciseIndex: exerciseIndex, setIndex: setIndex, field: .weight) {
+                    input.weight = previous.weight
+                }
+                return input
             }
         }
         if currentSetIndices.count != newWorkout.exercises.count {
@@ -560,14 +655,15 @@ struct ExercisePageView: View {
     let elapsedTime: TimeInterval
     @Binding var selectedField: SelectedField
     let isCompletingSet: Bool
-    let onComplete: (Int, Int, Double) async -> Void  // setIndex, reps, weight
+    let pendingEdits: PendingSetEdits
+    let onComplete: (Int, WatchSetLogValues) async -> Void  // setIndex, uncommitted crown edits
     let onGetNextEntryAndSetIndex: (Int) async -> WatchNextEntryAndSetIndex?  // setIndex -> next entry/set
     let onNavigateToExercise: (Int, Int) -> Void  // exerciseIndex, setIndex
     let onGetValidWeights: (Double, String?) async -> WatchValidWeights?
     let onUpdateReps: (Int, Int) async -> Void  // setIndex, reps
     let onUpdateRepsLeft: (Int, Int) async -> Void  // setIndex, repsLeft
     let onUpdateWeight: (Int, Double) async -> Void  // setIndex, weight
-    let onUpdateCompletedSetTimer: (Int, Int) async -> Void  // setIndex, seconds (<0 clears)
+    let onUpdateCompletedSetTimer: (Int, Int, Int?) async -> Void  // setIndex, seconds (<0 clears), secondsLeft
     let onAddSet: () async -> Void
     let onDeleteSet: (Int) async -> Void  // setIndex
     let onBack: () -> Void
@@ -610,7 +706,9 @@ struct ExercisePageView: View {
                     ForEach(exercise.sets.indices, id: \.self) { setIndex in
                         SetContentView(
                             workoutSet: exercise.sets[setIndex],
+                            exerciseIndex: exerciseIndex,
                             setIndex: setIndex,
+                            pendingEdits: pendingEdits,
                             inputReps: bindingForReps(setIndex),
                             inputRepsLeft: bindingForRepsLeft(setIndex),
                             inputWeight: bindingForWeight(setIndex),
@@ -685,9 +783,11 @@ struct ExercisePageView: View {
               currentSetIndex < inputValues.count else { return }
         let input = inputValues[currentSetIndex]
         let wasCompleted = exercise.sets[currentSetIndex].isCompleted == true
+        // Carry any value whose debounced write hasn't landed yet, so completion doesn't race it.
+        let values = pendingEdits.takePending(exerciseIndex: exerciseIndex, setIndex: currentSetIndex, from: input)
 
         Task {
-            await onComplete(currentSetIndex, input.reps, input.weight)
+            await onComplete(currentSetIndex, values)
 
             let isNowCompleted = WorkoutManager.shared.activeWorkout?.exercises[exerciseIndex].sets[currentSetIndex].isCompleted == true
             if !wasCompleted && isNowCompleted {
@@ -1015,7 +1115,9 @@ struct ScrollingSetIndicator: View {
 
 struct SetContentView: View {
     let workoutSet: WatchSet
+    let exerciseIndex: Int
     let setIndex: Int
+    let pendingEdits: PendingSetEdits
     @Binding var inputReps: Int
     @Binding var inputRepsLeft: Int
     @Binding var inputWeight: Double
@@ -1028,7 +1130,7 @@ struct SetContentView: View {
     let onUpdateReps: (Int, Int) async -> Void  // setIndex, reps
     let onUpdateRepsLeft: (Int, Int) async -> Void  // setIndex, repsLeft
     let onUpdateWeight: (Int, Double) async -> Void  // setIndex, weight
-    let onUpdateCompletedSetTimer: (Int, Int) async -> Void  // setIndex, seconds (<0 clears)
+    let onUpdateCompletedSetTimer: (Int, Int, Int?) async -> Void  // setIndex, seconds (<0 clears), secondsLeft
 
     @State private var showTimeEdit: Bool = false
     @State private var crownRepsValue: Double = 0
@@ -1099,7 +1201,9 @@ struct SetContentView: View {
             inputWeight: $inputWeight,
             validWeights: validWeights,
             weightIndex: $weightIndex,
+            exerciseIndex: exerciseIndex,
             setIndex: setIndex,
+            pendingEdits: pendingEdits,
             onUpdateReps: onUpdateReps,
             onUpdateRepsLeft: onUpdateRepsLeft,
             onUpdateWeight: onUpdateWeight
@@ -1113,8 +1217,10 @@ struct SetContentView: View {
         .sheet(isPresented: $showTimeEdit) {
             SetTimerEditScreen(
                 initialSeconds: workoutSet.completedSetTimer ?? workoutSet.setTimer ?? 0,
-                onSave: { seconds in await onUpdateCompletedSetTimer(setIndex, seconds) },
-                onClear: { await onUpdateCompletedSetTimer(setIndex, -1) }
+                initialLeftSeconds: workoutSet.completedSetTimerLeft ?? workoutSet.setTimer ?? 0,
+                isUnilateral: workoutSet.isUnilateral,
+                onSave: { seconds, secondsLeft in await onUpdateCompletedSetTimer(setIndex, seconds, secondsLeft) },
+                onClear: { await onUpdateCompletedSetTimer(setIndex, -1, nil) }
             )
         }
     }
@@ -1261,9 +1367,9 @@ struct SetContentView: View {
                 // The recorded set-timer duration rides at the trailing edge of the plates line instead of its
                 // own row, so it doesn't squish the reps/weight fields on compact watches. Tap anywhere in this
                 // area to edit it.
-                if let recorded = workoutSet.completedSetTimer {
+                if workoutSet.completedSetTimer != nil || workoutSet.completedSetTimerLeft != nil {
                     Spacer(minLength: 6)
-                    Text(formatMMSS(recorded))
+                    Text(recordedDurationText(workoutSet))
                         .foregroundColor(LiftosaurColor.purple400)
                         .fontWeight(.bold)
                 }
@@ -1276,7 +1382,7 @@ struct SetContentView: View {
         .padding(.horizontal, 2)
         .contentShape(Rectangle())
         .onTapGesture {
-            if workoutSet.setTimer != nil || workoutSet.completedSetTimer != nil {
+            if workoutSet.completedSetTimer != nil || workoutSet.completedSetTimerLeft != nil {
                 showTimeEdit = true
             }
         }
@@ -1284,6 +1390,13 @@ struct SetContentView: View {
 
     private func formatMMSS(_ seconds: Int) -> String {
         String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    private func recordedDurationText(_ set: WatchSet) -> String {
+        let right = set.completedSetTimer.map { formatMMSS($0) } ?? "-"
+        guard set.isUnilateral else { return right }
+        let left = set.completedSetTimerLeft.map { formatMMSS($0) } ?? "-"
+        return "\(left)/\(right)"
     }
 
     private func loadValidWeights() {
@@ -1339,14 +1452,12 @@ struct FieldCrownModifier: ViewModifier {
     @Binding var inputWeight: Double
     let validWeights: [Double]
     @Binding var weightIndex: Int
+    let exerciseIndex: Int
     let setIndex: Int
+    let pendingEdits: PendingSetEdits
     let onUpdateReps: (Int, Int) async -> Void
     let onUpdateRepsLeft: (Int, Int) async -> Void
     let onUpdateWeight: (Int, Double) async -> Void
-
-    @State private var repsDebounceTask: Task<Void, Never>?
-    @State private var repsLeftDebounceTask: Task<Void, Never>?
-    @State private var weightDebounceTask: Task<Void, Never>?
 
     func body(content: Content) -> some View {
         content
@@ -1368,10 +1479,7 @@ struct FieldCrownModifier: ViewModifier {
                                 let newReps = max(0, min(999, Int(newValue.rounded() / kCrownScale)))
                                 if newReps != inputReps {
                                     inputReps = newReps
-                                    repsDebounceTask?.cancel()
-                                    repsDebounceTask = Task {
-                                        try? await Task.sleep(nanoseconds: kDebounceNs)
-                                        guard !Task.isCancelled else { return }
+                                    pendingEdits.schedule(exerciseIndex: exerciseIndex, setIndex: setIndex, field: .reps) {
                                         await onUpdateReps(setIndex, newReps)
                                     }
                                 }
@@ -1392,10 +1500,7 @@ struct FieldCrownModifier: ViewModifier {
                                 let newRepsLeft = max(0, min(999, Int(newValue.rounded() / kCrownScale)))
                                 if newRepsLeft != inputRepsLeft {
                                     inputRepsLeft = newRepsLeft
-                                    repsLeftDebounceTask?.cancel()
-                                    repsLeftDebounceTask = Task {
-                                        try? await Task.sleep(nanoseconds: kDebounceNs)
-                                        guard !Task.isCancelled else { return }
+                                    pendingEdits.schedule(exerciseIndex: exerciseIndex, setIndex: setIndex, field: .repsLeft) {
                                         await onUpdateRepsLeft(setIndex, newRepsLeft)
                                     }
                                 }
@@ -1418,10 +1523,7 @@ struct FieldCrownModifier: ViewModifier {
                                     weightIndex = newIndex
                                     let newWeight = validWeights[newIndex]
                                     inputWeight = newWeight
-                                    weightDebounceTask?.cancel()
-                                    weightDebounceTask = Task {
-                                        try? await Task.sleep(nanoseconds: kDebounceNs)
-                                        guard !Task.isCancelled else { return }
+                                    pendingEdits.schedule(exerciseIndex: exerciseIndex, setIndex: setIndex, field: .weight) {
                                         await onUpdateWeight(setIndex, newWeight)
                                     }
                                 }
@@ -1616,7 +1718,7 @@ struct AddSetTabView: View {
         startTime: Date().addingTimeInterval(-46 * 60 - 56),
         heartRate: 65.0,
         isCompletingSet: false,
-        onComplete: { _, _, _, _ in },
+        onComplete: { _, _, _ in },
         onGetNextEntryAndSetIndex: { _, _ in nil },
         onGetValidWeights: { _, currentWeight, _ in
             let weights = stride(from: max(0, currentWeight - 50), through: currentWeight + 50, by: 5).map { $0 }
@@ -1626,7 +1728,7 @@ struct AddSetTabView: View {
         onUpdateReps: { _, _, _ in },
         onUpdateRepsLeft: { _, _, _ in },
         onUpdateWeight: { _, _, _ in },
-        onUpdateCompletedSetTimer: { _, _, _ in },
+        onUpdateCompletedSetTimer: { _, _, _, _ in },
         onGetAmrapModal: { nil },
         onCompleteSetWithAmrap: { _, _, _, _, _ in },
         restTimer: WatchRestTimer(timerSince: Date().timeIntervalSince1970 * 1000 - 90000, timer: 180),

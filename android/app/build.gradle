@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.google.gms.google-services"
 
 def playServiceAccountFile = rootProject.file("../lambda/scripts/liftosaur-google-service-account-key.json")
 if (playServiceAccountFile.exists()) {
@@ -89,6 +90,24 @@ repositories {
 
 def disableOta = (System.getenv("DISABLE_OTA") ?: "").toBoolean()
 
+// AndroidInfoHelpers reads the dev server port from R.integer.react_native_dev_server_port, which
+// defaults to 8081 inside the react-android library. Worktrees run their own Metro, so override it
+// from the same localdomain.js that everything else in the worktree is keyed off.
+def metroPort = {
+    def fromEnv = System.getenv("RCT_METRO_PORT")
+    if (fromEnv) {
+        return fromEnv as Integer
+    }
+    def localdomain = rootProject.file("../localdomain.js")
+    if (localdomain.exists()) {
+        def match = localdomain.text =~ /metroPort:\s*(\d+)/
+        if (match) {
+            return match[0][1] as Integer
+        }
+    }
+    return 8081
+}()
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -106,8 +125,8 @@ android {
         applicationId "com.liftosaur.www.twa"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 141
-        versionName "141.0"
+        versionCode 152
+        versionName "152.0"
         buildConfigField "boolean", "DISABLE_OTA", "${disableOta}"
     }
     buildFeatures {
@@ -139,6 +158,7 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            resValue "integer", "react_native_dev_server_port", metroPort.toString()
         }
         release {
             signingConfig keystoreProperties['storeFile'] ? signingConfigs.release : signingConfigs.debug
@@ -165,6 +185,9 @@ dependencies {
     implementation 'com.tiktok.open.sdk:tiktok-open-sdk-share:2.3.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.exifinterface:exifinterface:1.3.3'
+    implementation 'io.github.Rosemoe.sora-editor:editor:0.23.6'
+    implementation platform('com.google.firebase:firebase-bom:34.17.0')
+    implementation 'com.google.firebase:firebase-messaging'
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

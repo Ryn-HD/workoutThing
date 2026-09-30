@@ -198,6 +198,8 @@ module.exports = defineConfig([
   },
   globalIgnores([
     "**/dist",
+    "ios",
+    "android",
     "cypress",
     "**/dist-lambda",
     "**/cdk.out",
@@ -206,6 +208,7 @@ module.exports = defineConfig([
     "test-results",
     "**/node_modules",
     "**/worktrees",
+    ".archdoc-snapshots",
     "codemods",
     "nativewind-env.d.ts",
     "uniwind-types.d.ts",

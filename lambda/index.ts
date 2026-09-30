@@ -3,15 +3,27 @@ import * as fs from "fs";
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { Endpoint, Method, Router, RouteHandler } from "yatro";
 import { GoogleAuthTokenDao } from "./dao/googleAuthTokenDao";
-import { UserDao, ILimitedUserDao } from "./dao/userDao";
+import { UserDao, ILimitedUserDao, IUserDao } from "./dao/userDao";
+import { EmailAuthTokenDao } from "./dao/emailAuthTokenDao";
+import { PasswordHash_hash, PasswordHash_verify } from "./utils/passwordHash";
+import { renderResetPasswordHtml } from "./resetPassword";
+import { renderVerifyEmailHtml } from "./verifyEmail";
 import { ApiKeyDao } from "./dao/apiKeyDao";
+import {
+  PushSync_notify,
+  PushSync_register,
+  PushSync_unregister,
+  PushSync_validateRegistration,
+} from "./utils/pushSync";
+import { DirtySyncRead_args } from "./utils/dirtySyncRead";
+import { HistoryIds_parse } from "../src/utils/historyIds";
 import * as Cookie from "cookie";
 import JWT from "jsonwebtoken";
 import { UidFactory_generateUid } from "./utils/generator";
-import { Utils_getEnv } from "./utils";
+import { Utils_getEnv, Utils_isLocal } from "./utils";
 import { ApplePromotionalOfferSigner } from "./utils/applePromotionalOfferSigner";
 import rsaPemFromModExp from "rsa-pem-from-mod-exp";
-import { IPartialStorage, IStorage } from "../src/types";
+import { IPartialStorage, IStorage, VDeletedExerciseDataKeys, VProgramContentSettings } from "../src/types";
 import { ProgramDao } from "./dao/programDao";
 import { renderRecordHtml, recordImage } from "./record";
 import { LogDao } from "./dao/logDao";
@@ -25,6 +37,7 @@ import {
   CollectionUtils_uniqBy,
   CollectionUtils_groupByKeyUniq,
   CollectionUtils_sortBy,
+  CollectionUtils_sortByExpr,
   CollectionUtils_groupByKey,
   CollectionUtils_sort,
 } from "../src/utils/collection";
@@ -35,7 +48,9 @@ import { runMigrations } from "../src/migrations/runner";
 import { c, IEither } from "../src/utils/types";
 import {
   ResponseUtils_json,
+  ResponseUtils_gzippedHtml,
   ResponseUtils_getHeaders,
+  ResponseUtils_getReferer,
   ResponseUtils_getHost,
   ResponseUtils_clearSessionCookie,
 } from "./utils/response";
@@ -85,13 +100,17 @@ import { ExceptionDao } from "./dao/exceptionDao";
 import { UrlUtils_build, UrlUtils_buildSafe } from "../src/utils/url";
 import { RollbarUtils_checkIgnore } from "../src/utils/rollbar";
 import { IAccount, Account_getFromStorage } from "../src/models/account";
-import { Storage_get, Storage_updateVersions } from "../src/models/storage";
+import { Storage_get, Storage_updateVersions, Storage_validate } from "../src/models/storage";
+import {
+  VersionTrackerUtils_SERVER_DEVICE_ID,
+  VersionTrackerUtils_UNIDENTIFIED_DEVICE_ID,
+} from "../src/models/versionTracker/utils";
 import { renderProgramsListHtml } from "./programsList";
 import { renderMainHtml } from "./main";
 import { getUserImagesPrefix, LftS3Buckets } from "./dao/buckets";
-import { IStorageUpdate, IStorageUpdate2 } from "../src/utils/sync";
+import { IStorageUpdate2 } from "../src/utils/sync";
 import { IEventPayload, IPostSyncResponse } from "../src/api/service";
-import { Settings_applyExportedProgram } from "../src/models/settings";
+import { Settings_applyExportedProgram, Settings_applyWebEditorSettings } from "../src/models/settings";
 import { PlannerProgram_generateFullText } from "../src/pages/planner/models/plannerProgram";
 import { renderLoginHtml } from "./login";
 import { ExerciseImageUtils_exists } from "../src/models/exerciseImage";
@@ -101,6 +120,8 @@ import { renderAllExercisesHtml } from "./allExercises";
 import { renderAllProgramsHtml } from "./allPrograms";
 import { renderAllDocsHtml } from "./allDocs";
 import { renderDocDetailsHtml } from "./docDetails";
+import { renderAllFeaturesHtml } from "./allFeatures";
+import { renderFeatureDetailsHtml } from "./featureDetails";
 import { DocDao } from "./dao/docDao";
 import { renderRepMaxHtml } from "./repmax";
 import { MathUtils_toWord } from "../src/utils/math";
@@ -116,8 +137,6 @@ import {
 } from "./paymentsDashboard";
 import { computePaymentsSummary } from "../src/pages/paymentsDashboard/paymentsDashboardContent";
 import { IExportedPlannerProgram } from "../src/pages/planner/models/types";
-import { UrlContentFetcher } from "./utils/urlContentFetcher";
-import { LlmPrompt_getSystemPrompt, LlmPrompt_getUserPrompt } from "./utils/llms/llmPrompt";
 import {
   getV1HistoryEndpoint,
   getV1HistoryHandler,
@@ -175,6 +194,22 @@ import {
   putV1MeasurementHandler,
   deleteV1MeasurementEndpoint,
   deleteV1MeasurementHandler,
+  getV1WorkoutNextEndpoint,
+  getV1WorkoutNextHandler,
+  postV1WorkoutStartEndpoint,
+  postV1WorkoutStartHandler,
+  getV1WorkoutCurrentEndpoint,
+  getV1WorkoutCurrentHandler,
+  deleteV1WorkoutCurrentEndpoint,
+  deleteV1WorkoutCurrentHandler,
+  postV1WorkoutSetEndpoint,
+  postV1WorkoutSetHandler,
+  postV1WorkoutSetsEndpoint,
+  postV1WorkoutSetsHandler,
+  postV1WorkoutFinishEndpoint,
+  postV1WorkoutFinishHandler,
+  getV1SettingsEndpoint,
+  getV1SettingsHandler,
 } from "./api/v1";
 import {
   getMcpEndpoint,
@@ -193,10 +228,11 @@ import {
   postOauthRegisterHandler,
   getOauthAuthorizeEndpoint,
   getOauthAuthorizeHandler,
+  postOauthAuthorizeEndpoint,
+  postOauthAuthorizeHandler,
   postOauthTokenEndpoint,
   postOauthTokenHandler,
 } from "./mcp/oauth";
-import { AiLogsDao } from "./dao/aiLogsDao";
 import { ICollectionVersions } from "../src/models/versionTracker";
 import { ObjectUtils_values, ObjectUtils_keys } from "../src/utils/object";
 import { ClaudeProvider } from "./utils/llms/claude";
@@ -208,6 +244,7 @@ import { TestimonialDao } from "./dao/testimonialDao";
 interface IOpenIdResponseSuccess {
   sub: string;
   email: string;
+  email_verified?: boolean | string;
 }
 
 interface IOpenIdResponseError {
@@ -369,7 +406,9 @@ const postVerifyGooglePurchaseTokenHandler: RouteHandler<
   const subscriptions = new Subscriptions(di.log, di.secrets);
   const { token, productId } = JSON.parse(googlePurchaseToken) as { token: string; productId: string };
   const isLifetime = productId.indexOf("lifetime") !== -1;
-  let verifiedGooglePurchaseToken = false;
+  // A client deletes the receipt on `result: false`, so an unanswered lookup (transport failure, Google 5xx)
+  // must fail open. Only a real Google verdict may fail closed.
+  let verifiedGooglePurchaseToken = true;
   // Returned to the caller keyed by possession of the purchase token (a real secret), so the client can read
   // its live subscription status — incl. a queued deferred plan switch — without a userId-based lookup.
   let subscription:
@@ -425,7 +464,7 @@ const postVerifyGooglePurchaseTokenHandler: RouteHandler<
       }
     }
   }
-  return ResponseUtils_json(200, event, { result: !!verifiedGooglePurchaseToken, subscription });
+  return ResponseUtils_json(200, event, { result: verifiedGooglePurchaseToken, subscription });
 };
 
 const postAppleWebhookEndpoint = Endpoint.build("/api/apple-payment-webhook");
@@ -434,8 +473,6 @@ const postAppleWebhookHandler: RouteHandler<IPayload, APIGatewayProxyResult, typ
 }) => {
   const { event, di } = payload;
   const body = event.body;
-  di.log.log("Received body", body);
-
   const appleWebhookHandler = new AppleWebhookHandler(di);
   const result = await appleWebhookHandler.handleWebhook(body);
 
@@ -455,7 +492,6 @@ const postGoogleWebhookHandler: RouteHandler<
   const { event, di } = payload;
   const handler = new GoogleWebhookHandler(di);
   const authorizationHeader = event.headers?.authorization || event.headers?.Authorization;
-  di.log.log("Received headers", event.headers);
   const result = await handler.handleWebhook(event.body || "", authorizationHeader);
 
   return ResponseUtils_json(200, event, { status: result.success ? "ok" : "error", message: result.message });
@@ -538,7 +574,11 @@ const postSync2Handler: RouteHandler<IPayload, APIGatewayProxyResult, typeof pos
   } else {
     bodyJson = rawBodyJson;
   }
-  const deviceId = bodyJson.deviceId as string | undefined;
+  const rawDeviceId = bodyJson.deviceId as string | undefined;
+  if (!rawDeviceId) {
+    di.log.log("sync2: request without a device id, falling back to the shared unidentified node");
+  }
+  const deviceId = rawDeviceId || VersionTrackerUtils_UNIDENTIFIED_DEVICE_ID;
   const timestamp: number = (bodyJson.timestamp as number) || Date.now();
   const storageUpdate = bodyJson.storageUpdate as IStorageUpdate2;
   const historylimit = bodyJson.historylimit as number | undefined;
@@ -560,7 +600,6 @@ const postSync2Handler: RouteHandler<IPayload, APIGatewayProxyResult, typeof pos
       di.log.log(`Server oid: ${limitedUser.storage.originalId}, update oid: ${storageUpdate.originalId}`);
       if (storageUpdate.originalId != null && limitedUser.storage.originalId === storageUpdate.originalId) {
         di.log.log("Fetch: Safe update");
-        di.log.log(JSON.stringify(storageUpdate, null, 2));
         const result = await userDao.applySafeSync2(limitedUser, storageUpdate, deviceId);
         if (result.success) {
           di.log.log("New original id", result.data.originalId);
@@ -568,6 +607,9 @@ const postSync2Handler: RouteHandler<IPayload, APIGatewayProxyResult, typeof pos
             storageDao.store(limitedUser.id, result.data.newStorage, storageUpdate?.storage),
             userDao.maybeSaveProgramRevision(limitedUser.id, storageUpdate),
           ]);
+          if (result.data.newStorage != null) {
+            await PushSync_notify(di, limitedUser.id, deviceId, result.data.originalId);
+          }
           if (storageId) {
             await eventDao.post({
               type: "safesnapshot",
@@ -593,12 +635,13 @@ const postSync2Handler: RouteHandler<IPayload, APIGatewayProxyResult, typeof pos
         }
       } else {
         di.log.log("Fetch: Merging update");
-        di.log.log(JSON.stringify(storageUpdate, null, 2));
         storageUpdate.originalId = Date.now();
         const result = await userDao.applySafeSync2(limitedUser, storageUpdate, deviceId);
         if (result.success) {
           di.log.log("New original id", result.data.originalId);
-          const fullUser = (await userDao.getById(userId))!;
+          const hasMergeWrite = result.data.didWrite;
+          const readArgs = DirtySyncRead_args({ hasMergeWrite, historylimit, isWatch });
+          const fullUser = (await userDao.getById(userId, readArgs))!;
           const storage = fullUser.storage;
           if (storage.tempUserId !== userId) {
             storage.tempUserId = userId;
@@ -607,9 +650,14 @@ const postSync2Handler: RouteHandler<IPayload, APIGatewayProxyResult, typeof pos
             }
           }
           const [storageId] = await Promise.all([
-            storageDao.store(limitedUser.id, storage, storageUpdate?.storage),
-            userDao.maybeSaveProgramRevision(limitedUser.id, storageUpdate),
+            hasMergeWrite ? storageDao.store(limitedUser.id, storage, storageUpdate?.storage) : undefined,
+            (storageUpdate.storage?.programs?.length ?? 0) > 0
+              ? userDao.maybeSaveProgramRevision(limitedUser.id, storageUpdate)
+              : undefined,
           ]);
+          if (result.data.newStorage != null) {
+            await PushSync_notify(di, limitedUser.id, deviceId, result.data.originalId);
+          }
           if (key) {
             storage.subscription.key = key;
           }
@@ -639,119 +687,6 @@ const postSync2Handler: RouteHandler<IPayload, APIGatewayProxyResult, typeof pos
             user_id: limitedUser.id,
             key,
           });
-        } else {
-          di.log.log("Error", result.error);
-          return response(400, { type: "error", error: result.error, key });
-        }
-      }
-    }
-  }
-  return ResponseUtils_json(401, event, { type: "error", error: "not_authorized", key });
-};
-
-const postSyncEndpoint = Endpoint.build("/api/sync", { tempuserid: "string?", adminkey: "string?", userid: "string?" });
-const postSyncHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof postSyncEndpoint> = async ({
-  payload,
-  match: { params },
-}) => {
-  const { event, di } = payload;
-  let userId: string | undefined = undefined;
-  let setCookie: string | undefined = undefined;
-  const bodyJson = getBodyJson(event);
-  const timestamp = bodyJson.timestamp || Date.now();
-  const storageUpdate = bodyJson.storageUpdate as IStorageUpdate;
-  const historylimit = bodyJson.historylimit as number | undefined;
-  if (params.adminkey != null && params.userid != null && params.adminkey === (await di.secrets.getApiKey())) {
-    userId = params.userid;
-    const cookieSecret = await di.secrets.getCookieSecret();
-    const session = JWT.sign({ userId: userId }, cookieSecret);
-    setCookie = Cookie.serialize("session", session, {
-      httpOnly: true,
-      domain: ".liftosaur.com",
-      path: "/",
-      expires: new Date(new Date().getFullYear() + 10, 0, 1),
-    });
-  } else {
-    userId = await getCurrentUserId(event, di);
-  }
-  let keyResult: { key: string; isClaimed: boolean } | undefined;
-  if (params.tempuserid) {
-    keyResult = await new FreeUserDao(di).getKey(params.tempuserid);
-  }
-  const key = keyResult ? (keyResult.isClaimed ? keyResult.key : "unclaimed") : undefined;
-  const response = (status: number, r: IPostSyncResponse): APIGatewayProxyResult =>
-    ResponseUtils_json(status, event, r, setCookie ? { "set-cookie": setCookie } : undefined);
-  const eventDao = new EventDao(di);
-  const storageDao = new StorageDao(di);
-  if (userId != null) {
-    const userDao = new UserDao(di);
-    const limitedUser = await userDao.getLimitedById(userId);
-    if (limitedUser != null) {
-      di.log.log(`Server oid: ${limitedUser.storage.originalId}, update oid: ${storageUpdate.originalId}`);
-      storageUpdate.tempUserId = userId;
-      if (storageUpdate.originalId != null && limitedUser.storage.originalId === storageUpdate.originalId) {
-        di.log.log("Fetch: Safe update");
-        di.log.log(storageUpdate);
-        const result = await userDao.applySafeSync(limitedUser, storageUpdate);
-        if (result.success) {
-          di.log.log("New original id", result.data);
-          const [storageId] = await Promise.all([
-            storageDao.store(limitedUser.id, result.data.newStorage, undefined),
-            userDao.maybeSaveProgramRevision(limitedUser.id, storageUpdate),
-          ]);
-          if (storageId) {
-            await eventDao.post({
-              type: "safesnapshot",
-              userId: limitedUser.id,
-              timestamp,
-              commithash: process.env.COMMIT_HASH || "",
-              storage_id: storageId,
-              update: EventDao.prepareStorageUpdateForEvent(storageUpdate),
-              isMobile: Mobile_isMobile(
-                payload.event.headers["user-agent"] || payload.event.headers["User-Agent"] || ""
-              ),
-            });
-          }
-          return response(200, {
-            type: "clean",
-            new_original_id: result.data.originalId,
-            email: limitedUser.email,
-            user_id: limitedUser.id,
-            key,
-          });
-        } else {
-          return response(400, { type: "error", error: result.error, key });
-        }
-      } else {
-        di.log.log("Fetch: Merging update");
-        di.log.log(storageUpdate);
-        storageUpdate.originalId = Date.now();
-        const result = await userDao.applySafeSync(limitedUser, storageUpdate);
-        if (result.success) {
-          di.log.log("New original id", result.data);
-          const fullUser = (await userDao.getById(userId, { historyLimit: historylimit }))!;
-          const storage = fullUser.storage;
-          const [storageId] = await Promise.all([
-            storageDao.store(limitedUser.id, storage, undefined),
-            userDao.maybeSaveProgramRevision(limitedUser.id, storageUpdate),
-          ]);
-          if (key) {
-            storage.subscription.key = key;
-          }
-          if (storageId) {
-            await eventDao.post({
-              type: "mergesnapshot",
-              userId: limitedUser.id,
-              commithash: process.env.COMMIT_HASH || "",
-              timestamp,
-              storage_id: storageId,
-              isMobile: Mobile_isMobile(
-                payload.event.headers["user-agent"] || payload.event.headers["User-Agent"] || ""
-              ),
-              update: EventDao.prepareStorageUpdateForEvent(storageUpdate),
-            });
-          }
-          return response(200, { type: "dirty", storage, email: limitedUser.email, user_id: limitedUser.id, key });
         } else {
           di.log.log("Error", result.error);
           return response(400, { type: "error", error: result.error, key });
@@ -836,6 +771,10 @@ const saveDebugHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof sav
 }) => {
   const { event, di } = payload;
   const { id, data } = getBodyJson(event);
+  const idStr = typeof id === "number" ? `${id}` : id;
+  if (typeof idStr !== "string" || !/^[a-zA-Z0-9_.-]{1,128}$/.test(idStr)) {
+    return ResponseUtils_json(400, event, { error: "Invalid id" });
+  }
   const debugDao = new DebugDao(di);
   let debugData: string;
   if (typeof data === "string") {
@@ -843,7 +782,7 @@ const saveDebugHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof sav
   } else {
     debugData = JSON.stringify(data);
   }
-  await debugDao.store(id, debugData);
+  await debugDao.store(idStr, debugData);
   return ResponseUtils_json(200, event, { data: "ok" });
 };
 
@@ -911,6 +850,38 @@ const postDebugSessionHandler: RouteHandler<IPayload, APIGatewayProxyResult, typ
   return ResponseUtils_json(200, event, { session, userId: debugId, email }, { "set-cookie": setCookie });
 };
 
+const postSetupTestAccountEndpoint = Endpoint.build("/api/dev/setuptestaccount");
+const postSetupTestAccountHandler: RouteHandler<
+  IPayload,
+  APIGatewayProxyResult,
+  typeof postSetupTestAccountEndpoint
+> = async ({ payload }) => {
+  const { event, di } = payload;
+  if (!Utils_isLocal()) {
+    return ResponseUtils_json(404, event, { error: "not_found" });
+  }
+  const userId = await getCurrentUserId(event, di);
+  if (userId == null) {
+    return ResponseUtils_json(401, event, { error: "not_authorized" });
+  }
+  if (!userId.startsWith("test_")) {
+    return ResponseUtils_json(400, event, { error: "userid must be a test_ account" });
+  }
+  const { apiKey } = getBodyJson(event);
+  if (apiKey != null && (typeof apiKey !== "string" || !/^lftsk_[a-zA-Z0-9]{8,64}$/.test(apiKey))) {
+    return ResponseUtils_json(400, event, { error: "invalid apiKey" });
+  }
+  // Claimed free key = active subscription for both hasSubscription() and the app (re-injected on sync)
+  const tenYears = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
+  const freeUser = await new FreeUserDao(di).create(userId, tenYears, true);
+  let apiKeyBound = false;
+  if (apiKey != null) {
+    await new ApiKeyDao(di).bindKey(apiKey, userId, "local-test-agent");
+    apiKeyBound = true;
+  }
+  return ResponseUtils_json(200, event, { data: { apiKeyBound, key: freeUser.key } });
+};
+
 const postWatchCrashReportEndpoint = Endpoint.build("/api/watchcrashreport");
 const postWatchCrashReportHandler: RouteHandler<
   IPayload,
@@ -956,6 +927,108 @@ interface IAppleKeysResponse {
   }>;
 }
 
+async function signInResponse(
+  di: IDI,
+  event: APIGatewayProxyEvent,
+  user: IUserDao,
+  isNewUser: boolean
+): Promise<APIGatewayProxyResult> {
+  const cookieSecret = await di.secrets.getCookieSecret();
+  const session = JWT.sign({ userId: user.id }, cookieSecret);
+  const isNativeClient = (event.headers["x-client"] || event.headers["X-Client"] || "").startsWith("liftosaur-native");
+  // The free-user key is response-only (never persisted in storage), so it must ride along on the sign-in
+  // response too. Without it the client shows no premium until some later sync re-injects it - and right
+  // after login there's nothing to sync, so that wouldn't happen until the next app start.
+  const keyResult = await new FreeUserDao(di).getKey(user.id);
+  const resp: Record<string, unknown> = {
+    email: user.email,
+    user_id: user.id,
+    storage: user.storage,
+    is_new_user: isNewUser,
+    key: keyResult ? (keyResult.isClaimed ? keyResult.key : "unclaimed") : undefined,
+  };
+  if (isNativeClient) {
+    resp.session = session;
+  }
+
+  const landingPage = getLandingPageCookie(event);
+  if (landingPage && !isNativeClient) {
+    await new LogDao(di).recordAction(user.id, "ls-web-signin", landingPage);
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify(resp),
+    headers: {
+      ...ResponseUtils_getHeaders(event),
+      "set-cookie": Cookie.serialize("session", session, {
+        httpOnly: true,
+        domain: ".liftosaur.com",
+        path: "/",
+        expires: new Date(new Date().getFullYear() + 10, 0, 1),
+      }),
+    },
+  };
+}
+
+// Linking by email is only safe when the email is verified: OAuth ids imply
+// IdP-verified emails; password-only accounts must have clicked a link we sent
+// (emailVerifiedAt), otherwise pre-registering someone's email + password would
+// capture their future OAuth sign-ins.
+function pickEmailLinkTarget(di: IDI, candidates: ILimitedUserDao[]): ILimitedUserDao | undefined {
+  const eligible = candidates.filter((u) => u.googleId != null || u.appleId != null || u.emailVerifiedAt != null);
+  if (eligible.length === 0) {
+    return undefined;
+  }
+  const sorted = [...eligible].sort((a, b) => {
+    const workoutDiff = UserDao.lastWorkoutTs(b) - UserDao.lastWorkoutTs(a);
+    return workoutDiff !== 0 ? workoutDiff : (b.createdAt || 0) - (a.createdAt || 0);
+  });
+  if (eligible.length > 1) {
+    di.log.log(
+      "Multiple accounts for email, picking by latest workout",
+      sorted.map((u) => ({ id: u.id, lastWorkout: UserDao.lastWorkoutTs(u), createdAt: u.createdAt }))
+    );
+  }
+  return sorted[0];
+}
+
+// The client suggests its anonymous local id so a new cloud account keeps it
+// (sync continuity), but it's unauthenticated input: only honor it for a
+// conditional CREATE. If the id exists, mint a server-side one - an
+// unconditional put would let anyone overwrite an existing user and take over
+// that account.
+async function createNewUser(
+  userDao: UserDao,
+  di: IDI,
+  clientId: unknown,
+  email: string,
+  opts: { appleId?: string; googleId?: string; passwordHash?: string }
+): Promise<IUserDao> {
+  const suggestedId =
+    typeof clientId === "string" && /^[a-zA-Z0-9_-]{4,40}$/.test(clientId) ? clientId : UidFactory_generateUid(10);
+  let user = UserDao.build(suggestedId, email, opts);
+  if (!(await userDao.create(user))) {
+    di.log.log("Signup with already-taken user id, generating a server-side id instead", suggestedId);
+    user = UserDao.build(UidFactory_generateUid(12), email, opts);
+    if (!(await userDao.create(user))) {
+      throw new Error("Failed to create a new user");
+    }
+  }
+  return user;
+}
+
+function getWebUrl(event: APIGatewayProxyEvent): string {
+  if (Utils_getEnv() === "prod") {
+    return "https://www.liftosaur.com";
+  }
+  const referer = ResponseUtils_getReferer(event);
+  const originResult = UrlUtils_buildSafe(referer);
+  return originResult.success ? originResult.data.origin : "https://local.liftosaur.com:8080";
+}
+
+const noEmail = "noemail@example.com";
+
 const appleLoginEndpoint = Endpoint.build("/api/signin/apple");
 const appleLoginHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof appleLoginEndpoint> = async ({
   payload,
@@ -977,68 +1050,35 @@ const appleLoginHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof ap
       const result = JWT.verify(idToken, pem, {
         issuer: "https://appleid.apple.com",
         audience: content.aud,
-      }) as { sub?: string; email?: string } | undefined;
+      }) as { sub?: string; email?: string; email_verified?: boolean | string } | undefined;
       if (result?.sub) {
-        const email = result.email || "noemail@example.com";
-        const cookieSecret = await di.secrets.getCookieSecret();
+        // Apple sends email_verified as the string "true" in some tokens
+        const emailVerified = result.email_verified === true || result.email_verified === "true";
+        // Only trust (and store) the email if the provider verified it - an
+        // unverified claim must never become a link/reset target. Normalize so
+        // lookups match the lowercased emails stored by email/password signup.
+        const email = result.email && emailVerified ? normalizeEmail(result.email) : noEmail;
 
         await new AppleAuthTokenDao(di).store(env, idToken, result.sub);
         const userDao = new UserDao(di);
         let user = await userDao.getByAppleId(result.sub, { historyLimit: historylimit });
-        let userId = user?.id;
         let isNewUser = false;
 
-        if (userId == null) {
-          const existingUser =
-            email !== "noemail@example.com"
-              ? await userDao.getByEmail(email, { historyLimit: historylimit })
-              : undefined;
-          di.log.log("Existing user with same email", existingUser?.id);
-          if (existingUser && existingUser.appleId) {
-            userId = existingUser.id;
-            user = existingUser;
-            user.appleId = result.sub;
-            await userDao.store(user);
+        if (user == null) {
+          const linkTarget =
+            email !== noEmail ? pickEmailLinkTarget(di, await userDao.getAllByEmail(email)) : undefined;
+          if (linkTarget) {
+            di.log.log("Linking appleId to existing user with same email", linkTarget.id);
+            user = await userDao.getById(linkTarget.id, { historyLimit: historylimit });
+            user!.appleId = result.sub;
+            await userDao.store(user!);
           } else {
-            userId = (id as string) || UidFactory_generateUid(12);
-            user = UserDao.build(userId, email, { appleId: result.sub });
+            user = await createNewUser(userDao, di, id, email, { appleId: result.sub });
             isNewUser = true;
-            await userDao.store(user);
           }
         }
 
-        const session = JWT.sign({ userId: userId }, cookieSecret);
-        const isNativeClient = (event.headers["x-client"] || event.headers["X-Client"] || "").startsWith(
-          "liftosaur-native"
-        );
-        const resp: Record<string, unknown> = {
-          email: email,
-          user_id: userId,
-          storage: user!.storage,
-          is_new_user: isNewUser,
-        };
-        if (isNativeClient) {
-          resp.session = session;
-        }
-
-        const landingPage = getLandingPageCookie(event);
-        if (userId && landingPage && !isNativeClient) {
-          await new LogDao(di).recordAction(userId, "ls-web-signin", landingPage);
-        }
-
-        return {
-          statusCode: 200,
-          body: JSON.stringify(resp),
-          headers: {
-            ...ResponseUtils_getHeaders(event),
-            "set-cookie": Cookie.serialize("session", session, {
-              httpOnly: true,
-              domain: ".liftosaur.com",
-              path: "/",
-              expires: new Date(new Date().getFullYear() + 10, 0, 1),
-            }),
-          },
-        };
+        return signInResponse(di, event, user!, isNewUser);
       }
     }
   }
@@ -1093,19 +1133,19 @@ const googleLoginHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof g
   const { event, di } = payload;
   const env = Utils_getEnv();
   const bodyJson = getBodyJson(event);
-  const { token, id, forceuseremail, historylimit } = bodyJson;
+  const { token, id, forceuseremail, forceunverified, historylimit } = bodyJson;
   let openIdJson: IOpenIdResponseSuccess | IOpenIdResponseError;
   if (env === "dev" && forceuseremail != null) {
     openIdJson = {
       email: forceuseremail,
       sub: `${forceuseremail}googleId`,
+      email_verified: forceunverified !== true,
     };
   } else {
     const url = `https://openidconnect.googleapis.com/v1/userinfo?access_token=${token}`;
     const googleApiResponse = await di.fetch(url);
     openIdJson = await googleApiResponse.json();
   }
-  const cookieSecret = await di.secrets.getCookieSecret();
 
   if ("error" in openIdJson) {
     const url = `https://www.googleapis.com/oauth2/v1/tokeninfo?id_token=${token}`;
@@ -1117,66 +1157,336 @@ const googleLoginHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof g
       openIdJson = {
         sub: response.user_id,
         email: response.email,
+        email_verified: response.verified_email ?? response.email_verified,
       };
     }
   }
 
   await new GoogleAuthTokenDao(di).store(env, token, openIdJson.sub);
+  const emailVerified = openIdJson.email_verified === true || openIdJson.email_verified === "true";
+  // Normalize the IdP email so lookups match the lowercased emails stored by
+  // email/password signup (getAllByEmail is an exact GSI match). Only trust the
+  // email if the provider verified it: an unverified claim (federated/Workspace
+  // tokens can assert an email the holder doesn't own) must never be stored as
+  // the account email, or pickEmailLinkTarget would later treat it as a verified
+  // link/reset target via the googleId.
+  const email = emailVerified ? normalizeEmail(openIdJson.email) : noEmail;
   const userDao = new UserDao(di);
   let user = await userDao.getByGoogleId(openIdJson.sub, { historyLimit: historylimit });
-  let userId = user?.id;
   let isNewUser = false;
 
-  if (userId == null) {
-    const existingUser = await userDao.getByEmail(openIdJson.email, { historyLimit: historylimit });
-    if (existingUser && existingUser.googleId) {
-      userId = existingUser.id;
-      user = existingUser;
-      user.googleId = openIdJson.sub;
-      await userDao.store(user);
+  if (user == null) {
+    const linkTarget = email !== noEmail ? pickEmailLinkTarget(di, await userDao.getAllByEmail(email)) : undefined;
+    if (linkTarget) {
+      di.log.log("Linking googleId to existing user with same email", linkTarget.id);
+      user = await userDao.getById(linkTarget.id, { historyLimit: historylimit });
+      user!.googleId = openIdJson.sub;
+      await userDao.store(user!);
     } else {
-      userId = (id as string) || UidFactory_generateUid(12);
-      user = UserDao.build(userId, openIdJson.email, { googleId: openIdJson.sub });
+      user = await createNewUser(userDao, di, id, email, { googleId: openIdJson.sub });
       isNewUser = true;
-      await userDao.store(user);
     }
   }
 
-  const session = JWT.sign({ userId: userId }, cookieSecret);
-  const isNativeClient = (event.headers["x-client"] || event.headers["X-Client"] || "").startsWith("liftosaur-native");
-  const resp: Record<string, unknown> = {
-    email: openIdJson.email,
-    user_id: userId,
-    storage: user!.storage,
-    is_new_user: isNewUser,
-  };
-  if (isNativeClient) {
-    resp.session = session;
-  }
+  return signInResponse(di, event, user!, isNewUser);
+};
 
-  const landingPage = getLandingPageCookie(event);
-  if (userId && landingPage && !isNativeClient) {
-    await new LogDao(di).recordAction(userId, "ls-web-signin", landingPage);
-  }
+const emailRegex = /^[^\s@]+@[^\s@]+$/;
+const minPasswordLength = 8;
+// Not a security rule - just bounds scrypt input so absurd payloads don't burn CPU
+const maxPasswordLength = 256;
 
+function normalizeEmail(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim().toLowerCase() : "";
+}
+
+const emailSignupEndpoint = Endpoint.build("/api/signup/email");
+const emailSignupHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof emailSignupEndpoint> = async ({
+  payload,
+}) => {
+  const { event, di } = payload;
+  const env = Utils_getEnv();
+  const bodyJson = getBodyJson(event);
+  const { password, id } = bodyJson;
+  const email = normalizeEmail(bodyJson.email);
+  if (!emailRegex.test(email)) {
+    return ResponseUtils_json(400, event, { error: "invalid_email" });
+  }
+  if (typeof password !== "string" || password.length < minPasswordLength) {
+    return ResponseUtils_json(400, event, { error: "invalid_password" });
+  }
+  if (password.length > maxPasswordLength) {
+    return ResponseUtils_json(400, event, { error: "password_too_long" });
+  }
+  const userDao = new UserDao(di);
+  const emailAuthTokenDao = new EmailAuthTokenDao(di);
+  const candidates = await userDao.getAllByEmail(email);
+  if (candidates.some((u) => u.passwordHash != null)) {
+    return ResponseUtils_json(400, event, { error: "account_exists" });
+  }
+  const webUrl = getWebUrl(event);
+  const linkTarget = pickEmailLinkTarget(di, candidates);
+  if (linkTarget) {
+    // Existing OAuth account. Never store the requester's password (an attacker
+    // could submit a victim's email + a known password). Instead email the owner
+    // a link that lets THEM choose a password on the reset page - proving both
+    // inbox ownership and password ownership. Rate-limit so it can't be used to
+    // spam/phish the inbox, and return the same response regardless.
+    if (!(await emailAuthTokenDao.bumpAttemptsAndCheckLimit(env, `sendmail:${email}`))) {
+      const token = await emailAuthTokenDao.create(env, { type: "reset", userId: linkTarget.id }, 60 * 60);
+      try {
+        await di.ses.sendEmail({
+          destination: email,
+          source: "info@liftosaur.com",
+          subject: "Liftosaur - set a password for your account",
+          body:
+            `You (or someone else) tried to add an email/password login to the Liftosaur account for ${email}.\n\n` +
+            `This account currently signs in with Google or Apple. If you'd like to add a password, choose one here:\n\n` +
+            `${webUrl}/resetpassword?token=${token}\n\n` +
+            `The link expires in 1 hour. If that wasn't you, just ignore this email - nothing will change and no password is set.`,
+        });
+      } catch (e) {
+        di.log.log("Failed to send set-password email", e instanceof Error ? e.message : e);
+      }
+    }
+    return ResponseUtils_json(200, event, { status: "confirmation_sent" });
+  }
+  const passwordHash = await PasswordHash_hash(password);
+  const user = await createNewUser(userDao, di, id, email, { passwordHash });
+  try {
+    const token = await emailAuthTokenDao.create(env, { type: "verify", userId: user.id }, 7 * 24 * 60 * 60);
+    await di.ses.sendEmail({
+      destination: email,
+      source: "info@liftosaur.com",
+      subject: "Liftosaur - verify your email",
+      body:
+        `Welcome to Liftosaur!\n\n` +
+        `Please verify your email by opening this link:\n\n` +
+        `${webUrl}/verifyemail?token=${token}\n\n` +
+        `Verifying makes sure you can reset your password later if you forget it.`,
+    });
+  } catch (e) {
+    di.log.log("Failed to send verification email", e instanceof Error ? e.message : e);
+  }
+  return signInResponse(di, event, user, true);
+};
+
+const emailSigninEndpoint = Endpoint.build("/api/signin/email");
+const emailSigninHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof emailSigninEndpoint> = async ({
+  payload,
+}) => {
+  const { event, di } = payload;
+  const env = Utils_getEnv();
+  const bodyJson = getBodyJson(event);
+  const { password, historylimit } = bodyJson;
+  const email = normalizeEmail(bodyJson.email);
+  // No account can have a >max password, so rejecting early (before any scrypt
+  // work) keeps the uniform error while avoiding hashing huge payloads
+  if (!email || typeof password !== "string" || password.length > maxPasswordLength) {
+    return ResponseUtils_json(403, event, { error: "invalid_credentials" });
+  }
+  const emailAuthTokenDao = new EmailAuthTokenDao(di);
+  if (await emailAuthTokenDao.bumpAttemptsAndCheckLimit(env, email)) {
+    return ResponseUtils_json(429, event, { error: "too_many_attempts" });
+  }
+  const userDao = new UserDao(di);
+  const candidates = await userDao.getAllByEmail(email);
+  const match = candidates.find((u) => u.passwordHash != null);
+  // Deliberately distinct errors: signup already discloses account existence,
+  // so a uniform message here would cost UX without hiding anything
+  if (match?.passwordHash == null) {
+    const providers = Array.from(
+      new Set(candidates.flatMap((u) => [...(u.googleId ? ["Google"] : []), ...(u.appleId ? ["Apple"] : [])]))
+    );
+    if (providers.length > 0) {
+      return ResponseUtils_json(403, event, { error: "use_oauth", providers });
+    }
+    return ResponseUtils_json(403, event, { error: "account_not_found" });
+  }
+  if (!(await PasswordHash_verify(password, match.passwordHash))) {
+    return ResponseUtils_json(403, event, { error: "wrong_password" });
+  }
+  await emailAuthTokenDao.clearAttempts(env, email);
+  const user = await userDao.getById(match.id, { historyLimit: historylimit });
+  if (user == null) {
+    return ResponseUtils_json(403, event, { error: "account_not_found" });
+  }
+  return signInResponse(di, event, user, false);
+};
+
+const verifyEmailEndpoint = Endpoint.build("/api/auth/verifyemail");
+const verifyEmailHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof verifyEmailEndpoint> = async ({
+  payload,
+}) => {
+  const { event, di } = payload;
+  const env = Utils_getEnv();
+  const bodyJson = getBodyJson(event);
+  const { token } = bodyJson;
+  if (typeof token !== "string" || !token) {
+    return ResponseUtils_json(400, event, { error: "invalid_token" });
+  }
+  const tokenPayload = await new EmailAuthTokenDao(di).consume(env, token, ["verify"]);
+  if (tokenPayload == null) {
+    return ResponseUtils_json(400, event, { error: "invalid_token" });
+  }
+  const userDao = new UserDao(di);
+  const user = await userDao.getLimitedById(tokenPayload.userId);
+  if (user == null) {
+    return ResponseUtils_json(400, event, { error: "invalid_token" });
+  }
+  user.emailVerifiedAt = Date.now();
+  await userDao.store(user);
+  return ResponseUtils_json(200, event, { status: "verified" });
+};
+
+const forgotPasswordEndpoint = Endpoint.build("/api/auth/forgotpassword");
+const forgotPasswordHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof forgotPasswordEndpoint> = async ({
+  payload,
+}) => {
+  const { event, di } = payload;
+  const env = Utils_getEnv();
+  const email = normalizeEmail(getBodyJson(event).email);
+  if (!emailRegex.test(email)) {
+    return ResponseUtils_json(400, event, { error: "invalid_email" });
+  }
+  const emailAuthTokenDao = new EmailAuthTokenDao(di);
+  // Silently pretend to send while rate-limited so the limiter can't be used to
+  // spam an inbox with reset emails
+  if (await emailAuthTokenDao.bumpAttemptsAndCheckLimit(env, `forgot:${email}`)) {
+    return ResponseUtils_json(200, event, { status: "ok" });
+  }
+  const userDao = new UserDao(di);
+  const candidates = await userDao.getAllByEmail(email);
+  const match = candidates.find((u) => u.passwordHash != null);
+  if (match == null) {
+    const providers = Array.from(
+      new Set(candidates.flatMap((u) => [...(u.googleId ? ["Google"] : []), ...(u.appleId ? ["Apple"] : [])]))
+    );
+    if (providers.length > 0) {
+      return ResponseUtils_json(403, event, { error: "use_oauth", providers });
+    }
+    return ResponseUtils_json(403, event, { error: "account_not_found" });
+  }
+  const token = await emailAuthTokenDao.create(env, { type: "reset", userId: match.id }, 60 * 60);
+  try {
+    await di.ses.sendEmail({
+      destination: email,
+      source: "info@liftosaur.com",
+      subject: "Liftosaur - reset your password",
+      body:
+        `You (or someone else) requested a password reset for the Liftosaur account ${email}.\n\n` +
+        `To set a new password, open this link:\n\n` +
+        `${getWebUrl(event)}/resetpassword?token=${token}\n\n` +
+        `The link expires in 1 hour. If that wasn't you, just ignore this email - your password won't change.`,
+    });
+  } catch (e) {
+    di.log.log("Failed to send forgot-password email", e instanceof Error ? e.message : e);
+    return ResponseUtils_json(502, event, { error: "email_send_failed" });
+  }
+  return ResponseUtils_json(200, event, { status: "ok" });
+};
+
+const resetPasswordEndpoint = Endpoint.build("/api/auth/resetpassword");
+const resetPasswordHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof resetPasswordEndpoint> = async ({
+  payload,
+}) => {
+  const { event, di } = payload;
+  const env = Utils_getEnv();
+  const bodyJson = getBodyJson(event);
+  const { token, password } = bodyJson;
+  if (typeof password !== "string" || password.length < minPasswordLength) {
+    return ResponseUtils_json(400, event, { error: "invalid_password" });
+  }
+  if (password.length > maxPasswordLength) {
+    return ResponseUtils_json(400, event, { error: "password_too_long" });
+  }
+  if (typeof token !== "string" || !token) {
+    return ResponseUtils_json(400, event, { error: "invalid_token" });
+  }
+  const tokenPayload = await new EmailAuthTokenDao(di).consume(env, token, ["reset"]);
+  if (tokenPayload == null || tokenPayload.type !== "reset") {
+    return ResponseUtils_json(400, event, { error: "invalid_token" });
+  }
+  const userDao = new UserDao(di);
+  const user = await userDao.getById(tokenPayload.userId, { historyLimit: 20 });
+  if (user == null) {
+    return ResponseUtils_json(400, event, { error: "invalid_token" });
+  }
+  user.passwordHash = await PasswordHash_hash(password);
+  // completing an emailed link proves inbox ownership just like the verify flow
+  user.emailVerifiedAt = user.emailVerifiedAt || Date.now();
+  await userDao.store(user);
+  await new EmailAuthTokenDao(di).clearAttempts(env, user.email);
+  // Deliberately no session: reset happens on a web page reached from an email
+  // link, so a web session wouldn't sign the (native-first) user into the app
+  // anyway and only confuses. They sign in fresh with the new password.
+  return ResponseUtils_json(200, event, { status: "ok" });
+};
+
+const changePasswordEndpoint = Endpoint.build("/api/auth/changepassword");
+const changePasswordHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof changePasswordEndpoint> = async ({
+  payload,
+}) => {
+  const { event, di } = payload;
+  const bodyJson = getBodyJson(event);
+  const { currentPassword, newPassword } = bodyJson;
+  const currentUserId = await getCurrentUserId(event, di);
+  if (currentUserId == null) {
+    return ResponseUtils_json(401, event, { error: "not_authorized" });
+  }
+  if (typeof newPassword !== "string" || newPassword.length < minPasswordLength) {
+    return ResponseUtils_json(400, event, { error: "invalid_password" });
+  }
+  if (newPassword.length > maxPasswordLength) {
+    return ResponseUtils_json(400, event, { error: "password_too_long" });
+  }
+  const userDao = new UserDao(di);
+  const user = await userDao.getLimitedById(currentUserId);
+  if (user == null) {
+    return ResponseUtils_json(401, event, { error: "not_authorized" });
+  }
+  if (user.passwordHash != null) {
+    if (typeof currentPassword !== "string" || !(await PasswordHash_verify(currentPassword, user.passwordHash))) {
+      return ResponseUtils_json(403, event, { error: "invalid_credentials" });
+    }
+  }
+  user.passwordHash = await PasswordHash_hash(newPassword);
+  await userDao.store(user);
+  return ResponseUtils_json(200, event, { status: "ok" });
+};
+
+const getVerifyEmailPageEndpoint = Endpoint.build("/verifyemail", { token: "string?" });
+const getVerifyEmailPageHandler: RouteHandler<
+  IPayload,
+  APIGatewayProxyResult,
+  typeof getVerifyEmailPageEndpoint
+> = async ({ payload, match: { params } }) => {
+  const { di } = payload;
   return {
     statusCode: 200,
-    body: JSON.stringify(resp),
-    headers: {
-      ...ResponseUtils_getHeaders(event),
-      "set-cookie": Cookie.serialize("session", session, {
-        httpOnly: true,
-        domain: ".liftosaur.com",
-        path: "/",
-        expires: new Date(new Date().getFullYear() + 10, 0, 1),
-      }),
-    },
+    body: renderVerifyEmailHtml(di.fetch, params.token),
+    headers: { "content-type": "text/html" },
+  };
+};
+
+const getResetPasswordPageEndpoint = Endpoint.build("/resetpassword", { token: "string?" });
+const getResetPasswordPageHandler: RouteHandler<
+  IPayload,
+  APIGatewayProxyResult,
+  typeof getResetPasswordPageEndpoint
+> = async ({ payload, match: { params } }) => {
+  const { di } = payload;
+  return {
+    statusCode: 200,
+    body: renderResetPasswordHtml(di.fetch, params.token),
+    headers: { "content-type": "text/html" },
   };
 };
 
 const getHistoryEndpoint = Endpoint.build("/api/history", {
   after: "number?",
   limit: "number?",
+  ids: "string?",
   userid: "string?",
   key: "string?",
 });
@@ -1200,6 +1510,14 @@ const getHistoryHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof ge
   }
   if (userId != null) {
     const userDao = new UserDao(di);
+    if (params.ids != null) {
+      const ids = HistoryIds_parse(params.ids);
+      if (!ids.success) {
+        return ResponseUtils_json(400, event, { error: ids.error });
+      }
+      const history = await userDao.getHistoryByUserId(userId, { ids: ids.data, consistentRead: true });
+      return ResponseUtils_json(200, event, { history });
+    }
     const history = await userDao.getHistoryByUserId(userId, { after: params.after, limit: params.limit });
     return ResponseUtils_json(200, event, { history });
   }
@@ -1262,14 +1580,19 @@ const postSaveProgramHandler: RouteHandler<IPayload, APIGatewayProxyResult, type
     if (serverProgram != null) {
       exportedProgram.program.nextDay = serverProgram.nextDay;
     }
+    const originalId = Date.now();
     const newStorage: IPartialStorage = {
       ...oldStorage,
       programs: CollectionUtils_setBy(oldStorage.programs, "id", exportedProgram.program.id, exportedProgram.program),
       settings: Settings_applyExportedProgram(oldStorage.settings, exportedProgram),
-      originalId: Date.now(),
+      originalId,
     };
     di.log.log("Device id", deviceId);
-    const newVersions = Storage_updateVersions(oldStorage, newStorage, deviceId);
+    const newVersions = Storage_updateVersions(
+      oldStorage,
+      newStorage,
+      deviceId || VersionTrackerUtils_SERVER_DEVICE_ID
+    );
     const saveVersions = eventDao.post({
       type: "event",
       name: "save-program-www-versions",
@@ -1327,12 +1650,60 @@ const postSaveProgramHandler: RouteHandler<IPayload, APIGatewayProxyResult, type
       eventPost,
       saveVersions,
     ]);
+    await PushSync_notify(di, user.id, deviceId, originalId);
     if (source === "program-details") {
       await new LogDao(di).recordAction(user.id, "ls-add-program-to-account", getLandingPageCookie(event));
     }
     return ResponseUtils_json(200, event, { data: { id: exportedProgram.program.id } });
   }
   return ResponseUtils_json(400, event, { error: "Not Authorized" });
+};
+
+const postSaveSettingsEndpoint = Endpoint.build("/api/settings");
+const postSaveSettingsHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof postSaveSettingsEndpoint> = async ({
+  payload,
+}) => {
+  const { event, di } = payload;
+  const user = await getCurrentLimitedUser(event, di);
+  if (user == null) {
+    return ResponseUtils_json(400, event, { error: "Not Authorized" });
+  }
+  const bodyJson = getBodyJson(event);
+  const deviceId = bodyJson.deviceId as string | undefined;
+  const version = bodyJson.version as string | undefined;
+  const updateResult = Storage_validate(bodyJson.settings, VProgramContentSettings, "settings");
+  if (!updateResult.success) {
+    di.log.log("Settings Save: Invalid payload", updateResult.error);
+    return ResponseUtils_json(400, event, { error: "Invalid settings" });
+  }
+  const deletedKeysResult = Storage_validate(
+    bodyJson.deletedExerciseDataKeys ?? [],
+    VDeletedExerciseDataKeys,
+    "deletedExerciseDataKeys"
+  );
+  if (!deletedKeysResult.success) {
+    di.log.log("Settings Save: Invalid deleted keys", deletedKeysResult.error);
+    return ResponseUtils_json(400, event, { error: "Invalid settings" });
+  }
+  const oldStorageResult = Storage_get(user.storage);
+  if (!oldStorageResult.success) {
+    di.log.log("Settings Save: Error loading old storage", oldStorageResult.error);
+    return ResponseUtils_json(500, event, { error: "Corrupted storage!" });
+  }
+  if (version != null && oldStorageResult.data.version !== version) {
+    di.log.log(`Settings Save: Version mismatch! Old: ${oldStorageResult.data.version}, New: ${version}.`);
+    return ResponseUtils_json(400, event, { error: "Version mismatch! Please refresh the page." });
+  }
+  const userDao = new UserDao(di);
+  await userDao.applyStorageUpdate(
+    user,
+    (old) => ({
+      ...old,
+      settings: Settings_applyWebEditorSettings(old.settings, updateResult.data, deletedKeysResult.data),
+    }),
+    deviceId || VersionTrackerUtils_SERVER_DEVICE_ID
+  );
+  return ResponseUtils_json(200, event, { data: {} });
 };
 
 const deleteProgramEndpoint = Endpoint.build("/api/program/:id");
@@ -1376,6 +1747,7 @@ const deleteProgramHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof
     };
     user.storage = newStorage;
     await Promise.all([userDao.deleteProgram(user.id, program.id), userDao.store(user), eventPost]);
+    await PushSync_notify(di, user.id, undefined, newStorage.originalId);
     return ResponseUtils_json(200, event, { data: { id: program.id } });
   }
   return ResponseUtils_json(400, event, { error: "Not Authorized" });
@@ -1570,7 +1942,7 @@ const postClaimCouponHandler: RouteHandler<IPayload, APIGatewayProxyResult, type
         productId: data.google.yearly.productId,
       },
     };
-    return ResponseUtils_json(200, event, { affiliate: coupon.affiliate, data: { googleOffer } });
+    return ResponseUtils_json(200, event, { data: { affiliate: coupon.affiliate, googleOffer } });
   }
   if (data) {
     return ResponseUtils_json(400, event, { error: "wrong_platform" });
@@ -1593,6 +1965,7 @@ const logHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof logEndpoi
   const {
     user,
     action,
+    detail,
     affiliates,
     platform,
     subscriptions,
@@ -1605,7 +1978,16 @@ const logHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof logEndpoi
       : getLandingPageCookie(event);
   let data: { result: "ok" | "error" };
   if (user && action) {
-    await new LogDao(di).increment(user, action, platform, subscriptions, affiliates, referrer, landingPage);
+    await new LogDao(di).increment(
+      user,
+      action,
+      platform,
+      subscriptions,
+      affiliates,
+      referrer,
+      landingPage,
+      typeof detail === "string" ? detail : undefined
+    );
     data = { result: "ok" };
   } else {
     data = { result: "error" };
@@ -1699,7 +2081,8 @@ const postBatchEventsHandler: RouteHandler<IPayload, APIGatewayProxyResult, type
         e.subscriptions as ("apple" | "google")[],
         e.affiliates,
         e.referrer,
-        e.landingPage
+        e.landingPage,
+        e.detail
       );
       successfulIds = successfulIds.concat(id);
     } catch (error) {
@@ -1756,6 +2139,37 @@ const deleteApiKeyHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof 
     return ResponseUtils_json(404, event, { error: { code: "not_found", message: "API key not found" } });
   }
   await apiKeyDao.deleteKey(params.key);
+  return ResponseUtils_json(200, event, { data: { deleted: true } });
+};
+
+const postPushTokenEndpoint = Endpoint.build("/api/pushtoken");
+const postPushTokenHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof postPushTokenEndpoint> = async ({
+  payload,
+}) => {
+  const { event, di } = payload;
+  const userId = await getCurrentUserId(event, di);
+  if (!userId) {
+    return ResponseUtils_json(401, event, { error: "Not authenticated" });
+  }
+  const registration = PushSync_validateRegistration(getBodyJson(event));
+  if (!registration.success) {
+    return ResponseUtils_json(400, event, { error: registration.error });
+  }
+  await PushSync_register(di, userId, registration.data);
+  return ResponseUtils_json(200, event, {});
+};
+
+const deletePushTokenEndpoint = Endpoint.build("/api/pushtoken/:deviceId");
+const deletePushTokenHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof deletePushTokenEndpoint> = async ({
+  payload,
+  match: { params },
+}) => {
+  const { event, di } = payload;
+  const userId = await getCurrentUserId(event, di);
+  if (!userId) {
+    return ResponseUtils_json(401, event, { error: "Not authenticated" });
+  }
+  await PushSync_unregister(di, userId, params.deviceId);
   return ResponseUtils_json(200, event, { data: { deleted: true } });
 };
 
@@ -1930,9 +2344,8 @@ const getDashboardsPaymentsHandler: RouteHandler<
   if (match.params.before != null) {
     return ResponseUtils_json(200, event, page);
   }
-  return {
-    statusCode: 200,
-    body: renderPaymentsDashboardHtml(
+  return ResponseUtils_gzippedHtml(
+    renderPaymentsDashboardHtml(
       di.fetch,
       apiKey,
       page.paymentsData,
@@ -1940,9 +2353,8 @@ const getDashboardsPaymentsHandler: RouteHandler<
       page.summary,
       page.nextBefore,
       page.hasMore
-    ),
-    headers: { "content-type": "text/html" },
-  };
+    )
+  );
 };
 
 const getProfileImageEndpoint = Endpoint.build("/profileimage", { user: "string" });
@@ -2332,6 +2744,56 @@ const getDocDetailsHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof
   }
 };
 
+const getAllFeaturesEndpoint = Endpoint.build("/features");
+const getAllFeaturesHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof getAllFeaturesEndpoint> = async ({
+  payload,
+}) => {
+  const { di } = payload;
+  const isLoggedIn = getIsLoggedIn(payload.event);
+  const dao = new DocDao("features");
+  return {
+    statusCode: 200,
+    body: renderAllFeaturesHtml(di.fetch, dao.getIndex(), dao.getScreenshotSizes(), isLoggedIn),
+    headers: {
+      "content-type": "text/html",
+      "cache-control": "public, s-maxage=86400, max-age=0",
+    },
+  };
+};
+
+const getFeatureDetailsEndpoint = Endpoint.build("/features/:id");
+const getFeatureDetailsHandler: RouteHandler<
+  IPayload,
+  APIGatewayProxyResult,
+  typeof getFeatureDetailsEndpoint
+> = async ({ payload, match: { params } }) => {
+  const { di } = payload;
+  const dao = new DocDao("features");
+  const result = dao.getById(params.id);
+  if (result == null) {
+    return {
+      statusCode: 404,
+      body: "Not Found",
+      headers: { "content-type": "text/html", "cache-control": "no-cache" },
+    };
+  }
+  const isLoggedIn = getIsLoggedIn(payload.event);
+  return {
+    statusCode: 200,
+    body: renderFeatureDetailsHtml(
+      di.fetch,
+      result.indexEntry,
+      result.detail.content,
+      dao.getScreenshotSizes(),
+      isLoggedIn
+    ),
+    headers: {
+      "content-type": "text/html",
+      "cache-control": "public, s-maxage=86400, max-age=0",
+    },
+  };
+};
+
 const getUserContextEndpoint = Endpoint.build("/api/usercontext");
 const getUserContextHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof getUserContextEndpoint> = async ({
   payload,
@@ -2605,11 +3067,32 @@ const getProgramRevisionsHandler: RouteHandler<
   const { event, di } = payload;
   const currentUserId = await getCurrentUserId(event, di);
   if (currentUserId == null) {
+    const cookies = Cookie.parse(event.headers.Cookie || event.headers.cookie || "");
+    di.log.log(
+      "Program revisions - not authorized:",
+      `programid=${params.programid}`,
+      `cookienames=${Object.keys(cookies).join(",")}`,
+      `hasauthheader=${!!(event.headers.Authorization || event.headers.authorization)}`,
+      `ua=${getUserAgent(event)}`,
+      `xclient=${event.headers["x-client"] || event.headers["X-Client"] || ""}`
+    );
+    rollbar.error("Program revisions - not authorized", {
+      programid: params.programid,
+      cookienames: Object.keys(cookies).join(","),
+      hasauthheader: !!(event.headers.Authorization || event.headers.authorization),
+      ua: getUserAgent(event),
+      xclient: event.headers["x-client"] || event.headers["X-Client"] || "",
+    });
     return ResponseUtils_json(401, event, { error: "not_authorized" });
   }
   const userDao = new UserDao(di);
-  const programRevisions = await userDao.listProgramRevisions(currentUserId, params.programid);
-  return ResponseUtils_json(200, event, { data: programRevisions });
+  try {
+    const programRevisions = await userDao.listProgramRevisions(currentUserId, params.programid);
+    return ResponseUtils_json(200, event, { data: programRevisions });
+  } catch (e) {
+    di.log.log("Program revisions - failed to list:", `userid=${currentUserId}`, `programid=${params.programid}`, e);
+    throw e;
+  }
 };
 
 const getProgramRevisionEndpoint = Endpoint.build("/api/programrevision/:programid/:revision");
@@ -2740,7 +3223,7 @@ const getMusclesForExerciseHandler: RouteHandler<
     di.log.log("Missed cached response for muscles for exercise:", exerciseName);
     const anthropicKey = await di.secrets.getAnthropicKey();
     const llmProvider = new ClaudeProvider(anthropicKey);
-    const llmMuscles = new LlmMuscles(di, llmProvider, userId);
+    const llmMuscles = new LlmMuscles(di, llmProvider);
     const muscleGenerator = new MuscleGenerator(di, llmMuscles);
     const musclesResponse = await muscleGenerator.generateMuscles(match.params.exercise);
     di.log.log("Generated muscles response for ", exerciseName, musclesResponse);
@@ -2755,81 +3238,6 @@ const getMusclesForExerciseHandler: RouteHandler<
       });
       return ResponseUtils_json(500, payload.event, { error: "Failed to generate muscles" });
     }
-  }
-};
-
-// const getAiEndpoint = Endpoint.build("/ai");
-// const getAiHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof getAiEndpoint> = async ({
-//   payload,
-//   match,
-// }) => {
-//   const di = payload.di;
-//   const userResult = await getUserAccount(payload);
-//   if (!userResult.success) {
-//     return userResult.error;
-//   } else {
-//     const account = userResult.data.account;
-//     return {
-//       statusCode: 200,
-//       body: renderAiHtml(di.fetch, account),
-//       headers: { "content-type": "text/html" },
-//     };
-//   }
-// };
-
-const postAiPromptEndpoint = Endpoint.build("/api/ai/prompt");
-const postAiPromptHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeof postAiPromptEndpoint> = async ({
-  payload,
-}) => {
-  const { event, di } = payload;
-  const { input } = getBodyJson(event);
-
-  if (!input) {
-    return ResponseUtils_json(400, event, { error: "Input is required" });
-  }
-
-  try {
-    const urlFetcher = new UrlContentFetcher(di);
-    let content = input;
-
-    const userId = await getCurrentUserId(event, di);
-    try {
-      const aiLogsDao = new AiLogsDao(di);
-      await aiLogsDao.create({
-        userId: userId || "anonymous",
-        input,
-        timestamp: Date.now(),
-      });
-    } catch (err) {
-      di.log.log("Failed to log prompt:", err);
-    }
-
-    // If it's a URL, fetch the content
-    if (urlFetcher.isUrl(input)) {
-      const fetched = await urlFetcher.fetchUrlContent(input);
-      content = fetched.content;
-
-      if (fetched.type === "csv") {
-        if (content.includes("with Formulas:")) {
-          content = `[This is Google Sheets data with formulas. Cells show both formulas (e.g., =B2*0.8) and their calculated values. Use the formulas to understand the program structure and progressions]:\n\n${content}`;
-        } else {
-          content = `[This is CSV data from a spreadsheet]:\n\n${content}`;
-        }
-      } else if (fetched.type === "html") {
-        const markdownContent = urlFetcher.convertHtmlToMarkdown(content);
-        content = `[This content was extracted from a webpage and converted to Markdown format. Tables are preserved in HTML format between [TABLE] tags. Extract the workout program information]:\n\n${markdownContent}`;
-      }
-    }
-
-    // Generate the full prompt
-    const systemPrompt = LlmPrompt_getSystemPrompt();
-    const userPrompt = LlmPrompt_getUserPrompt(content);
-    const fullPrompt = `${systemPrompt}\n\n---\n\n${userPrompt}`;
-
-    return ResponseUtils_json(200, event, { prompt: fullPrompt });
-  } catch (error) {
-    di.log.log("Error generating prompt:", error);
-    return ResponseUtils_json(400, event, { error: `Failed to generate prompt: ${error}` });
   }
 };
 
@@ -2872,8 +3280,22 @@ const postImageUploadUrlHandler: RouteHandler<
     return ResponseUtils_json(400, event, { error: "fileName and contentType are required" });
   }
 
+  // These images are served from the app origin, so the presigned Content-Type (S3 signs and enforces
+  // it) must never be something a browser would execute - no text/html, and no image/svg+xml, which
+  // can carry script. The app only ever uploads the raster types below.
+  const allowedContentTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+  if (!allowedContentTypes.includes(contentType)) {
+    return ResponseUtils_json(400, event, { error: "Unsupported content type" });
+  }
+
   try {
-    const key = `user-uploads/${userId}/${UidFactory_generateUid(8)}-${fileName}`;
+    const safeFileName =
+      `${fileName}`
+        .split("/")
+        .pop()!
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .slice(-64) || "image";
+    const key = `user-uploads/${userId}/${UidFactory_generateUid(8)}-${safeFileName}`;
     const env = Utils_getEnv();
     const bucketname = `${LftS3Buckets.userimages}${env === "dev" ? "dev" : ""}`;
     const uploadUrl = await di.s3.getPresignedUploadUrl({
@@ -3000,6 +3422,10 @@ const postStoreExceptionDataHandler: RouteHandler<
   const { di, event } = payload;
   const bodyJson = getBodyJson(event);
   const { id, data } = bodyJson;
+  const idStr = typeof id === "number" ? `${id}` : id;
+  if (typeof idStr !== "string" || !/^[a-zA-Z0-9_.-]{1,128}$/.test(idStr)) {
+    return ResponseUtils_json(400, event, { error: "Invalid id" });
+  }
   const exceptionDao = new ExceptionDao(di);
   let exceptionData: string;
   if (typeof data === "string") {
@@ -3007,17 +3433,22 @@ const postStoreExceptionDataHandler: RouteHandler<
   } else {
     exceptionData = JSON.stringify(data);
   }
-  await exceptionDao.store(id, exceptionData);
+  await exceptionDao.store(idStr, exceptionData);
   return ResponseUtils_json(200, event, { data: { id } });
 };
 
-const getStoreExceptionDataEndpoint = Endpoint.build("/api/exception/:id");
+const getStoreExceptionDataEndpoint = Endpoint.build("/api/exception/:id", { key: "string" });
 const getStoreExceptionDataHandler: RouteHandler<
   IPayload,
   APIGatewayProxyResult,
   typeof getStoreExceptionDataEndpoint
 > = async ({ payload, match: { params } }) => {
   const { di, event } = payload;
+  // The dump contains full user storage, so this admin-only debug read must not be reachable by id
+  // alone. The anonymous write path (POST /api/exception) stays open for crash reports.
+  if (params.key !== (await di.secrets.getApiKey())) {
+    return ResponseUtils_json(401, event, { error: "Invalid admin key" });
+  }
   const id = params.id;
   const env = Utils_getEnv();
   const bucket = env === "dev" ? `${LftS3Buckets.exceptions}dev` : LftS3Buckets.exceptions;
@@ -3251,35 +3682,32 @@ export const reconcilePaymentsLambdaHandler = (
 export const statsLambdaHandler = (diBuilder: () => IDI): ((event: {}) => Promise<APIGatewayProxyResult>) => {
   return async () => {
     const di = diBuilder();
-    const lastThreeMonths = [DateUtils_yearAndMonth(Date.now())];
-    const lastMonthlogRecords = await new LogDao(di).getAllForYearAndMonth(
-      lastThreeMonths[0][0],
-      lastThreeMonths[0][1]
-    );
-    const userIds = lastMonthlogRecords.filter((r) => r.action === "ls-finish-workout").map((r) => r.userId);
-    const users = await new UserDao(di).getLimitedByIds(userIds);
+    const [year, month] = DateUtils_yearAndMonth(Date.now());
+    const userIds = await new LogDao(di).getUserIdsWithActionInMonth(year, month, "ls-finish-workout");
+    const users = await new UserDao(di).getStatsFieldsByIds(userIds);
     const usersById = CollectionUtils_groupByKeyUniq(users, "id");
-    const logRecords = CollectionUtils_sortBy(await new LogDao(di).getForUsers(userIds), "ts", true);
-    const logRecordsByUserId = CollectionUtils_groupByKey(logRecords, "userId");
+    const summaries = await new LogDao(di).getSummariesForUsers(userIds);
 
-    const usersData: IStatsUserData[] = Object.keys(logRecordsByUserId).map((userId) => {
-      const userLogRecords = CollectionUtils_sortBy(logRecordsByUserId[userId] || [], "ts", true);
-      const lastAction = userLogRecords[0];
-      const firstAction = userLogRecords[userLogRecords.length - 1];
-      const userSubscriptions = usersById[userId]?.storage.subscription;
-      const isSubscribed =
-        userSubscriptions != null
-          ? ClientSubscription.Subscriptions_hasSubscription(userSubscriptions)
-          : userLogRecords.some((lr) => (lr.subscriptions || []).length > 0);
-      return {
-        userId,
-        email: usersById[userId]?.email,
-        userTs: usersById[userId]?.createdAt,
-        isSubscribed: isSubscribed,
-        firstAction: { name: firstAction.action, ts: firstAction.ts },
-        lastAction: { name: lastAction.action, ts: lastAction.ts },
-      };
-    });
+    const usersData: IStatsUserData[] = CollectionUtils_sortByExpr(
+      summaries.map((summary) => {
+        const user = usersById[summary.userId];
+        const userSubscriptions = user?.storage?.subscription;
+        const isSubscribed =
+          userSubscriptions != null
+            ? ClientSubscription.Subscriptions_hasSubscription(userSubscriptions)
+            : summary.hasSubscriptions;
+        return {
+          userId: summary.userId,
+          email: user?.email,
+          userTs: user?.createdAt,
+          isSubscribed: isSubscribed,
+          firstAction: summary.firstAction,
+          lastAction: summary.lastAction,
+        };
+      }),
+      (u) => u.lastAction.ts,
+      true
+    );
 
     let lastDay;
     const data: IStatsUserData[][] = [];
@@ -3412,12 +3840,13 @@ export const getRawHandler = (diBuilder: () => IDI): IHandler => {
     di.log.id = UidFactory_generateUid(4);
     const time = Date.now();
     const userid = await getCurrentUserId(event, di);
+    // Lambda containers are reused across users, so anything Rollbar accumulated in telemetry during
+    // a previous invocation would otherwise ride along on this user's error report.
     // @ts-ignore
     if (rollbar?.client?.telemeter?.queue) {
       // @ts-ignore
       rollbar.client.telemeter.queue = [];
     }
-    di.log.setRollbar(rollbar);
     if (userid) {
       di.log.setUser(userid);
     } else {
@@ -3453,6 +3882,7 @@ export const getRawHandler = (diBuilder: () => IDI): IHandler => {
       .get(getDashboardsAffiliatesEndpoint, getDashboardsAffiliatesHandler)
       .get(getLoginEndpoint, getLoginHandler)
       .post(postSaveProgramEndpoint, postSaveProgramHandler)
+      .post(postSaveSettingsEndpoint, postSaveSettingsHandler)
       .get(getDashboardsUsersEndpoint, getDashboardsUsersHandler)
       .get(getAffiliatesEndpoint, getAffiliatesHandler)
       .get(getAiPromptEndpoint, getAiPromptHandler)
@@ -3460,11 +3890,10 @@ export const getRawHandler = (diBuilder: () => IDI): IHandler => {
       .get(getAdminCheckEndpoint, getAdminCheckHandler)
       .post(postAddFreeUserEndpoint, postAddFreeUserHandler)
       .post(postClaimFreeUserEndpoint, postClaimFreeUserHandler)
-      .post(postAiPromptEndpoint, postAiPromptHandler)
       .post(postImageUploadUrlEndpoint, postImageUploadUrlHandler)
-      .post(postSyncEndpoint, postSyncHandler)
       .post(postSync2Endpoint, postSync2Handler)
       .post(postDebugSessionEndpoint, postDebugSessionHandler)
+      .post(postSetupTestAccountEndpoint, postSetupTestAccountHandler)
       .get(getStorageEndpoint, getStorageHandler)
       .get(getDebugInfoEndpoint, getDebugInfoHandler)
       .get(getPlannerEndpoint, getPlannerHandler)
@@ -3481,6 +3910,14 @@ export const getRawHandler = (diBuilder: () => IDI): IHandler => {
       .post(postGoogleWebhookEndpoint, postGoogleWebhookHandler)
       .post(googleLoginEndpoint, googleLoginHandler)
       .post(appleLoginEndpoint, appleLoginHandler)
+      .post(emailSignupEndpoint, emailSignupHandler)
+      .post(emailSigninEndpoint, emailSigninHandler)
+      .post(verifyEmailEndpoint, verifyEmailHandler)
+      .post(forgotPasswordEndpoint, forgotPasswordHandler)
+      .post(resetPasswordEndpoint, resetPasswordHandler)
+      .post(changePasswordEndpoint, changePasswordHandler)
+      .get(getVerifyEmailPageEndpoint, getVerifyEmailPageHandler)
+      .get(getResetPasswordPageEndpoint, getResetPasswordPageHandler)
       .post(appleCallbackMobileEndpoint, appleCallbackMobileHandler)
       .post(signoutEndpoint, signoutHandler)
       .get(getProgramsEndpoint, getProgramsHandler)
@@ -3495,6 +3932,8 @@ export const getRawHandler = (diBuilder: () => IDI): IHandler => {
       .get(getAdminLogsEndpoint, getAdminLogsHandler)
       .get(getAllDocsEndpoint, getAllDocsHandler)
       .get(getDocDetailsEndpoint, getDocDetailsHandler)
+      .get(getAllFeaturesEndpoint, getAllFeaturesHandler)
+      .get(getFeatureDetailsEndpoint, getFeatureDetailsHandler)
       .get(getAllProgramsEndpoint, getAllProgramsHandler)
       .get(getProgramDetailsEndpoint, getProgramDetailsHandler)
       .get(getProgramPreviewEndpoint, getProgramPreviewHandler)
@@ -3519,6 +3958,8 @@ export const getRawHandler = (diBuilder: () => IDI): IHandler => {
       .post(postApiKeysEndpoint, postApiKeysHandler)
       .get(getApiKeysEndpoint, getApiKeysHandler)
       .delete(deleteApiKeyEndpoint, deleteApiKeyHandler)
+      .post(postPushTokenEndpoint, postPushTokenHandler)
+      .delete(deletePushTokenEndpoint, deletePushTokenHandler)
       .get(getV1HistoryEndpoint, getV1HistoryHandler)
       .post(postV1HistoryEndpoint, postV1HistoryHandler)
       .put(putV1HistoryEndpoint, putV1HistoryHandler)
@@ -3547,6 +3988,14 @@ export const getRawHandler = (diBuilder: () => IDI): IHandler => {
       .post(postV1MeasurementEndpoint, postV1MeasurementHandler)
       .put(putV1MeasurementEndpoint, putV1MeasurementHandler)
       .delete(deleteV1MeasurementEndpoint, deleteV1MeasurementHandler)
+      .get(getV1WorkoutNextEndpoint, getV1WorkoutNextHandler)
+      .post(postV1WorkoutStartEndpoint, postV1WorkoutStartHandler)
+      .get(getV1WorkoutCurrentEndpoint, getV1WorkoutCurrentHandler)
+      .delete(deleteV1WorkoutCurrentEndpoint, deleteV1WorkoutCurrentHandler)
+      .post(postV1WorkoutSetEndpoint, postV1WorkoutSetHandler)
+      .post(postV1WorkoutSetsEndpoint, postV1WorkoutSetsHandler)
+      .post(postV1WorkoutFinishEndpoint, postV1WorkoutFinishHandler)
+      .get(getV1SettingsEndpoint, getV1SettingsHandler)
       .get(getMcpEndpoint, getMcpHandler)
       .delete(deleteMcpEndpoint, deleteMcpHandler)
       .post(postMcpEndpoint, postMcpHandler)
@@ -3554,6 +4003,7 @@ export const getRawHandler = (diBuilder: () => IDI): IHandler => {
       .get(getAuthServerMetadataEndpoint, getAuthServerMetadataHandler)
       .post(postOauthRegisterEndpoint, postOauthRegisterHandler)
       .get(getOauthAuthorizeEndpoint, getOauthAuthorizeHandler)
+      .post(postOauthAuthorizeEndpoint, postOauthAuthorizeHandler)
       .post(postOauthTokenEndpoint, postOauthTokenHandler);
     r = repmaxpairswords.reduce((memo, [endpoint, handler]) => memo.get(endpoint, handler), r);
     r = repmaxpairnums.reduce((memo, [endpoint, handler]) => memo.get(endpoint, handler), r);

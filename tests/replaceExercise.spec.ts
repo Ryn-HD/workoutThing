@@ -9,7 +9,7 @@ import {
 
 test("replaces exercises", async ({ page }) => {
   await page.goto(startpage + "?skipintro=1");
-  PlaywrightUtils_disableTours(page);
+  await PlaywrightUtils_disableTours(page);
   await PlaywrightUtils_createProgram(page, "My Program");
 
   await page.getByTestId("tab-edit").click();
@@ -41,6 +41,7 @@ Bicep Curl / 1x5`
   await page.getByTestId("footer-program").click();
 
   await page.getByTestId("tab-edit").click();
+  await page.getByTestId("editor-v2-ui-program").click();
   await page.getByTestId("exercise-benchpress_barbell").getByTestId("edit-exercise-swap").click();
   await page.getByTestId("edit-exercise-change-all").click();
 
@@ -51,7 +52,7 @@ Bicep Curl / 1x5`
   await page.getByTestId("editor-v2-perday-program").click();
   await expect(page.getByTestId("planner-editor").and(page.locator(":visible")).first()).toContainText("Squat / 3x8");
   await expect(page.getByTestId("planner-editor").and(page.locator(":visible")).first()).toContainText(
-    "Bent Over Row, Dumbbell / 3x8 / update: custom() {~ weights = 5lb ~} / progress: custom() {~ weights = 5lb ~}"
+    "Bent Over Row, Dumbbell[1-2] / 3x8 / update: custom() {~ weights = 5lb ~} / progress: custom() {~ weights = 5lb ~}"
   );
 
   await expect(page.getByTestId("planner-editor").and(page.locator(":visible")).nth(1)).toContainText(

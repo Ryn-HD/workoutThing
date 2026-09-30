@@ -1,5 +1,6 @@
 import { JSX, useContext, useState } from "react";
-import { View, Pressable, Image, TextInput, Platform } from "react-native";
+import { View, Pressable, Image, Platform } from "react-native";
+import { TextInput } from "../primitives/textInput";
 import { Dialog_alert, Dialog_confirm } from "../../utils/dialog";
 import { Text } from "../primitives/text";
 import { ISettings, ICustomExercise, IMuscle, exerciseKinds, IExerciseKind } from "../../types";
@@ -13,7 +14,7 @@ import { IconArrowDown2 } from "../icons/iconArrowDown2";
 import { ExercisePickerOptions, IFilterValue } from "./exercisePickerOptions";
 import { StringUtils_capitalize } from "../../utils/string";
 import { ObjectUtils_keys, ObjectUtils_clone, ObjectUtils_mapValues } from "../../utils/object";
-import { Exercise_targetMuscles, Exercise_synergistMuscles } from "../../models/exercise";
+import { Exercise_targetMuscles, Exercise_synergistMuscles, Exercise_nameError } from "../../models/exercise";
 import { AppContext } from "../appContext";
 import { Service } from "../../api/service";
 import { IconSpinner } from "../icons/iconSpinner";
@@ -76,7 +77,8 @@ export function ExercisePickerCustomExerciseContent(props: IExercisePickerCustom
     appContext.service ?? (typeof window !== "undefined" ? new Service(fetch.bind(window)) : new Service(fetch));
   const editCustomExercise = props.exercise;
   const { notes, setNotes } = props;
-  const isValid = editCustomExercise.name.trim().length ?? 0 > 0;
+  const nameError = Exercise_nameError(editCustomExercise.name);
+  const isValid = nameError == null;
   const [isAutofilling, setIsAutofilling] = useState<boolean>(false);
   const [showCloneBottomSheet, setShowCloneBottomSheet] = useState<boolean>(false);
   const [showImageBottomSheet, setShowImageBottomSheet] = useState<boolean>(false);
@@ -153,12 +155,12 @@ export function ExercisePickerCustomExerciseContent(props: IExercisePickerCustom
             placeholder="Super Squat"
             placeholderTextColor={Tailwind_semantic().text.secondarysubtle}
             style={{ minHeight: 40 }}
-            className="px-4 py-2 text-base leading-5 border rounded-lg bg-background-default border-border-prominent text-text-primary"
+            className="px-4 py-2 text-base border rounded-lg bg-background-default border-border-prominent text-text-primary"
             onChangeText={(text) => {
               props.dispatch(lb<ICustomExercise>().p("name").record(text), "Update custom exercise name");
             }}
           />
-          {!isValid && <Text className="mt-1 text-xs text-text-error">Name cannot be empty</Text>}
+          {nameError != null && <Text className="mt-1 text-xs text-text-error">{nameError}</Text>}
         </View>
         <View className="mt-4">
           {editCustomExercise.largeImageUrl || editCustomExercise.smallImageUrl ? (

@@ -31,12 +31,14 @@ export type IScreenData =
       params: { programId: string; key: string; dayData: Required<IDayData>; fromWorkout?: boolean };
     }
   | { name: "measurements"; params?: { key: IStatsKey } }
+  | { name: "sleepNutrition"; params?: Record<string, never> }
   | { name: "subscription"; params?: Record<string, never> }
   | { name: "exerciseStats"; params?: Record<string, never> }
   | { name: "exercises"; params?: Record<string, never> }
   | { name: "onerms"; params?: Record<string, never> }
   | { name: "setupequipment"; params?: Record<string, never> }
   | { name: "setupplates"; params?: Record<string, never> }
+  | { name: "hearaboutus"; params?: Record<string, never> }
   | { name: "programselect"; params?: Record<string, never> }
   | { name: "programPreview"; params?: Record<string, never> }
   | { name: "apiKeys"; params?: Record<string, never> }
@@ -170,6 +172,9 @@ export function Screen_tab(screen: IScreen): ITab {
     case "measurements": {
       return "me";
     }
+    case "sleepNutrition": {
+      return "me";
+    }
     case "subscription": {
       return "workout";
     }
@@ -189,6 +194,9 @@ export function Screen_tab(screen: IScreen): ITab {
       return "program";
     }
     case "setupplates": {
+      return "program";
+    }
+    case "hearaboutus": {
       return "program";
     }
     case "programselect": {

@@ -41,16 +41,17 @@ export interface IProgramContentListProps {
   storage: IStorage;
   account: IAccount;
   isMobile: boolean;
+  deviceId: string;
 }
 
-async function saveProgram(newProgram: IProgram, service: Service): Promise<void> {
+async function saveProgram(newProgram: IProgram, service: Service, deviceId: string): Promise<void> {
   const exportedProgram: IExportedProgram = {
     program: newProgram,
     customExercises: {},
     settings: {},
     version: getLatestMigrationVersion(),
   };
-  const result = await service.postSaveProgram(exportedProgram);
+  const result = await service.postSaveProgram(exportedProgram, deviceId);
   if (result.success) {
     window.location.href = UrlUtils_build(
       `/user/p/${encodeURIComponent(result.data)}`,
@@ -75,8 +76,13 @@ export function ProgramContentList(props: IProgramContentListProps): JSX.Element
   const { storage } = props;
 
   const [showCreateProgramModal, setShowCreateProgramModal] = useState(false);
-  const initialState = buildState({ storage, userId: props.account.id });
-  const [state, dispatch] = useThunkReducer(reducerWrapper(false), initialState, props.env, []);
+  const initialState = buildState({ storage, userId: props.account.id, deviceId: props.deviceId });
+  const [state, dispatch] = useThunkReducer(
+    reducerWrapper(false, props.env.persistence, () => undefined),
+    initialState,
+    props.env,
+    []
+  );
   const [isCreating, setIsCreating] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState<string | undefined>(undefined);
   const [isDeleting, setIsDeleting] = useState<string | undefined>(undefined);
@@ -88,7 +94,7 @@ export function ProgramContentList(props: IProgramContentListProps): JSX.Element
         <div className="sm:ml-4">
           <Button
             name="add-account-program"
-            className="inline-block leading-4"
+            className="inline-block leading-scaled-4"
             kind="purple"
             onClick={() => {
               setShowCreateProgramModal(true);
@@ -98,7 +104,7 @@ export function ProgramContentList(props: IProgramContentListProps): JSX.Element
           </Button>
           <a
             href="/planner"
-            className="inline-block px-8 py-2 mt-2 text-xs font-semibold leading-6 text-text-alwayswhite bg-purple-700 sm:mt-0 sm:ml-4 rounded-2xl nm-add-standalone-program"
+            className="inline-block px-8 py-2 mt-2 text-xs font-semibold leading-scaled-6 text-text-alwayswhite bg-purple-700 sm:mt-0 sm:ml-4 rounded-2xl nm-add-standalone-program"
             target="_blank"
           >
             New Standalone Program
@@ -141,7 +147,7 @@ export function ProgramContentList(props: IProgramContentListProps): JSX.Element
                         planner: program.planner ? { ...program.planner, name: newName } : undefined,
                       };
                       try {
-                        await saveProgram(newProgram, props.service);
+                        await saveProgram(newProgram, props.service, props.deviceId);
                       } finally {
                         setIsDuplicating(undefined);
                       }
@@ -198,7 +204,7 @@ export function ProgramContentList(props: IProgramContentListProps): JSX.Element
                       settings={state.storage.settings}
                       exerciseType={e}
                       size="small"
-                      className="w-6 mr-1"
+                      className="w-scaled-6 mr-1"
                     />
                   ))}
               </div>
@@ -229,7 +235,7 @@ export function ProgramContentList(props: IProgramContentListProps): JSX.Element
             };
             setIsCreating(true);
             try {
-              await saveProgram(newProgram, props.service);
+              await saveProgram(newProgram, props.service, props.deviceId);
             } finally {
               setIsCreating(false);
             }

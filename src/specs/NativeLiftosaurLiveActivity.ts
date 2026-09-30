@@ -47,6 +47,20 @@ export type LiveActivitySetTimer = {
   // Rest (seconds) that follows the work timer. Lets native transition the activity to the rest view at
   // the threshold even when the app is backgrounded and JS can't run the auto-complete.
   restTimer: number;
+  phaseId: string;
+  side: string;
+  recordedThisSide: boolean;
+};
+
+export type LiveActivityGetReady = {
+  getReadySince: number;
+  getReady: number;
+  entryIndex: number;
+  setIndex: number;
+  // Seconds of work that follow, so native can render "Next 0:45" and schedule the flip without JS.
+  setTimer: number;
+  phaseId: string;
+  side: string;
 };
 
 export type LiveActivityState = {
@@ -54,6 +68,7 @@ export type LiveActivityState = {
   ignoreDoNotDisturb: boolean;
   rest?: LiveActivityRest;
   entry?: LiveActivityEntry;
+  getReady?: LiveActivityGetReady;
   // Set only on the update that results from a "Complete Set" Live Activity tap,
   // so native can ack that exact render back to the waiting intent.
   completeSetRequestId?: string;
@@ -61,13 +76,24 @@ export type LiveActivityState = {
 };
 
 export type LiveActivityActionEvent = {
-  action: "completeSet" | "addRestTime" | "skipRest" | "openApp" | "recordSetTimer" | "checkSetTimer";
+  action:
+    | "completeSet"
+    | "addRestTime"
+    | "skipRest"
+    | "openApp"
+    | "recordSetTimer"
+    | "checkSetTimer"
+    | "startSetTimerWork";
   entryIndex?: number;
   setIndex?: number;
   addSeconds?: number;
   completeSetRequestId?: string;
   elapsedSeconds?: number;
   keepTiming?: boolean;
+  // Captured natively, because JS may not handle this until long after the tap.
+  tappedAt?: number;
+  getReadySince?: number;
+  phaseId?: string;
 };
 
 export interface Spec extends TurboModule {

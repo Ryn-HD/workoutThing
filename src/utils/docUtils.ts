@@ -24,6 +24,12 @@ export function parseDocMarkdown(raw: string): { indexEntry: IDocIndexEntry; det
   if (fm.dateModified != null) {
     entry.dateModified = String(fm.dateModified);
   }
+  if (Array.isArray(fm.screenshots)) {
+    entry.screenshots = fm.screenshots.map(String);
+  }
+  if (fm.headerScreenshots != null) {
+    entry.headerScreenshots = fm.headerScreenshots !== false;
+  }
 
   return { indexEntry: entry, detail: { content: content.trim() } };
 }

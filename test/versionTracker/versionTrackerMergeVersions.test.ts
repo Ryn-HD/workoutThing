@@ -4,8 +4,10 @@ import { expect } from "chai";
 import { IVersions, VersionTracker } from "../../src/models/versionTracker";
 import { STORAGE_VERSION_TYPES } from "../../src/types";
 
+const DEVICE = "web_test";
+
 describe("mergeVersions", () => {
-  const versionTracker = new VersionTracker(STORAGE_VERSION_TYPES);
+  const versionTracker = new VersionTracker(STORAGE_VERSION_TYPES, { deviceId: DEVICE });
   it("should merge simple timestamp fields taking higher values", () => {
     const fullVersions: IVersions<any> = {
       name: 1000,
@@ -337,6 +339,97 @@ describe("mergeVersions", () => {
         },
         deleted: {
           ex2: 2000,
+        },
+      },
+    });
+  });
+
+  it("should not clobber a collection version with a plain field version", () => {
+    const fullVersions: IVersions<any> = {
+      subscription: {
+        google: {
+          items: {
+            receipt1: { t: 5000, vc: { and_device: 1 } },
+          },
+          deleted: {},
+        },
+      },
+    };
+
+    const versionDiff: IVersions<any> = {
+      subscription: {
+        google: 1000,
+      },
+    };
+
+    const merged = versionTracker.mergeVersions(fullVersions, versionDiff);
+
+    expect(merged).to.deep.equal(fullVersions);
+  });
+
+  it("should not clobber a nested collection version inside a controlled object with a plain field version", () => {
+    const fullVersions: IVersions<any> = {
+      progress: {
+        items: {
+          "5000": {
+            startTime: { t: 1000, vc: {}, value: "5000" },
+            entries: {
+              items: {
+                entry1: { t: 5000, vc: { and_device: 1 } },
+              },
+              deleted: {},
+            },
+          },
+        },
+        deleted: {},
+      },
+    };
+
+    const versionDiff: IVersions<any> = {
+      progress: {
+        items: {
+          "5000": {
+            startTime: { t: 1000, vc: {}, value: "5000" },
+            entries: 1000,
+          },
+        },
+        deleted: {},
+      },
+    };
+
+    const merged = versionTracker.mergeVersions(fullVersions, versionDiff);
+
+    expect(merged).to.deep.equal(fullVersions);
+  });
+
+  it("should keep collection items visible to diffVersions after merging a plain field version", () => {
+    const serverVersions: IVersions<any> = {
+      subscription: {
+        google: 1000,
+      },
+    };
+
+    const localVersions: IVersions<any> = {
+      subscription: {
+        google: {
+          items: {
+            receipt1: { t: 5000, vc: { and_device: 1 } },
+          },
+          deleted: {},
+        },
+      },
+    };
+
+    const merged = versionTracker.mergeVersions(localVersions, serverVersions);
+    const diff = versionTracker.diffVersions(serverVersions, merged);
+
+    expect(diff).to.deep.equal({
+      subscription: {
+        google: {
+          items: {
+            receipt1: { t: 5000, vc: { and_device: 1 } },
+          },
+          deleted: {},
         },
       },
     });

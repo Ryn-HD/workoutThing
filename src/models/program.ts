@@ -66,7 +66,7 @@ import {
 } from "../utils/object";
 import { Exporter_toFile } from "../utils/exporter";
 import { DateUtils_formatYYYYMMDD } from "../utils/date";
-import { ICustomExercise, IProgramContentSettings, IPlannerProgram, IPercentage } from "../types";
+import { ICustomExercise, IProgramContentSettings, IPlannerProgram, IPercentage, IScriptErrorHandler } from "../types";
 import {
   ProgramExercise_approxTimeMs,
   ProgramExercise_applyVariables,
@@ -84,6 +84,7 @@ import {
   IExportedPlannerProgram,
   IPlannerProgramExercise,
   IPlannerProgramExerciseWithType,
+  IReuseCandidate,
 } from "../pages/planner/models/types";
 import memoize from "micro-memoize";
 import { PlannerProgram_switchToUnit } from "../pages/planner/models/plannerProgram";
@@ -94,12 +95,14 @@ import {
   PlannerEvaluator_evaluate,
   PlannerEvaluator_changeExerciseName,
 } from "../pages/planner/plannerEvaluator";
+import { PlannerKey_fromFullName } from "../pages/planner/plannerKey";
 import { PP_iterate2, PP_iterate } from "./pp";
 import {
   PlannerProgramExercise_currentEvaluatedSetVariation,
   PlannerProgramExercise_programWarmups,
   PlannerProgramExercise_getProgressScript,
   PlannerProgramExercise_currentEvaluatedSetVariationIndex,
+  PlannerProgramExercise_currentExerciseVariationIndex,
   PlannerProgramExercise_currentDescriptionIndex,
   PlannerProgramExercise_getState,
   PlannerProgramExercise_createExerciseFromEntry,
@@ -225,9 +228,6 @@ export function Program_cleanPlannerProgram(program: IProgram): IProgram {
       exercises: [],
       days: [],
       weeks: [],
-      deletedDays: [],
-      deletedWeeks: [],
-      deletedExercises: [],
     };
   } else {
     return program;
@@ -295,12 +295,22 @@ export function Program_nextHistoryEntry(
   const programSets = PlannerProgramExercise_currentEvaluatedSetVariation(programExercise)?.sets;
   const warmupSets = PlannerProgramExercise_programWarmups(programExercise, settings);
   const sets: ISet[] = [];
+  let myoActivationWeight: ISet["weight"];
   for (let i = 0; i < programSets.length; i++) {
     const programSet = programSets[i];
     const minReps =
       programSet.minrep != null && programSet.minrep !== programSet.maxrep ? programSet.minrep : undefined;
-    const weight = ProgramSet_getEvaluatedWeight(programSet, programExercise.exerciseType, settings);
     const setType = programSet.setType ?? (programSet.isAmrap ? "amrap" : "normal");
+    const evaluatedWeight = ProgramSet_getEvaluatedWeight(programSet, programExercise.exerciseType, settings);
+    // Minis are done with the activation load. Without this, an RPE-derived weight for 5 reps @9 comes out
+    // heavier than the activation's 12 reps @9.
+    const weight =
+      setType === "myoMini" && programSet.weight == null && myoActivationWeight != null
+        ? myoActivationWeight
+        : evaluatedWeight;
+    if (setType === "myoActivation") {
+      myoActivationWeight = weight;
+    }
     sets.push({
       vtype: "set",
       id: UidFactory_generateUid(6),
@@ -374,6 +384,22 @@ export function Program_nextHistoryRecord(
   return Program_nextHistoryRecordFromEvaluated(program, settings, stats, dayIndex);
 }
 
+// The canonical order of a day's exercises. `order` is not a position — it defaults to 0 and only carries a
+// value when the text disambiguates with `Squat[order]`, so this is document order with those markers floated
+// into place. Everything that needs a day's order goes through here rather than sorting for itself: a workout
+// reconciled mid-session has to end up in the same order as one freshly started from the same program.
+export function Program_getDayExercisesInOrder(
+  program: IEvaluatedProgram,
+  day: number
+): IPlannerProgramExerciseWithType[] {
+  const programDay = Program_getProgramDay(program, day);
+  return CollectionUtils_sortBy(programDay ? Program_getProgramDayUsedExercises(programDay) : [], "order");
+}
+
+export function Program_getDayExerciseKeys(program: IEvaluatedProgram, day: number): string[] {
+  return Program_getDayExercisesInOrder(program, day).map((e) => e.key);
+}
+
 export function Program_nextHistoryRecordFromEvaluated(
   program: IEvaluatedProgram,
   settings: ISettings,
@@ -386,9 +412,7 @@ export function Program_nextHistoryRecordFromEvaluated(
 
   const fullDayName = Program_getDayName(program, day);
   const now = Date.now();
-  const programDay = Program_getProgramDay(program, day);
-  const dayExercises = programDay ? Program_getProgramDayUsedExercises(programDay) : [];
-  const sortedDayExercises = CollectionUtils_sortBy(dayExercises, "order");
+  const sortedDayExercises = Program_getDayExercisesInOrder(program, day);
   const entries = sortedDayExercises.map((exercise, i) => {
     return Program_nextHistoryEntry(program, dayData, i, exercise, stats, settings);
   });
@@ -469,6 +493,7 @@ export function Program_runExerciseFinishDayScript(
   const script = PlannerProgramExercise_getProgressScript(programExercise) || "";
   const setVariationIndex = PlannerProgramExercise_currentEvaluatedSetVariationIndex(programExercise);
   const descriptionIndex = PlannerProgramExercise_currentDescriptionIndex(programExercise);
+  const exerciseVariationIndex = PlannerProgramExercise_currentExerciseVariationIndex(programExercise);
 
   const bindings = Progress_createScriptBindings(
     dayData,
@@ -478,7 +503,8 @@ export function Program_runExerciseFinishDayScript(
     Stats_getCurrentMovingAverageBodyweight(stats, settings),
     undefined,
     setVariationIndex + 1,
-    descriptionIndex + 1
+    descriptionIndex + 1,
+    exerciseVariationIndex + 1
   );
   const fns = Progress_createScriptFunctions(settings);
   let updates: ILiftoscriptEvaluatorUpdate[] = [];
@@ -530,6 +556,7 @@ export function Program_runFinishDayScript(
   const state = PlannerProgramExercise_getState(programExercise);
   const setVariationIndex = PlannerProgramExercise_currentEvaluatedSetVariationIndex(programExercise);
   const descriptionIndex = PlannerProgramExercise_currentDescriptionIndex(programExercise);
+  const exerciseVariationIndex = PlannerProgramExercise_currentExerciseVariationIndex(programExercise);
   const bindings = Progress_createScriptBindings(
     dayData,
     entry,
@@ -538,7 +565,8 @@ export function Program_runFinishDayScript(
     Stats_getCurrentMovingAverageBodyweight(stats, settings),
     undefined,
     setVariationIndex + 1,
-    descriptionIndex + 1
+    descriptionIndex + 1,
+    exerciseVariationIndex + 1
   );
   const fns = Progress_createScriptFunctions(settings);
 
@@ -635,7 +663,8 @@ export function Program_runAllFinishDayScripts(
   program: IProgram,
   progress: IHistoryRecord,
   stats: IStats,
-  settings: ISettings
+  settings: ISettings,
+  onError?: IScriptErrorHandler
 ): { program: IProgram; exerciseData: IExerciseData } {
   const exerciseData: IExerciseData = {};
   const newEvaluatedProgram = Program_forceEvaluate(program, settings);
@@ -681,7 +710,12 @@ export function Program_runAllFinishDayScripts(
             });
           }
         } else {
-          Dialog_alert(`There was an error executing progress script: ${newStateResult.error}`);
+          const message = `There was an error executing progress script: ${newStateResult.error}`;
+          if (onError) {
+            onError(message);
+          } else {
+            Dialog_alert(message);
+          }
         }
       }
     }
@@ -866,11 +900,13 @@ function Program_emptyEvaluatedProgram(program: IProgram): IEvaluatedProgram {
   };
 }
 
-function Program_buildEvaluatedProgram(
-  program: IProgram,
+// The half of an evaluation that comes from the planner alone. Split out because it is all some
+// surfaces need: an evaluated program's id, name and nextDay are fields it carries, not inputs to
+// working out what its weeks contain.
+function Program_buildWeeks(
   planner: IPlannerProgram,
   evaluatedWeeks: IPlannerEvalResult[][]
-): IEvaluatedProgram {
+): { weeks: IEvaluatedProgramWeek[]; errors: IEvaluatedProgramError[] } {
   let dayNum = 0;
   const errors: IEvaluatedProgramError[] = [];
   const weeks = planner.weeks.map((week, weekIndex) => {
@@ -896,6 +932,47 @@ function Program_buildEvaluatedProgram(
     });
     return { name: week.name, description: week.description, days };
   });
+  return { weeks, errors };
+}
+
+// Evaluating a planner on its own, for surfaces that only ever have one. Planner in, weeks out —
+// no program required, because none of it is used to work them out.
+export function Program_evaluatePlannerWeeks(planner: IPlannerProgram, settings: ISettings): IEvaluatedProgramWeek[] {
+  const { evaluatedWeeks } = PlannerEvaluator_evaluate(planner, settings);
+  return Program_buildWeeks(planner, evaluatedWeeks).weeks;
+}
+
+// Which exercise a name refers to *in this planner*, for an action that has just built one and
+// needs the key that is valid in it. Resolved here rather than against whatever evaluation the
+// caller had lying around: that one predates the edit being folded in, so after a rename it
+// answers with a key the new planner no longer has — or with the wrong exercise entirely.
+//
+// Day-by-day, so a syntax error on one day costs only that day. A whole-document parse is
+// all-or-nothing, and using one here would take the action away from every line in the program
+// because of an unfinished one somewhere else.
+export function Program_findPlannerExercise(
+  planner: IPlannerProgram,
+  settings: ISettings,
+  fullName: string
+): IPlannerProgramExercise | undefined {
+  const key = PlannerKey_fromFullName(fullName, settings.exercises);
+  for (const week of Program_evaluatePlannerWeeks(planner, settings)) {
+    for (const day of week.days) {
+      const exercise = day.exercises.find((e) => e.key === key);
+      if (exercise != null) {
+        return exercise;
+      }
+    }
+  }
+  return undefined;
+}
+
+function Program_buildEvaluatedProgram(
+  program: IProgram,
+  planner: IPlannerProgram,
+  evaluatedWeeks: IPlannerEvalResult[][]
+): IEvaluatedProgram {
+  const { weeks, errors } = Program_buildWeeks(planner, evaluatedWeeks);
   const states: IByTag<IProgramState> = {};
   PP_iterate(evaluatedWeeks, (exercise) => {
     for (const tag of exercise.tags) {
@@ -1189,14 +1266,8 @@ export function Program_nextDay(program: IEvaluatedProgram, day?: number): numbe
   return isNaN(nd) ? 1 : nd;
 }
 
-export function Program_editAction(
-  dispatch: IDispatch,
-  program: IProgram,
-  dayData?: IDayData,
-  key?: string,
-  opts?: INavigateOpts
-): void {
-  const plannerState = EditProgram_initPlannerState(program.id, program, dayData, key);
+export function Program_editAction(dispatch: IDispatch, program: IProgram, opts?: INavigateOpts): void {
+  const plannerState = EditProgram_initPlannerState(program.id, program);
   updateState(
     dispatch,
     [lb<IState>().p("editProgramStates").p(program.id).record(plannerState)],
@@ -1286,9 +1357,6 @@ export function Program_create(name: string, id?: string): IProgram {
     days: [{ id: UidFactory_generateUid(8), name: "Day 1", exercises: [] }],
     exercises: [],
     tags: [],
-    deletedDays: [],
-    deletedWeeks: [],
-    deletedExercises: [],
     clonedAt: Date.now(),
   };
 }
@@ -1304,36 +1372,6 @@ export function Program_isChanged(aProgram: IProgram, bProgram: IProgram): boole
     });
   }
   return false;
-}
-
-export function Program_mergePrograms(
-  oldProgram: IProgram,
-  newProgram: IProgram,
-  enforceNew: boolean = false
-): IProgram {
-  const deletedWeeks = new Set([...(oldProgram.deletedWeeks || []), ...(newProgram.deletedWeeks || [])]);
-  const deletedDays = new Set([...(oldProgram.deletedDays || []), ...(newProgram.deletedDays || [])]);
-  const deletedExercises = new Set([...(oldProgram.deletedExercises || []), ...(newProgram.deletedExercises || [])]);
-  return {
-    vtype: "program",
-    id: newProgram.id,
-    name: newProgram.name,
-    description: newProgram.description,
-    url: newProgram.url,
-    author: newProgram.author,
-    nextDay: newProgram.nextDay,
-    days: newProgram.days,
-    deletedDays: Array.from(deletedDays),
-    weeks: newProgram.weeks,
-    deletedWeeks: Array.from(deletedWeeks),
-    isMultiweek: newProgram.isMultiweek,
-    tags: newProgram.tags,
-    shortDescription: newProgram.shortDescription,
-    exercises: newProgram.exercises,
-    deletedExercises: Array.from(deletedExercises),
-    clonedAt: newProgram.clonedAt || oldProgram.clonedAt,
-    planner: newProgram.planner,
-  };
 }
 
 export async function Program_toUrl(
@@ -1426,6 +1464,56 @@ export function Program_addDayFromHistoryRecord(
     planner: newPlanner,
   };
   return { program: newProgram, dayData: newDayData };
+}
+
+export function Program_getReuseSetsCandidates(
+  key: string,
+  evaluatedProgram: IEvaluatedProgram,
+  dayData: Required<IDayData>
+): Record<string, IReuseCandidate> {
+  const result: Record<string, IReuseCandidate> = {};
+  PP_iterate2(evaluatedProgram.weeks, (exercise, weekIndex, dayInWeekIndex) => {
+    if (
+      exercise.key === key &&
+      ((dayData.week === weekIndex + 1 && dayData.dayInWeek === dayInWeekIndex + 1) || exercise.isRepeat)
+    ) {
+      return;
+    }
+    if (exercise.reuse != null || exercise.progress?.reuse != null || exercise.update?.reuse != null) {
+      return;
+    }
+    let reuseSetCandidate = result[exercise.key];
+    if (!reuseSetCandidate) {
+      reuseSetCandidate = {
+        exercise,
+        weekAndDays: {},
+      };
+      result[exercise.key] = reuseSetCandidate;
+    }
+    reuseSetCandidate.weekAndDays[weekIndex + 1] = reuseSetCandidate.weekAndDays[weekIndex + 1] || new Set<number>();
+    reuseSetCandidate.weekAndDays[weekIndex + 1].add(dayInWeekIndex + 1);
+  });
+  return result;
+}
+
+export function Program_getScriptReuseCandidates(
+  key: string,
+  notused: boolean,
+  evaluatedProgram: IEvaluatedProgram,
+  type: "progress" | "update"
+): string[] {
+  const result: Record<string, string> = {};
+  PP_iterate2(evaluatedProgram.weeks, (exercise) => {
+    if (exercise.key === key) {
+      return;
+    }
+    const script = type === "progress" ? exercise.progress : exercise.update;
+    if (!script || script.type !== "custom" || (!(!notused && exercise.notused) && script.reuse)) {
+      return;
+    }
+    result[exercise.fullName] = exercise.fullName;
+  });
+  return Object.keys(result);
 }
 
 export function Program_getReusingSetsExercises(

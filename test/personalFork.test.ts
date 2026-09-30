@@ -24,6 +24,7 @@ function startWorkout(text: string): {
   const record = { ...Program_nextHistoryRecord(program, settings, stats, 1), currentEntryIndex: 0 };
   const complete = (r: IHistoryRecord, entryIndex: number, setIndex: number): IHistoryRecord =>
     Progress_completeSetAction(
+      [],
       settings,
       stats,
       r,
@@ -93,6 +94,7 @@ Triceps Extension / 3x10 / 25lb 60s / warmup: none
       p = complete(p, entryIndex, setIndex);
       if (p.amrapModal != null) {
         p = Progress_changeAmrapAction(
+          [],
           settings,
           stats,
           p,
@@ -133,5 +135,23 @@ Inverted Row / 3x6 / warmup: none
       exerciseData: { ...settings.exerciseData, hammerCurl_dumbbell: { isUnilateral: true } },
     };
     expect(Exercise_getIsUnilateral(hammerCurl, withOverride)).to.equal(true);
+  });
+
+  it("gives myo minis the activation load when the weight comes from RPE", () => {
+    const { record } = startWorkout(
+      "# Week 1\n## Day 1\nBicep Curl, Cable / 1x12 type[myoActivation], 3x5 type[myoMini] / @9 / warmup: none\n"
+    );
+    const [activation, ...minis] = record.entries[0].sets;
+    expect(minis.length).to.equal(3);
+    for (const mini of minis) {
+      expect(mini.weight).to.eql(activation.weight);
+    }
+  });
+
+  it("keeps an explicit mini weight", () => {
+    const { record } = startWorkout(
+      "# Week 1\n## Day 1\nBicep Curl, Cable / 1x12 30lb type[myoActivation], 3x5 25lb type[myoMini] / warmup: none\n"
+    );
+    expect(record.entries[0].sets.map((s) => s.weight?.value)).to.eql([30, 25, 25, 25]);
   });
 });

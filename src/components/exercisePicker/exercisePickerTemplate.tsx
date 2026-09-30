@@ -1,10 +1,12 @@
 import { JSX, memo, useState } from "react";
-import { View, TextInput } from "react-native";
+import { View } from "react-native";
+import { TextInput } from "../primitives/textInput";
 import { Text } from "../primitives/text";
 import { IExercisePickerState } from "../../types";
 import { ILensDispatch } from "../../utils/useLensReducer";
 import { lb } from "lens-shmens";
 import { Tailwind_semantic } from "../../utils/tailwindConfig";
+import { Exercise_nameError } from "../../models/exercise";
 
 interface IProps {
   templateName?: string;
@@ -26,15 +28,12 @@ export const ExercisePickerTemplate = memo(function ExercisePickerTemplate(props
           defaultValue={props.templateName ?? ""}
           placeholder="My Awesome Template"
           placeholderTextColor={Tailwind_semantic().text.secondarysubtle}
-          className="px-4 py-2 mt-1 text-base leading-5 border rounded-lg min-h-10 bg-background-default border-border-prominent text-text-primary"
+          className="px-4 py-2 mt-1 text-base border rounded-lg min-h-scaled-10 bg-background-default border-border-prominent text-text-primary"
           onChangeText={(rawValue) => {
             const value = rawValue?.trim() || "";
-            if (!value) {
-              setNameError("Name cannot be empty");
-            } else if (/[/{}()\t\n\r#\[\]]+/.test(value)) {
-              setNameError("Name cannot contain special characters: '/{}()#[]'");
-            } else {
-              setNameError(undefined);
+            const error = Exercise_nameError(value);
+            setNameError(error);
+            if (error == null) {
               props.dispatch(
                 lb<IExercisePickerState>().p("templateName").record(value),
                 `Set template name to ${value}`

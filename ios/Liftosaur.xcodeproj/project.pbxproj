@@ -109,10 +109,17 @@
 		3AACC62A2FB35D68001C68AA /* Logger+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AACC6122FB355BA001C68AA /* Logger+Extension.swift */; };
 		3AACC62B2FB35DA2001C68AA /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AACC61D2FB35653001C68AA /* Settings.swift */; };
 		3AACC62C2FB35DA3001C68AA /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AACC61D2FB35653001C68AA /* Settings.swift */; };
+		3AACC7412FB4B001001C68AA /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AACC7422FB4B001001C68AA /* SceneDelegate.swift */; };
+		3AACC7512FB4B001001C68AB /* TouchIndicatorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AACC7522FB4B001001C68AB /* TouchIndicatorWindow.swift */; };
+		3AACC75C00000000000C0002 /* StoragePayloadCompression.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AACC75C00000000000C0001 /* StoragePayloadCompression.swift */; };
+		3AACC75C00000000000C0003 /* StoragePayloadCompression.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AACC75C00000000000C0001 /* StoragePayloadCompression.swift */; };
+		3AACC76000000000000E0004 /* RestNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AACC76000000000000E0003 /* RestNotification.swift */; };
 		3ABEEF0100000000000000A2 /* SetTimerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ABEEF0100000000000000A1 /* SetTimerScreen.swift */; };
 		3ABEEF0100000000000000B2 /* SetTimerEditScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ABEEF0100000000000000B1 /* SetTimerEditScreen.swift */; };
 		3ABEEF0100000000000000C2 /* set-timer-end.m4r in Resources */ = {isa = PBXBuildFile; fileRef = 3ABEEF0100000000000000C1 /* set-timer-end.m4r */; };
 		3ABEEF0100000000000000D2 /* set-timer-end.m4r in Resources */ = {isa = PBXBuildFile; fileRef = 3ABEEF0100000000000000D1 /* set-timer-end.m4r */; };
+		3ABEEF0200000000000000C2 /* get-ready-end.m4r in Resources */ = {isa = PBXBuildFile; fileRef = 3ABEEF0200000000000000C1 /* get-ready-end.m4r */; };
+		3ABEEF0200000000000000D2 /* get-ready-end.m4r in Resources */ = {isa = PBXBuildFile; fileRef = 3ABEEF0200000000000000D1 /* get-ready-end.m4r */; };
 		438B6645A9C600CDF5BC2E07 /* RCTLiftosaurShare.mm in Sources */ = {isa = PBXBuildFile; fileRef = 6932EE9394B77D111CEA7C57 /* RCTLiftosaurShare.mm */; };
 		4595B7D1B70E4BDEB49B3E2F /* Iosevka-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1A72802BA6B84B4A91C55832 /* Iosevka-Regular.ttf */; };
 		52AA6CA5D70F4173BBE269EC /* Iosevka-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1A72802BA6B84B4A91C55832 /* Iosevka-Regular.ttf */; };
@@ -135,6 +142,10 @@
 		C0FF1C00000000000000C011 /* ComplicationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FF1C00000000000000B010 /* ComplicationStore.swift */; };
 		CAF0000000000000000000B1 /* notification.caf in Resources */ = {isa = PBXBuildFile; fileRef = CAF0000000000000000000F1 /* notification.caf */; };
 		CDEAC135073AE09BCE6C4E5D /* FastText.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A41D91319A9E1C5A962BD7 /* FastText.swift */; };
+		ED17A00000000000000000C1 /* LiftoEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17A00000000000000000B1 /* LiftoEditorView.swift */; };
+		ED17A00000000000000000C3 /* RCTLiftoEditorView.mm in Sources */ = {isa = PBXBuildFile; fileRef = ED17A00000000000000000B3 /* RCTLiftoEditorView.mm */; };
+		ED17A00000000000000000C5 /* RCTLiftoEditorRegistrar.mm in Sources */ = {isa = PBXBuildFile; fileRef = ED17A00000000000000000B5 /* RCTLiftoEditorRegistrar.mm */; };
+		ED17A00000000000000000D1 /* Runestone in Frameworks */ = {isa = PBXBuildFile; productRef = ED17A00000000000000000D2 /* Runestone */; };
 		EE0003000000000000000003 /* RCTLiftosaurEventReporter.mm in Sources */ = {isa = PBXBuildFile; fileRef = EE0002000000000000000002 /* RCTLiftosaurEventReporter.mm */; };
 		EE0005000000000000000005 /* LiftosaurEventReporterImpl.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0004000000000000000004 /* LiftosaurEventReporterImpl.swift */; };
 		EE0007000000000000000007 /* RCTLiftosaurWorkoutMirroring.mm in Sources */ = {isa = PBXBuildFile; fileRef = EE0006000000000000000006 /* RCTLiftosaurWorkoutMirroring.mm */; };
@@ -143,6 +154,10 @@
 		EE0042000000000000000042 /* RCTLftUpdater.mm in Sources */ = {isa = PBXBuildFile; fileRef = EE0041000000000000000041 /* RCTLftUpdater.mm */; };
 		EE0044000000000000000044 /* LftUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0043000000000000000043 /* LftUpdater.swift */; };
 		EE0046000000000000000046 /* LftUpdaterPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0045000000000000000045 /* LftUpdaterPath.swift */; };
+		EE0048000000000000000048 /* LftUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0043000000000000000043 /* LftUpdater.swift */; };
+		EE0049000000000000000049 /* LftUpdaterPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0045000000000000000045 /* LftUpdaterPath.swift */; };
+		EE0062000000000000000062 /* RCTLiftosaurPush.mm in Sources */ = {isa = PBXBuildFile; fileRef = EE0061000000000000000061 /* RCTLiftosaurPush.mm */; };
+		EE0064000000000000000064 /* LiftosaurPushImpl.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0063000000000000000063 /* LiftosaurPushImpl.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -293,10 +308,16 @@
 		3AACC6242FB35CFD001C68AA /* LiftosaurWatchImpl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiftosaurWatchImpl.swift; path = Liftosaur/LiftosaurWatchImpl.swift; sourceTree = "<group>"; };
 		3AACC6252FB35CFD001C68AA /* RCTLiftosaurWatch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = RCTLiftosaurWatch.h; path = Liftosaur/RCTLiftosaurWatch.h; sourceTree = "<group>"; };
 		3AACC6262FB35CFD001C68AA /* RCTLiftosaurWatch.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = RCTLiftosaurWatch.mm; path = Liftosaur/RCTLiftosaurWatch.mm; sourceTree = "<group>"; };
+		3AACC7422FB4B001001C68AA /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SceneDelegate.swift; path = Liftosaur/SceneDelegate.swift; sourceTree = "<group>"; };
+		3AACC7522FB4B001001C68AB /* TouchIndicatorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TouchIndicatorWindow.swift; path = Liftosaur/TouchIndicatorWindow.swift; sourceTree = "<group>"; };
+		3AACC75C00000000000C0001 /* StoragePayloadCompression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoragePayloadCompression.swift; sourceTree = "<group>"; };
+		3AACC76000000000000E0003 /* RestNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestNotification.swift; sourceTree = "<group>"; };
 		3ABEEF0100000000000000A1 /* SetTimerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetTimerScreen.swift; sourceTree = "<group>"; };
 		3ABEEF0100000000000000B1 /* SetTimerEditScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetTimerEditScreen.swift; sourceTree = "<group>"; };
 		3ABEEF0100000000000000C1 /* set-timer-end.m4r */ = {isa = PBXFileReference; lastKnownFileType = file; path = "set-timer-end.m4r"; sourceTree = "<group>"; };
 		3ABEEF0100000000000000D1 /* set-timer-end.m4r */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; name = "set-timer-end.m4r"; path = "Liftosaur/set-timer-end.m4r"; sourceTree = "<group>"; };
+		3ABEEF0200000000000000C1 /* get-ready-end.m4r */ = {isa = PBXFileReference; lastKnownFileType = file; path = "get-ready-end.m4r"; sourceTree = "<group>"; };
+		3ABEEF0200000000000000D1 /* get-ready-end.m4r */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = file; name = "get-ready-end.m4r"; path = "Liftosaur/get-ready-end.m4r"; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-Liftosaur.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Liftosaur.debug.xcconfig"; path = "Target Support Files/Pods-Liftosaur/Pods-Liftosaur.debug.xcconfig"; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-Liftosaur.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Liftosaur.release.xcconfig"; path = "Target Support Files/Pods-Liftosaur/Pods-Liftosaur.release.xcconfig"; sourceTree = "<group>"; };
 		682B1C3E13634AA59A78E2F9 /* Poppins-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Regular.ttf"; path = "../assets/fonts/Poppins-Regular.ttf"; sourceTree = "<group>"; };
@@ -327,6 +348,11 @@
 		DD9788074553024D2C5DC450 /* RCTLiftosaurTimer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = RCTLiftosaurTimer.h; path = Liftosaur/RCTLiftosaurTimer.h; sourceTree = "<group>"; };
 		DD99D9B7ADD2478880135CFC /* Poppins-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Bold.ttf"; path = "../assets/fonts/Poppins-Bold.ttf"; sourceTree = "<group>"; };
 		E883E351A4F90F4F9BB4EFE5 /* LiftosaurShareImpl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LiftosaurShareImpl.swift; path = Liftosaur/LiftosaurShareImpl.swift; sourceTree = "<group>"; };
+		ED17A00000000000000000B1 /* LiftoEditorView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LiftoEditorView.swift; path = Liftosaur/LiftoEditor/LiftoEditorView.swift; sourceTree = "<group>"; };
+		ED17A00000000000000000B2 /* RCTLiftoEditorView.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = RCTLiftoEditorView.h; path = Liftosaur/LiftoEditor/RCTLiftoEditorView.h; sourceTree = "<group>"; };
+		ED17A00000000000000000B3 /* RCTLiftoEditorView.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = RCTLiftoEditorView.mm; path = Liftosaur/LiftoEditor/RCTLiftoEditorView.mm; sourceTree = "<group>"; };
+		ED17A00000000000000000B4 /* RCTLiftoEditorRegistrar.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = RCTLiftoEditorRegistrar.h; path = Liftosaur/LiftoEditor/RCTLiftoEditorRegistrar.h; sourceTree = "<group>"; };
+		ED17A00000000000000000B5 /* RCTLiftoEditorRegistrar.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = RCTLiftoEditorRegistrar.mm; path = Liftosaur/LiftoEditor/RCTLiftoEditorRegistrar.mm; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		EE0001000000000000000001 /* RCTLiftosaurEventReporter.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = RCTLiftosaurEventReporter.h; path = Liftosaur/RCTLiftosaurEventReporter.h; sourceTree = "<group>"; };
 		EE0002000000000000000002 /* RCTLiftosaurEventReporter.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = RCTLiftosaurEventReporter.mm; path = Liftosaur/RCTLiftosaurEventReporter.mm; sourceTree = "<group>"; };
@@ -337,8 +363,11 @@
 		EE0020000000000000000020 /* codesigning.pem */ = {isa = PBXFileReference; lastKnownFileType = text; name = codesigning.pem; path = Liftosaur/certs/codesigning.pem; sourceTree = "<group>"; };
 		EE0040000000000000000040 /* RCTLftUpdater.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = RCTLftUpdater.h; path = Liftosaur/LftUpdater/RCTLftUpdater.h; sourceTree = "<group>"; };
 		EE0041000000000000000041 /* RCTLftUpdater.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = RCTLftUpdater.mm; path = Liftosaur/LftUpdater/RCTLftUpdater.mm; sourceTree = "<group>"; };
-		EE0043000000000000000043 /* LftUpdater.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LftUpdater.swift; path = Liftosaur/LftUpdater/LftUpdater.swift; sourceTree = "<group>"; };
-		EE0045000000000000000045 /* LftUpdaterPath.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LftUpdaterPath.swift; path = Liftosaur/LftUpdater/LftUpdaterPath.swift; sourceTree = "<group>"; };
+		EE0043000000000000000043 /* LftUpdater.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LftUpdater.swift; path = Shared/LftUpdater/LftUpdater.swift; sourceTree = "<group>"; };
+		EE0045000000000000000045 /* LftUpdaterPath.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LftUpdaterPath.swift; path = Shared/LftUpdater/LftUpdaterPath.swift; sourceTree = "<group>"; };
+		EE0060000000000000000060 /* RCTLiftosaurPush.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = RCTLiftosaurPush.h; path = Liftosaur/RCTLiftosaurPush.h; sourceTree = "<group>"; };
+		EE0061000000000000000061 /* RCTLiftosaurPush.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = RCTLiftosaurPush.mm; path = Liftosaur/RCTLiftosaurPush.mm; sourceTree = "<group>"; };
+		EE0063000000000000000063 /* LiftosaurPushImpl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LiftosaurPushImpl.swift; path = Liftosaur/LiftosaurPushImpl.swift; sourceTree = "<group>"; };
 		EF012FAFB85E47D99214AFCE /* Poppins-Italic.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Italic.ttf"; path = "../assets/fonts/Poppins-Italic.ttf"; sourceTree = "<group>"; };
 		F34F70BF6900DDCBEC890E05 /* RCTLiftosaurImageResizer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = RCTLiftosaurImageResizer.h; path = Liftosaur/RCTLiftosaurImageResizer.h; sourceTree = "<group>"; };
 		F60F33A9AB274D44A20FC0C7 /* Poppins-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-SemiBold.ttf"; path = "../assets/fonts/Poppins-SemiBold.ttf"; sourceTree = "<group>"; };
@@ -351,6 +380,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2C22A34FB039FEBA75BBB641 /* Pods_Liftosaur.framework in Frameworks */,
+				ED17A00000000000000000D1 /* Runestone in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -392,6 +422,8 @@
 				3AACC6252FB35CFD001C68AA /* RCTLiftosaurWatch.h */,
 				3AACC6262FB35CFD001C68AA /* RCTLiftosaurWatch.mm */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
+				3AACC7422FB4B001001C68AA /* SceneDelegate.swift */,
+				3AACC7522FB4B001001C68AB /* TouchIndicatorWindow.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				EE0020000000000000000020 /* codesigning.pem */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
@@ -413,6 +445,9 @@
 				EE0001000000000000000001 /* RCTLiftosaurEventReporter.h */,
 				EE0002000000000000000002 /* RCTLiftosaurEventReporter.mm */,
 				EE0004000000000000000004 /* LiftosaurEventReporterImpl.swift */,
+				EE0060000000000000000060 /* RCTLiftosaurPush.h */,
+				EE0061000000000000000061 /* RCTLiftosaurPush.mm */,
+				EE0063000000000000000063 /* LiftosaurPushImpl.swift */,
 				EE000A00000000000000000A /* RCTLiftosaurWorkoutMirroring.h */,
 				EE0006000000000000000006 /* RCTLiftosaurWorkoutMirroring.mm */,
 				EE0008000000000000000008 /* LiftosaurWorkoutMirroringImpl.swift */,
@@ -421,6 +456,7 @@
 				EE0043000000000000000043 /* LftUpdater.swift */,
 				91FAA5A7B2D2A2141783C9C5 /* notification.m4r */,
 				3ABEEF0100000000000000D1 /* set-timer-end.m4r */,
+				3ABEEF0200000000000000D1 /* get-ready-end.m4r */,
 				CAF0000000000000000000F1 /* notification.caf */,
 				EE0045000000000000000045 /* LftUpdaterPath.swift */,
 				2970733CBB5FA79134CD53EE /* FastTextShadowNode.h */,
@@ -430,6 +466,11 @@
 				2E2DCE34013D967839DD9676 /* RCTFastTextRegistrar.h */,
 				7FF1B3BD2B6C6730C0BDC0DC /* RCTFastTextRegistrar.mm */,
 				A0A41D91319A9E1C5A962BD7 /* FastText.swift */,
+				ED17A00000000000000000B1 /* LiftoEditorView.swift */,
+				ED17A00000000000000000B2 /* RCTLiftoEditorView.h */,
+				ED17A00000000000000000B3 /* RCTLiftoEditorView.mm */,
+				ED17A00000000000000000B4 /* RCTLiftoEditorRegistrar.h */,
+				ED17A00000000000000000B5 /* RCTLiftoEditorRegistrar.mm */,
 			);
 			name = Liftosaur;
 			sourceTree = "<group>";
@@ -513,6 +554,7 @@
 				3AACC5D12FB3526B001C68AA /* WatchCrashReporter.swift */,
 				3AACC5D22FB3526B001C68AA /* WatchEventManager.swift */,
 				3AACC5D32FB3526B001C68AA /* WatchMessageHandler.swift */,
+				3AACC76000000000000E0003 /* RestNotification.swift */,
 				3AACC5D42FB3526B001C68AA /* WatchStorageManager.swift */,
 				3AACC5D52FB3526B001C68AA /* WatchSyncManager.swift */,
 				3AACC5D62FB3526B001C68AA /* WorkoutManager.swift */,
@@ -533,6 +575,7 @@
 			children = (
 				3A6705F62FCD20D60023C017 /* notification.m4r */,
 				3ABEEF0100000000000000C1 /* set-timer-end.m4r */,
+				3ABEEF0200000000000000C1 /* get-ready-end.m4r */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -583,6 +626,7 @@
 				3AACC6102FB355BA001C68AA /* EventManager.swift */,
 				3AACC6112FB355BA001C68AA /* FlowLayout.swift */,
 				3AACC6122FB355BA001C68AA /* Logger+Extension.swift */,
+				3AACC75C00000000000C0001 /* StoragePayloadCompression.swift */,
 				3AACC6132FB355BA001C68AA /* Notifications.swift */,
 				3AACC6142FB355BA001C68AA /* SetInfoViews.swift */,
 				3AACC6152FB355BA001C68AA /* SharedMessageHandler.swift */,
@@ -653,6 +697,7 @@
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
+				3AB1C0DE2FD00001001C68AA /* Write Metro port */,
 				00EEFC60759A1932668264C0 /* [CP] Embed Pods Frameworks */,
 				E235C05ADACE081382539298 /* [CP] Copy Pods Resources */,
 				3AACC5092FB2A15E001C68AA /* Embed Foundation Extensions */,
@@ -665,6 +710,9 @@
 				3AACC5C52FB351D0001C68AA /* PBXTargetDependency */,
 			);
 			name = Liftosaur;
+			packageProductDependencies = (
+				ED17A00000000000000000D2 /* Runestone */,
+			);
 			productName = Liftosaur;
 			productReference = 13B07F961A680F5B00A75B9A /* Liftosaur.app */;
 			productType = "com.apple.product-type.application";
@@ -693,6 +741,7 @@
 				3AACC5B82FB351CF001C68AA /* Sources */,
 				3AACC5B92FB351CF001C68AA /* Frameworks */,
 				3AACC5BA2FB351CF001C68AA /* Resources */,
+				EE0050000000000000000050 /* Embed watch bundle */,
 				C0FF1C00000000000000D004 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -758,7 +807,8 @@
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			packageReferences = (
-				3AACC60D2FB35357001C68AA /* XCLocalSwiftPackageReference "Packages/QuickJSCore" */,
+				3AACC60D2FB35357001C68AA /* XCLocalSwiftPackageReference "QuickJSCore" */,
+				ED17A00000000000000000D3 /* XCLocalSwiftPackageReference "Runestone" */,
 			);
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
@@ -784,6 +834,7 @@
 				3A606C432FAB8D1800799977 /* Store.storekit in Resources */,
 				12F317DBE89387792B8C2788 /* notification.m4r in Resources */,
 				3ABEEF0100000000000000D2 /* set-timer-end.m4r in Resources */,
+				3ABEEF0200000000000000D2 /* get-ready-end.m4r in Resources */,
 				CAF0000000000000000000B1 /* notification.caf in Resources */,
 				3AACC5532FB2C941001C68AA /* Poppins-MediumItalic.ttf in Resources */,
 				3AACC5542FB2C941001C68AA /* Poppins-Black.ttf in Resources */,
@@ -840,6 +891,7 @@
 			files = (
 				3A6705F72FCD20D60023C017 /* notification.m4r in Resources */,
 				3ABEEF0100000000000000C2 /* set-timer-end.m4r in Resources */,
+				3ABEEF0200000000000000C2 /* get-ready-end.m4r in Resources */,
 				3AACC5EF2FB3526B001C68AA /* Assets.xcassets in Resources */,
 				5C9210548D8DDE45FAA805DE /* PrivacyInfo.xcprivacy in Resources */,
 				4595B7D1B70E4BDEB49B3E2F /* Iosevka-Regular.ttf in Resources */,
@@ -881,18 +933,29 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Liftosaur/Pods-Liftosaur-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Liftosaur/Pods-Liftosaur-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Liftosaur/Pods-Liftosaur-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
+		};
+		3AB1C0DE2FD00001001C68AA /* Write Metro port */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Write Metro port";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/write-metro-port.sh\"\n";
 		};
 		C38B50BA6285516D6DCD4F65 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -924,18 +987,31 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Liftosaur/Pods-Liftosaur-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Liftosaur/Pods-Liftosaur-resources-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Liftosaur/Pods-Liftosaur-resources.sh\"\n";
 			showEnvVarsInLog = 0;
+		};
+		EE0050000000000000000050 /* Embed watch bundle */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../dist/watch-bundle.js",
+				"$(SRCROOT)/scripts/embed-watch-bundle.sh",
+			);
+			name = "Embed watch bundle";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/watch-bundle.js",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/embed-watch-bundle.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -946,9 +1022,12 @@
 			files = (
 				3AACC6272FB35CFD001C68AA /* RCTLiftosaurWatch.mm in Sources */,
 				3AACC6292FB35D3A001C68AA /* Logger+Extension.swift in Sources */,
+				3AACC75C00000000000C0002 /* StoragePayloadCompression.swift in Sources */,
 				3AACC62B2FB35DA2001C68AA /* Settings.swift in Sources */,
 				3AACC6282FB35CFD001C68AA /* LiftosaurWatchImpl.swift in Sources */,
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				3AACC7412FB4B001001C68AA /* SceneDelegate.swift in Sources */,
+				3AACC7512FB4B001001C68AB /* TouchIndicatorWindow.swift in Sources */,
 				438B6645A9C600CDF5BC2E07 /* RCTLiftosaurShare.mm in Sources */,
 				ABAB4E16DB2DC920D7412751 /* LiftosaurShareImpl.swift in Sources */,
 				6D02DF56F7CB78E851242DEC /* RCTLiftosaurImageResizer.mm in Sources */,
@@ -961,6 +1040,8 @@
 				5B4963F7D772C61DAC6997B6 /* LiftosaurLiveActivityImpl.swift in Sources */,
 				EE0003000000000000000003 /* RCTLiftosaurEventReporter.mm in Sources */,
 				EE0005000000000000000005 /* LiftosaurEventReporterImpl.swift in Sources */,
+				EE0062000000000000000062 /* RCTLiftosaurPush.mm in Sources */,
+				EE0064000000000000000064 /* LiftosaurPushImpl.swift in Sources */,
 				EE0007000000000000000007 /* RCTLiftosaurWorkoutMirroring.mm in Sources */,
 				EE0009000000000000000009 /* LiftosaurWorkoutMirroringImpl.swift in Sources */,
 				EE0042000000000000000042 /* RCTLftUpdater.mm in Sources */,
@@ -969,6 +1050,9 @@
 				326EEB1E8DD314E2E32D357B /* RCTFastTextView.mm in Sources */,
 				270E1C6BE4D30A01EEE7E60B /* RCTFastTextRegistrar.mm in Sources */,
 				CDEAC135073AE09BCE6C4E5D /* FastText.swift in Sources */,
+				ED17A00000000000000000C1 /* LiftoEditorView.swift in Sources */,
+				ED17A00000000000000000C3 /* RCTLiftoEditorView.mm in Sources */,
+				ED17A00000000000000000C5 /* RCTLiftoEditorRegistrar.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -993,6 +1077,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				C0FF1C00000000000000C010 /* ComplicationStore.swift in Sources */,
+				EE0048000000000000000048 /* LftUpdater.swift in Sources */,
+				EE0049000000000000000049 /* LftUpdaterPath.swift in Sources */,
 				3AACC5F22FB3526B001C68AA /* LiftosaurWatchApp.swift in Sources */,
 				3AACC5F32FB3526B001C68AA /* WatchModels.swift in Sources */,
 				3AACC5F42FB3526B001C68AA /* WatchLayout.swift in Sources */,
@@ -1008,6 +1094,7 @@
 				3AACC6192FB355BA001C68AA /* Notifications.swift in Sources */,
 				3AACC61A2FB355BA001C68AA /* SharedMessageHandler.swift in Sources */,
 				3AACC61B2FB355BA001C68AA /* Logger+Extension.swift in Sources */,
+				3AACC75C00000000000C0003 /* StoragePayloadCompression.swift in Sources */,
 				3AACC61C2FB355BA001C68AA /* FlowLayout.swift in Sources */,
 				3AACC5FC2FB3526B001C68AA /* RestTimerScreen.swift in Sources */,
 				3ABEEF0100000000000000A2 /* SetTimerScreen.swift in Sources */,
@@ -1021,6 +1108,7 @@
 				3AACC6022FB3526B001C68AA /* WatchConnectivityManager.swift in Sources */,
 				3AACC6032FB3526B001C68AA /* WatchSyncManager.swift in Sources */,
 				3AACC6042FB3526B001C68AA /* WatchMessageHandler.swift in Sources */,
+				3AACC76000000000000E0004 /* RestNotification.swift in Sources */,
 				3AACC6052FB3526B001C68AA /* WorkoutCardView.swift in Sources */,
 				3AACC6062FB3526B001C68AA /* PremiumRequiredScreen.swift in Sources */,
 				3AACC6072FB3526B001C68AA /* LiftosaurColor.swift in Sources */,
@@ -1080,7 +1168,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 109;
+				MARKETING_VERSION = 122;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -1114,7 +1202,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 109;
+				MARKETING_VERSION = 122;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -1161,7 +1249,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 122;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "-DWIDGET_EXTENSION -D EXPO_CONFIGURATION_DEBUG";
@@ -1210,7 +1298,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 122;
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "-DWIDGET_EXTENSION -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.liftosaur.www.LiftosaurWorkoutWidgetExtension;
@@ -1257,7 +1345,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 122;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
@@ -1310,7 +1398,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 122;
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.liftosaur.www.watchkitapp;
@@ -1333,6 +1421,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				CC = "$(SRCROOT)/scripts/ccache-clang.sh";
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -1360,6 +1449,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
+				CXX = "$(SRCROOT)/scripts/ccache-clang++.sh";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = "";
@@ -1402,6 +1492,8 @@
 					"${PODS_CONFIGURATION_BUILD_DIR}/React-graphics/React_graphics.framework/Headers/react/renderer/graphics/platform/ios",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				LD = "$(SRCROOT)/scripts/ccache-clang.sh";
+				LDPLUSPLUS = "$(SRCROOT)/scripts/ccache-clang++.sh";
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,
 					"$(inherited)",
@@ -1438,6 +1530,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				CC = "$(SRCROOT)/scripts/ccache-clang.sh";
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -1465,6 +1558,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				COPY_PHASE_STRIP = YES;
+				CXX = "$(SRCROOT)/scripts/ccache-clang++.sh";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = "";
@@ -1500,6 +1594,8 @@
 					"${PODS_CONFIGURATION_BUILD_DIR}/React-graphics/React_graphics.framework/Headers/react/renderer/graphics/platform/ios",
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				LD = "$(SRCROOT)/scripts/ccache-clang.sh";
+				LDPLUSPLUS = "$(SRCROOT)/scripts/ccache-clang++.sh";
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,
 					"$(inherited)",
@@ -1559,7 +1655,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 122;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liftosaur.www.watchkitapp.complications;
@@ -1605,7 +1701,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 122;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liftosaur.www.watchkitapp.complications;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1671,9 +1767,13 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		3AACC60D2FB35357001C68AA /* XCLocalSwiftPackageReference "Packages/QuickJSCore" */ = {
+		3AACC60D2FB35357001C68AA /* XCLocalSwiftPackageReference "QuickJSCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/QuickJSCore;
+		};
+		ED17A00000000000000000D3 /* XCLocalSwiftPackageReference "Runestone" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Runestone;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -1681,6 +1781,10 @@
 		3AACC60E2FB35357001C68AA /* QuickJSCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = QuickJSCore;
+		};
+		ED17A00000000000000000D2 /* Runestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Runestone;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

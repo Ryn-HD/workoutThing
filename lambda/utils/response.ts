@@ -1,12 +1,13 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import * as Cookie from "cookie";
+import { gzipSync } from "zlib";
 import { UrlUtils_build } from "../../src/utils/url";
-import { localdomain } from "../../src/localdomain";
+import { localdomain, localport } from "../../src/localdomain";
 
 export const allowedHosts = [
-  `${localdomain}.liftosaur.com:8080`,
+  `${localdomain}.liftosaur.com:${localport}`,
   "www.liftosaur.com",
-  "localhost:8080",
+  `localhost:${localport}`,
   "stage.liftosaur.com",
 ];
 
@@ -20,6 +21,16 @@ export function ResponseUtils_json(
     statusCode: status,
     body: typeof body === "string" ? body : JSON.stringify(body),
     headers: { ...ResponseUtils_getHeaders(event), ...headers },
+  };
+}
+
+// Lambda rejects response bodies over 6 MB with a 502. The payments dashboard renders ~7.7 MB of HTML.
+export function ResponseUtils_gzippedHtml(html: string): APIGatewayProxyResult {
+  return {
+    statusCode: 200,
+    body: gzipSync(html).toString("base64"),
+    headers: { "content-type": "text/html", "content-encoding": "gzip" },
+    isBase64Encoded: true,
   };
 }
 
@@ -62,6 +73,6 @@ export function ResponseUtils_getReferer(event: APIGatewayProxyEvent): string {
     event.headers.Origin ||
     event.headers.referer ||
     event.headers.Referer ||
-    "https://liftosaur.com"
+    "https://www.liftosaur.com"
   );
 }

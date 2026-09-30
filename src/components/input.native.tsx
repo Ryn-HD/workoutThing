@@ -1,5 +1,6 @@
 import { JSX, Ref, forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { TextInput, Pressable, View, Platform } from "react-native";
+import { Pressable, View, Platform } from "react-native";
+import { TextInput, ITextInput } from "./primitives/textInput";
 import { Text } from "./primitives/text";
 import { IEither } from "../utils/types";
 import { Tailwind_semantic } from "../utils/tailwindConfig";
@@ -54,7 +55,7 @@ export const Input = memo(
     const size = props.inputSize || "md";
     const labelSizeVal = labelSizeProp || "sm";
 
-    const inputRef = useRef<TextInput>(null);
+    const inputRef = useRef<ITextInput>(null);
     const currentValueRef = useRef(String(valueProp ?? props.defaultValue ?? ""));
     const [validationErrors, setValidationErrors] = useState<Set<IValidationError>>(new Set());
     const [touched, setTouched] = useState(false);
@@ -86,6 +87,10 @@ export const Input = memo(
         errors.add("required");
       }
       let result = trimmed;
+      // Matches the web input's `pattern`, which the DOM anchors to the whole value.
+      if (trimmed !== "" && props.pattern != null && !new RegExp(`^(?:${props.pattern})$`).test(trimmed)) {
+        errors.add("pattern-mismatch");
+      }
       if (trimmed !== "" && props.type === "number") {
         const normalized = MathUtils_normalizeNumStr(trimmed);
         result = normalized;
@@ -160,9 +165,11 @@ export const Input = memo(
           )}
           <TextInput
             ref={inputRef}
-            className={`px-2 text-base leading-5 text-text-primary ${label ? "pb-2" : "py-2"}`}
-            style={{ minHeight: size === "md" ? 40 : 32 }}
+            className={`px-2 text-base text-text-primary ${size === "md" ? "min-h-scaled-10" : "min-h-scaled-8"} ${
+              label ? "pb-2" : "py-2"
+            }`}
             defaultValue={currentValueRef.current}
+            maxLength={props.maxLength}
             placeholder={props.placeholder}
             placeholderTextColor={Tailwind_semantic().text.secondarysubtle}
             autoCapitalize={props.autoCapitalize}
@@ -177,11 +184,14 @@ export const Input = memo(
               setTouched(true);
               runValidation({ applyClamp: true, displayMode: "snapshot" });
             }}
-            keyboardType={props.type === "number" ? "numeric" : "default"}
+            keyboardType={props.type === "number" ? "numeric" : props.type === "email" ? "email-address" : "default"}
+            secureTextEntry={props.type === "password"}
             // Android's selectAllOnFocus re-applies selection after the first keystroke
             // (second char overwrites first), and setNativeProps({selection}) is a no-op
-            // on Fabric — no working select-on-focus on Android, so iOS only
-            selectTextOnFocus={Platform.OS === "ios"}
+            // on Fabric — no working select-on-focus on Android, so iOS only.
+            // Select-on-focus suits short numeric workout fields, but on email/password
+            // fields it wipes the value when the user taps back in to fix a typo
+            selectTextOnFocus={Platform.OS === "ios" && props.type !== "email" && props.type !== "password"}
             testID={props.identifier}
           />
         </Pressable>

@@ -47,8 +47,14 @@ function progress(entries: IHistoryEntry[]): IHistoryRecord {
   };
 }
 
-function complete(aProgress: IHistoryRecord, entryIndex: number, setIndex: number, isPlayground: boolean = false): IHistoryRecord {
+function complete(
+  aProgress: IHistoryRecord,
+  entryIndex: number,
+  setIndex: number,
+  isPlayground: boolean = false
+): IHistoryRecord {
   return Progress_completeSetAction(
+    [],
     settings,
     stats,
     aProgress,

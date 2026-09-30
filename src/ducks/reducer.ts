@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Reducer } from "react";
-import { Program_getProgram, Program_nextHistoryRecord, Program_evaluate } from "../models/program";
+import {
+  Program_getProgram,
+  Program_nextHistoryRecord,
+  Program_evaluate,
+  Program_getDayExerciseKeys,
+} from "../models/program";
 import { Dialog_alert } from "../utils/dialog";
 import {
   Progress_getProgress,
@@ -9,6 +14,7 @@ import {
   Progress_changeAmrapAction,
   Progress_checkSetTimer,
   Progress_closeTimedSet,
+  Progress_startSetTimerWork,
   Progress_setProgress,
   Progress_finishWorkout,
   Progress_isCurrent,
@@ -16,10 +22,10 @@ import {
   Progress_showUpdateDate,
   Progress_changeDate,
   Progress_stopTimer,
-  Progress_startTimer,
   Progress_getCurrentProgress,
   Progress_applyProgramDay,
   Progress_runInitialUpdateScripts,
+  Progress_isSetTimerCheckDue,
 } from "../models/progress";
 import {
   Storage_get,
@@ -43,7 +49,8 @@ import {
   ISubscription,
   IStats,
 } from "../types";
-import { IndexedDBUtils_get, IndexedDBUtils_set } from "../utils/indexeddb";
+import { IndexedDBUtils_get } from "../utils/indexeddb";
+import { Persistence } from "../utils/persistence";
 import { basicBeginnerProgram } from "../programs/basicBeginnerProgram";
 import { AdminDebug_isDebugAccountId } from "../models/adminDebug";
 import { LogUtils_log } from "../utils/log";
@@ -58,19 +65,18 @@ import {
 import { UrlUtils_build } from "../utils/url";
 import { DateUtils_formatHHMMSS } from "../utils/date";
 import { IReducerOnAction } from "./types";
-import { Thunk_sync2 } from "./thunks";
+import { Thunk_sync2, Thunk_checkSetTimer } from "./thunks";
+import { PushRegistration_identityChanged } from "../utils/pushRegistration";
 import { CollectionUtils_uniqBy, CollectionUtils_compact } from "../utils/collection";
 import { Subscriptions_cleanupOutdatedGooglePurchaseTokens } from "../utils/subscriptions";
 import { UndoingFlag_set } from "../utils/undoingFlag";
 import { Diagnostics_getLastActions, Diagnostics_recordAction, Diagnostics_setLastState } from "../utils/diagnostics";
 import { Exercise_toKey } from "../models/exercise";
-import { NativeWorkoutBridge_discardWorkout } from "../utils/nativeWorkoutBridge";
-import { NativeWatchBridge_sendDiscardWorkoutToWatch } from "../utils/nativeWatchBridge";
-import { NativeWorkoutMirroring_resetWatchWorkoutState } from "../utils/nativeWorkoutMirroringBridge";
-import { SendMessage_isIos } from "../utils/sendMessage";
+import { INativeEffect, NativeEffects_withoutWatchWorkout } from "../models/nativeEffects";
+import { History_resumeWorkout } from "../models/history";
 import { IPlannerProgramExercise } from "../pages/planner/models/types";
 import { IByExercise } from "../pages/planner/plannerEvaluator";
-import { EditProgramUiHelpers_getChangedKeys } from "../components/editProgram/editProgramUi/editProgramUiHelpers";
+import { ProgramRewrite_changedKeys } from "../models/programRewrite";
 import { History_deleteRecords } from "../models/history";
 import { lg } from "../utils/posthog";
 import { Equipment_getCurrentGym, Equipment_getEquipmentIdForExerciseType } from "../models/equipment";
@@ -78,7 +84,8 @@ import { Stats_getCurrentMovingAverageBodyweight } from "../models/stats";
 import { Weight_build, Weight_eq } from "../models/weight";
 import { PerfTracker_recordEvent, PerfTracker_getSessionId } from "../utils/perfTracker";
 import { PerfEnabled_isEnabled, PerfEnabled_tier2 } from "../utils/perfEnabled";
-import { PerfProbe_onAction, PerfProbe_isTarget } from "../utils/perfSetCompleteProbe";
+import { PerfProbe_onAction } from "../utils/perfSetCompleteProbe";
+import { HermesProfile_captureOnce } from "../utils/hermesProfile";
 import { PerfScorecard_recordAction } from "../utils/perfScorecard";
 
 declare let __COMMIT_HASH__: string;
@@ -101,7 +108,7 @@ declare let __HOST__: string;
 
 export async function getInitialState(
   client: Window["fetch"],
-  args?: { url?: URL; rawStorage?: string; storage?: IStorage; deviceId?: string }
+  args: { url?: URL; rawStorage?: string; localStorage?: ILocalStorage; storage?: IStorage; deviceId: string }
 ): Promise<IState> {
   const url =
     args?.url ||
@@ -112,6 +119,8 @@ export async function getInitialState(
   let storage: ILocalStorage | undefined;
   if (args?.storage) {
     storage = { storage: args.storage };
+  } else if (args?.localStorage != null) {
+    storage = args.localStorage;
   } else if (args?.rawStorage != null) {
     try {
       storage = JSON.parse(args.rawStorage);
@@ -127,7 +136,7 @@ export async function getInitialState(
         }
       : undefined;
 
-  const deviceId = args?.deviceId;
+  const deviceId = args.deviceId;
   if (storage != null && storage.storage != null) {
     const hasUnrunMigrations = unrunMigrations(storage.storage).length > 0;
     const maybeStorage = Storage_get(storage.storage, true);
@@ -153,7 +162,7 @@ export async function getInitialState(
       }
     }
 
-    const finalLastSyncedStorage: IStorage | undefined = storage.lastSyncedStorage;
+    const lastSynced = hasUnrunMigrations ? undefined : storage.lastSynced;
 
     // Handle migration from old localStorage format where progress was stored separately
     // Now progress is stored in storage.progress
@@ -167,7 +176,7 @@ export async function getInitialState(
 
     return {
       storage: finalStorage,
-      lastSyncedStorage: finalLastSyncedStorage,
+      lastSynced,
       progress: {},
       notification,
       loading: { items: {} },
@@ -265,6 +274,13 @@ export type ICheckSetTimerAction = {
   isPlayground?: boolean;
 };
 
+export type IStartSetTimerWorkAction = {
+  type: "StartSetTimerWorkAction";
+  // A queued native tap can arrive long after the fact, and stamping it here would start the work clock
+  // late and silently shorten the set.
+  startedAt?: number;
+};
+
 // Discard the set timer banner (no recording); starts the deferred rest if the set was already logged.
 export type ICloseSetTimerAction = {
   type: "CloseSetTimerAction";
@@ -321,22 +337,22 @@ export type IEditHistoryRecordAction = {
   historyRecord: IHistoryRecord;
 };
 
-export type IStartTimer = {
-  type: "StartTimer";
-  timestamp: number;
-  mode: IProgressMode;
-  entryIndex: number;
-  setIndex: number;
-  timer?: number;
-};
-
 export type IStopTimer = {
   type: "StopTimer";
+};
+
+export type IResumeWorkoutAction = {
+  type: "ResumeWorkoutAction";
+  isPlayground: boolean;
+  hasSubscription: boolean;
 };
 
 export type IApplyProgramChangesToProgress = {
   type: "ApplyProgramChangesToProgress";
   programExerciseIds?: string[];
+  // Set only where the program itself changed, which is the only place that can know what the day looked like
+  // before. Without it the pass is value-only — see `Progress_applyProgramDay`.
+  oldDayKeys?: string[];
 };
 
 export type IUpdateProgressAction = {
@@ -350,7 +366,8 @@ export type ICardsAction =
   | IChangeAMRAPAction
   | IUpdateProgressAction
   | ICheckSetTimerAction
-  | ICloseSetTimerAction;
+  | ICloseSetTimerAction
+  | IStartSetTimerWorkAction;
 
 export type IAction =
   | ICardsAction
@@ -365,14 +382,12 @@ export type IAction =
   | IConfirmDate
   | ILoginAction
   | ILogoutAction
-  | IStartTimer
   | IStopTimer
+  | IResumeWorkoutAction
   | IUpdateStateAction
   | IReplaceStateAction
   | IUpdateSettingsAction
   | IApplyProgramChangesToProgress;
-
-let timerId: number | undefined = undefined;
 
 function isExternalStorageMerge(action: unknown): boolean {
   return (
@@ -396,6 +411,23 @@ export function defaultOnActions(env: IEnv): IReducerOnAction[] {
       }
     },
     (dispatch, action, oldState, newState) => {
+      const identity = PushRegistration_identityChanged(oldState, newState);
+      if (identity !== false) {
+        env.push?.setIdentity(identity);
+      }
+    },
+    (dispatch, action, oldState, newState) => {
+      // useThunkReducer re-runs these observers when a thunk resolves, so without skipping thunks and
+      // CheckSetTimerAction, Thunk_checkSetTimer's own dispatch retriggers this observer forever.
+      if (typeof action === "function" || action.type === "CheckSetTimerAction") {
+        return;
+      }
+      const progress = Progress_getCurrentProgress(newState);
+      if (progress != null && Progress_isSetTimerCheckDue(progress, Date.now())) {
+        dispatch(Thunk_checkSetTimer());
+      }
+    },
+    (dispatch, action, oldState, newState) => {
       if (oldState.storage.programs !== newState.storage.programs) {
         const newProgramIds = newState.storage.programs.map((p) => p.id);
         if (Array.from(new Set(newProgramIds)).length !== newProgramIds.length) {
@@ -415,12 +447,25 @@ export function defaultOnActions(env: IEnv): IReducerOnAction[] {
       }
     },
     (dispatch, action, oldState, newState) => {
-      const progress = Progress_getProgress(newState);
+      // The ongoing workout, not whichever record is on screen — `ApplyProgramChangesToProgress` only ever
+      // touches that one, and a past workout open for editing has its own program and day. Reading the viewed
+      // record here would diff the wrong day and hand those keys to the live workout.
+      const progress = Progress_getCurrentProgress(newState);
       if (progress != null) {
         const oldProgram = Program_getProgram(oldState, progress.programId);
         const newProgram = Program_getProgram(newState, progress.programId);
         if (oldProgram != null && newProgram != null && !ObjectUtils_isEqual(oldProgram, newProgram)) {
-          dispatch({ type: "ApplyProgramChangesToProgress" });
+          // Exercises can only be added, removed or reordered by the planner moving, and evaluating the old
+          // program to find out what the day held isn't free — so only pay for it when the planner differs.
+          // Evaluated with the *new* settings, so the keys are comparable to the ones the handler derives.
+          const isPlannerSame =
+            oldProgram.planner != null && newProgram.planner != null
+              ? ObjectUtils_isEqual(oldProgram.planner, newProgram.planner)
+              : oldProgram.planner === newProgram.planner;
+          const oldDayKeys = isPlannerSame
+            ? undefined
+            : Program_getDayExerciseKeys(Program_evaluate(oldProgram, newState.storage.settings), progress.day);
+          dispatch({ type: "ApplyProgramChangesToProgress", oldDayKeys });
         }
       }
     },
@@ -461,7 +506,7 @@ export function defaultOnActions(env: IEnv): IReducerOnAction[] {
           ? newState.editProgramExerciseStates[oldExerciseStateKey]
           : undefined;
         if (oldPlannerState != null && newPlannerState != null && oldExerciseKey != null) {
-          const changedKeys = EditProgramUiHelpers_getChangedKeys(
+          const changedKeys = ProgramRewrite_changedKeys(
             oldPlannerState.current.program.planner!,
             newPlannerState.current.program.planner!,
             newState.storage.settings
@@ -538,7 +583,11 @@ export function defaultOnActions(env: IEnv): IReducerOnAction[] {
 }
 
 export const reducerWrapper =
-  (storeToLocalStorage: boolean): Reducer<IState, IAction> =>
+  (
+    storeToLocalStorage: boolean,
+    persistence: Persistence,
+    applyEffects: (effects: INativeEffect[]) => void
+  ): Reducer<IState, IAction> =>
   (state, action) => {
     Diagnostics_setLastState(state);
     Diagnostics_recordAction({ ...action, time: DateUtils_formatHHMMSS(Date.now(), true) });
@@ -546,7 +595,11 @@ export const reducerWrapper =
     const perfActionType = "type" in action ? action.type : "thunk";
     const perfActionDesc = "type" in action && action.type === "UpdateState" ? action.desc : undefined;
     const perfSyncStart = perfOn ? Date.now() : 0;
-    let newState = reducer(state, action);
+    const effects: INativeEffect[] = [];
+    let newState = reducer(state, action, effects);
+    applyEffects(
+      AdminDebug_isDebugAccountId(newState.storage.tempUserId) ? NativeEffects_withoutWatchWorkout(effects) : effects
+    );
     const isMergingStorage = isExternalStorageMerge(action);
     const isStorageChanged = !isMergingStorage && Storage_isChanged(state.storage, newState.storage);
     if (isStorageChanged) {
@@ -570,42 +623,14 @@ export const reducerWrapper =
       newState = { ...newState, storage: { ...newState.storage, _versions: versions } };
     }
 
-    if (SendMessage_isIos()) {
-      newStorageApproach(state, newState, isStorageChanged);
-    } else {
-      if (typeof window !== "undefined" && window.setTimeout && window.clearTimeout) {
-        window.tempUserId = newState.storage.tempUserId;
-        if (timerId != null) {
-          window.clearTimeout(timerId);
-        }
-
-        (window as any).state = newState;
-        if (storeToLocalStorage && newState.errors.corruptedstorage == null) {
-          timerId = window.setTimeout(async () => {
-            clearTimeout(timerId);
-
-            const newState2: IState = (window as any).state;
-            timerId = undefined;
-            const userId = newState2.user?.id || newState2.storage.tempUserId;
-            const localStorage: ILocalStorage = {
-              storage: newState2.storage,
-              lastSyncedStorage: newState2.lastSyncedStorage,
-            };
-            await IndexedDBUtils_set("current_account", userId);
-            const probeTarget = PerfProbe_isTarget();
-            const probeT0 = probeTarget ? Date.now() : 0;
-            const serialized = JSON.stringify(localStorage);
-            const probeT1 = probeTarget ? Date.now() : 0;
-            await IndexedDBUtils_set(`liftosaur_${userId}`, serialized);
-            if (probeTarget) {
-              lg("perf-persist", {
-                stringify_ms: probeT1 - probeT0,
-                write_ms: Date.now() - probeT1,
-                bytes: serialized.length,
-              });
-            }
-          }, 100);
-        }
+    if (typeof window !== "undefined") {
+      window.tempUserId = newState.storage.tempUserId;
+      (window as any).state = newState;
+      if (storeToLocalStorage && newState.errors.corruptedstorage == null) {
+        persistence.scheduleSave(newState.user?.id || newState.storage.tempUserId, {
+          storage: newState.storage,
+          lastSynced: newState.lastSynced,
+        });
       }
     }
 
@@ -618,6 +643,9 @@ export const reducerWrapper =
         perfActionType === "UpdateProgress"
       ) {
         PerfProbe_onAction(perfActionDesc ?? perfActionType, perfDurationMs);
+      }
+      if (perfActionType === "CompleteSetAction") {
+        HermesProfile_captureOnce("complete-set");
       }
       if (PerfEnabled_tier2()) {
         PerfTracker_recordEvent({
@@ -633,31 +661,8 @@ export const reducerWrapper =
     return newState;
   };
 
-function newStorageApproach(oldState: IState, newState: IState, isStorageChanged: boolean): IState {
-  if (typeof window !== "undefined") {
-    window.tempUserId = newState.storage.tempUserId;
-    (window as any).state = newState;
-    const isLastSyncChanged = Storage_isChanged(oldState.lastSyncedStorage, newState.lastSyncedStorage);
-    const isLocalStorageChanged = isStorageChanged || isLastSyncChanged;
-    if (isLocalStorageChanged && newState.errors.corruptedstorage == null) {
-      const userId = newState.user?.id || newState.storage.tempUserId;
-      const localStorage: ILocalStorage = {
-        storage: newState.storage,
-        lastSyncedStorage: newState.lastSyncedStorage,
-      };
-      const json = JSON.stringify(localStorage);
-      Promise.all([
-        IndexedDBUtils_set("current_account", userId),
-        IndexedDBUtils_set(`liftosaur_${userId}`, json),
-      ]).then(() => {
-        lg("saved-to-storage", undefined, undefined, userId);
-      });
-    }
-  }
-  return newState;
-}
-
 export function buildCardsReducer(
+  effects: INativeEffect[],
   settings: ISettings,
   stats: IStats,
   subscription?: ISubscription
@@ -665,15 +670,16 @@ export function buildCardsReducer(
   return (progress, action): IHistoryRecord => {
     switch (action.type) {
       case "CompleteSetAction": {
-        const newProgress = Progress_completeSetAction(settings, stats, progress, action, subscription);
+        const newProgress = Progress_completeSetAction(effects, settings, stats, progress, action, subscription);
         return newProgress;
       }
       case "ChangeAMRAPAction": {
-        const newProgress = Progress_changeAmrapAction(settings, stats, progress, action, subscription);
+        const newProgress = Progress_changeAmrapAction(effects, settings, stats, progress, action, subscription);
         return newProgress;
       }
       case "CheckSetTimerAction": {
         return Progress_checkSetTimer(
+          effects,
           settings,
           stats,
           progress,
@@ -685,7 +691,10 @@ export function buildCardsReducer(
         );
       }
       case "CloseSetTimerAction": {
-        return Progress_closeTimedSet(progress, settings, subscription, action.isPlayground);
+        return Progress_closeTimedSet(effects, progress, settings, subscription, action.isPlayground);
+      }
+      case "StartSetTimerWorkAction": {
+        return Progress_startSetTimerWork(progress, action.startedAt ?? Date.now());
       }
       case "UpdateProgress": {
         return action.lensRecordings.reduce((memo, recording) => recording.fn(memo), progress);
@@ -694,12 +703,15 @@ export function buildCardsReducer(
   };
 }
 
-export const reducer: Reducer<IState, IAction> = (state, action): IState => {
+export type IEffectfulReducer = (state: IState, action: IAction, effects: INativeEffect[]) => IState;
+
+export const reducer: IEffectfulReducer = (state, action, effects): IState => {
   if (
     action.type === "CompleteSetAction" ||
     action.type === "ChangeAMRAPAction" ||
     action.type === "CheckSetTimerAction" ||
     action.type === "CloseSetTimerAction" ||
+    action.type === "StartSetTimerWorkAction" ||
     action.type === "UpdateProgress"
   ) {
     const progress = Progress_getProgress(state);
@@ -708,7 +720,12 @@ export const reducer: Reducer<IState, IAction> = (state, action): IState => {
     }
     return Progress_setProgress(
       state,
-      buildCardsReducer(state.storage.settings, state.storage.stats, state.storage.subscription)(progress, action)
+      buildCardsReducer(
+        effects,
+        state.storage.settings,
+        state.storage.stats,
+        state.storage.subscription
+      )(progress, action)
     );
   } else if (action.type === "StartProgramDayAction") {
     const progress = Progress_getProgress(state);
@@ -739,7 +756,7 @@ export const reducer: Reducer<IState, IAction> = (state, action): IState => {
     if (progress == null) {
       return state;
     }
-    const newStorage = Progress_finishWorkout(state.storage, progress);
+    const newStorage = Progress_finishWorkout(effects, state.storage, progress);
     return {
       ...state,
       storage: newStorage,
@@ -768,9 +785,8 @@ export const reducer: Reducer<IState, IAction> = (state, action): IState => {
     const progress = Progress_getProgressById(state, action.id);
     if (progress != null) {
       if (Progress_isCurrent(progress)) {
-        NativeWorkoutBridge_discardWorkout();
-        NativeWatchBridge_sendDiscardWorkoutToWatch();
-        NativeWorkoutMirroring_resetWatchWorkoutState();
+        effects.push({ type: "discardWorkout" });
+        effects.push({ type: "sendDiscardWorkoutToWatch" });
         return {
           ...state,
           storage: {
@@ -803,30 +819,23 @@ export const reducer: Reducer<IState, IAction> = (state, action): IState => {
   } else if (action.type === "StopTimer") {
     const progress = Progress_getProgress(state);
     if (progress != null) {
-      return Progress_setProgress(state, Progress_stopTimer(progress));
+      return Progress_setProgress(state, Progress_stopTimer(effects, progress));
     } else {
       return state;
     }
-  } else if (action.type === "StartTimer") {
-    const progress = Progress_getProgress(state);
-    if (progress) {
-      return Progress_setProgress(
-        state,
-        Progress_startTimer(
-          progress,
-          action.timestamp,
-          action.mode,
-          action.entryIndex,
-          action.setIndex,
-          state.storage.settings,
-          state.storage.subscription,
-          action.timer,
-          true
-        )
-      );
-    } else {
+  } else if (action.type === "ResumeWorkoutAction") {
+    const progress = Progress_getCurrentProgress(state);
+    if (progress == null) {
       return state;
     }
+    const intervals = History_resumeWorkout(
+      effects,
+      progress,
+      action.isPlayground,
+      state.storage.settings.timers.reminder,
+      action.hasSubscription
+    );
+    return Progress_setProgress(state, { ...progress, intervals });
   } else if (action.type === "UpdateSettings") {
     if (isLoggingEnabled) {
       console.log(`%c-------${action.desc ? ` ${action.desc}` : ""}`, "font-weight:bold");
@@ -858,13 +867,11 @@ export const reducer: Reducer<IState, IAction> = (state, action): IState => {
     const progress = Progress_getCurrentProgress(state);
     if (progress != null) {
       const program = Program_evaluate(Program_getProgram(state, progress.programId)!, state.storage.settings);
-      let newProgress = Progress_applyProgramDay(
-        progress,
-        program,
-        progress.day,
-        state.storage.settings,
-        action.programExerciseIds
-      );
+      let newProgress = Progress_applyProgramDay(progress, program, progress.day, state.storage.settings, {
+        programExerciseIds: action.programExerciseIds,
+        oldDayKeys: action.oldDayKeys,
+        stats: state.storage.stats,
+      });
       newProgress = Progress_runInitialUpdateScripts(
         newProgress,
         action.programExerciseIds,

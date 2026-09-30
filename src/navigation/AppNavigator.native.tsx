@@ -1,6 +1,7 @@
 import { createContext, JSX, useContext } from "react";
 import { Platform } from "react-native";
 import { Tailwind_semantic } from "../utils/tailwindConfig";
+import { SheetBackdropLift, SheetBackdropPresence } from "./SheetBackdropContext";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import type {
@@ -29,12 +30,15 @@ import {
   NavScreenUnits,
   NavScreenSetupEquipment,
   NavScreenSetupPlates,
+  NavScreenHearAboutUs,
   NavScreenProgramSelectOnboarding,
   NavScreenProgramsOnboarding,
   NavScreenProgramPreviewOnboarding,
 } from "./screens/NavScreenOnboarding";
 import { NavScreenProgress, NavScreenFinishDay, NavScreenSubscription } from "./screens/NavScreenWorkout";
 import { NavScreenGraphs } from "./screens/NavScreenGraphs";
+import { NavModalExerciseLiftoEditor } from "./modals/NavModalExerciseLiftoEditor";
+import { NavModalDayLiftoEditor } from "./modals/NavModalDayLiftoEditor";
 import {
   NavScreenSettings,
   NavScreenAccount,
@@ -47,6 +51,7 @@ import {
   NavScreenMuscleGroups,
   NavScreenStats,
   NavScreenMeasurements,
+  NavScreenSleepNutrition,
   NavScreenExerciseStats,
   NavScreenApiKeys,
   NavScreenRecentImports,
@@ -70,10 +75,15 @@ import { NavModalSetSplit } from "./modals/NavModalSetSplit";
 import { NavModalPlannerSettings } from "./modals/NavModalPlannerSettings";
 import { NavModalMuscleGroupMusclePicker } from "./modals/NavModalMuscleGroupMusclePicker";
 import { NavModalAccount } from "./modals/NavModalAccount";
+import { NavModalEmailAuth } from "./modals/NavModalEmailAuth";
+import { NavModalChangePassword } from "./modals/NavModalChangePassword";
 import { NavModalCreateProgram } from "./modals/NavModalCreateProgram";
 import { NavModalImportFromLink } from "./modals/NavModalImportFromLink";
 import { NavModalProgramInfo } from "./modals/NavModalProgramInfo";
 import { NavModalInputSelect } from "./modals/NavModalInputSelect";
+import { NavModalStateVars } from "./modals/NavModalStateVars";
+import { NavModalAcrossProgram } from "./modals/NavModalAcrossProgram";
+import { NavModalCreateStateVar } from "./modals/NavModalCreateStateVar";
 import { NavModalPlaygroundEditExercise } from "./modals/NavModalPlaygroundEditExercise";
 import { NavModalProgramPreviewMuscles } from "./modals/NavModalProgramPreviewMuscles";
 import { NavModalAmrap } from "./modals/NavModalAmrap";
@@ -81,6 +91,7 @@ import { NavModalNextWorkout } from "./modals/NavModalNextWorkout";
 import { NavModalEditTarget } from "./modals/NavModalEditTarget";
 import { NavModalSetTimer } from "./modals/NavModalSetTimer";
 import { NavModalSetTimerEdit } from "./modals/NavModalSetTimerEdit";
+import { NavModalRoundingInfo } from "./modals/NavModalRoundingInfo";
 import { NavModalGraphs } from "./modals/NavModalGraphs";
 import { NavModalStatsSettings } from "./modals/NavModalStatsSettings";
 import { NavModal1RM } from "./modals/NavModal1RM";
@@ -95,6 +106,7 @@ import { NavModalPlates } from "./modals/NavModalPlates";
 import { NavModalNewFixedWeight } from "./modals/NavModalNewFixedWeight";
 import { NavModalEditProgramMenu } from "./modals/NavModalEditProgramMenu";
 import { NavModalEditProgramExercisePicker } from "./modals/NavModalEditProgramExercisePicker";
+import { NavModalLiftoEditorExercisePicker } from "./modals/NavModalLiftoEditorExercisePicker";
 import { NavModalProgramNextDay } from "./modals/NavModalProgramNextDay";
 import { NavModalProgramRevisions } from "./modals/NavModalProgramRevisions";
 import { NavModalProgramImageExport } from "./modals/NavModalProgramImageExport";
@@ -118,8 +130,10 @@ import { NavModalDebug } from "./modals/NavModalDebug";
 import { NavModalEditMuscleGroups } from "./modals/NavModalEditMuscleGroups";
 import { NavModalImportFromOtherApps } from "./modals/NavModalImportFromOtherApps";
 import { NavModalSignupRequest } from "./modals/NavModalSignupRequest";
+import { NavModalHearAboutUs } from "./modals/NavModalHearAboutUs";
 import { NavModalSubscriptionInfo } from "./modals/NavModalSubscriptionInfo";
 import { NavModalTextInput } from "./modals/NavModalTextInput";
+import { NavModalEditDetails } from "./modals/NavModalEditDetails";
 import { NavModalWhatsnew } from "./modals/NavModalWhatsnew";
 import { NavHeader } from "./NavHeader";
 import { ScreenErrorBoundary } from "../components/screenErrorBoundary";
@@ -133,6 +147,35 @@ function renderScreenWithErrorBoundary(args: {
     <ScreenErrorBoundary screenName={args.route.name} navigation={args.navigation}>
       {args.children}
     </ScreenErrorBoundary>
+  );
+}
+
+function renderFormSheetScreen(args: {
+  route: { name: string };
+  navigation: { canGoBack?: () => boolean; goBack?: () => void };
+  children: JSX.Element;
+}): JSX.Element {
+  return (
+    <>
+      {renderScreenWithErrorBoundary(args)}
+      <SheetBackdropPresence />
+    </>
+  );
+}
+
+// The lift has to live inside whichever screen a sheet is presented over: Android draws its sheet
+// and scrim in this same hierarchy, so an overlay any higher up would cover the sheet itself.
+// react-navigation leaves the screen below the focused one unfrozen, so this keeps animating.
+function renderPresentingScreen(args: {
+  route: { name: string };
+  navigation: { canGoBack?: () => boolean; goBack?: () => void };
+  children: JSX.Element;
+}): JSX.Element {
+  return (
+    <>
+      {renderScreenWithErrorBoundary(args)}
+      <SheetBackdropLift />
+    </>
   );
 }
 
@@ -174,6 +217,11 @@ function OnboardingStackScreen(): JSX.Element {
       <OnboardingStack.Screen name="units" component={NavScreenUnits} />
       <OnboardingStack.Screen name="setupequipment" component={NavScreenSetupEquipment} />
       <OnboardingStack.Screen name="setupplates" component={NavScreenSetupPlates} />
+      <OnboardingStack.Screen
+        name="hearaboutus"
+        component={NavScreenHearAboutUs}
+        options={{ headerShown: true, header: NavHeader }}
+      />
       <OnboardingStack.Screen name="programselect" component={NavScreenProgramSelectOnboarding} />
       <OnboardingStack.Screen
         name="programs"
@@ -292,6 +340,7 @@ function MeStackScreen(): JSX.Element {
       <MeStack.Screen name="muscleGroups" component={NavScreenMuscleGroups} />
       <MeStack.Screen name="stats" component={NavScreenStats} />
       <MeStack.Screen name="measurements" component={NavScreenMeasurements} />
+      <MeStack.Screen name="sleepNutrition" component={NavScreenSleepNutrition} />
       <MeStack.Screen name="exerciseStats" component={NavScreenExerciseStats} />
       <MeStack.Screen name="apiKeys" component={NavScreenApiKeys} />
       <MeStack.Screen name="recentImports" component={NavScreenRecentImports} />
@@ -320,7 +369,14 @@ function MainTabsScreen(): JSX.Element {
   );
 }
 
-const onboardingScreens: IScreen[] = ["first", "units", "setupequipment", "setupplates", "programselect"];
+const onboardingScreens: IScreen[] = [
+  "first",
+  "units",
+  "setupequipment",
+  "setupplates",
+  "hearaboutus",
+  "programselect",
+];
 
 const InitialScreenContext = createContext<IScreen | undefined>(undefined);
 
@@ -334,13 +390,15 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
         screenLayout={renderScreenWithErrorBoundary}
         initialRouteName={isOnboarding ? "onboarding" : "mainTabs"}
       >
-        <RootStack.Screen name="onboarding" component={OnboardingStackScreen} />
-        <RootStack.Screen name="mainTabs" component={MainTabsScreen} />
-        <RootStack.Screen
-          name="subscription"
-          component={NavScreenSubscription}
-          options={{ headerShown: true, header: NavHeader }}
-        />
+        <RootStack.Group screenLayout={renderPresentingScreen}>
+          <RootStack.Screen name="onboarding" component={OnboardingStackScreen} />
+          <RootStack.Screen name="mainTabs" component={MainTabsScreen} />
+          <RootStack.Screen
+            name="subscription"
+            component={NavScreenSubscription}
+            options={{ headerShown: true, header: NavHeader }}
+          />
+        </RootStack.Group>
         <RootStack.Group
           screenOptions={{
             presentation: "transparentModal",
@@ -349,6 +407,8 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           }}
         >
           <RootStack.Screen name="monthCalendarModal" component={NavModalMonthCalendar} />
+          <RootStack.Screen name="exerciseLiftoEditorModal" component={NavModalExerciseLiftoEditor} />
+          <RootStack.Screen name="dayLiftoEditorModal" component={NavModalDayLiftoEditor} />
           <RootStack.Screen name="programRevisionsModal" component={NavModalProgramRevisions} />
           <RootStack.Screen name="programImageExportModal" component={NavModalProgramImageExport} />
           <RootStack.Screen name="exercisePickerModal" component={NavModalExercisePicker} />
@@ -356,8 +416,16 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           <RootStack.Screen name="exerciseCloneLibraryModal" component={NavModalExerciseCloneLibrary} />
           <RootStack.Screen name="customExerciseModal" component={NavModalCustomExercise} />
           <RootStack.Screen name="editProgramExercisePickerModal" component={NavModalEditProgramExercisePicker} />
+          <RootStack.Screen name="liftoEditorExercisePickerModal" component={NavModalLiftoEditorExercisePicker} />
+          {/* Sheets that host the custom keypad. Not formSheets: that sheet takes its height when
+              it is first laid out and never grows, so on Android the keypad landed below the
+              bottom of the screen. These draw their own sheet, which can grow. */}
+          <RootStack.Screen name="stateVarsModal" component={NavModalStateVars} />
+          <RootStack.Screen name="acrossProgramModal" component={NavModalAcrossProgram} />
+          <RootStack.Screen name="editSetTargetModal" component={NavModalEditTarget} />
         </RootStack.Group>
         <RootStack.Group
+          screenLayout={renderFormSheetScreen}
           screenOptions={{
             presentation: "formSheet",
             headerShown: false,
@@ -372,17 +440,15 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           <RootStack.Screen name="plannerSettingsModal" component={NavModalPlannerSettings} />
           <RootStack.Screen name="muscleGroupMusclePickerModal" component={NavModalMuscleGroupMusclePicker} />
           <RootStack.Screen name="accountModal" component={NavModalAccount} />
+          <RootStack.Screen name="emailAuthModal" component={NavModalEmailAuth} />
+          <RootStack.Screen name="changePasswordModal" component={NavModalChangePassword} />
           <RootStack.Screen name="createProgramModal" component={NavModalCreateProgram} />
           <RootStack.Screen name="importFromLinkModal" component={NavModalImportFromLink} />
           <RootStack.Screen name="programInfoModal" component={NavModalProgramInfo} />
           <RootStack.Screen name="inputSelectModal" component={NavModalInputSelect} />
+          <RootStack.Screen name="createStateVarModal" component={NavModalCreateStateVar} />
           <RootStack.Screen name="playgroundEditModal" component={NavModalPlaygroundEditExercise} />
           <RootStack.Screen name="amrapModal" component={NavModalAmrap} />
-          <RootStack.Screen
-            name="editSetTargetModal"
-            component={NavModalEditTarget}
-            options={{ sheetResizeAnimationEnabled: false }}
-          />
           <RootStack.Screen
             name="setTimerModal"
             component={NavModalSetTimer}
@@ -391,6 +457,11 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           <RootStack.Screen
             name="setTimerEditModal"
             component={NavModalSetTimerEdit}
+            options={{ sheetAllowedDetents: "fitToContents" }}
+          />
+          <RootStack.Screen
+            name="roundingInfoModal"
+            component={NavModalRoundingInfo}
             options={{ sheetAllowedDetents: "fitToContents" }}
           />
           <RootStack.Screen name="programPreviewMusclesModal" component={NavModalProgramPreviewMuscles} />
@@ -446,8 +517,10 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           <RootStack.Screen name="editMuscleGroupsModal" component={NavModalEditMuscleGroups} />
           <RootStack.Screen name="importFromOtherAppsModal" component={NavModalImportFromOtherApps} />
           <RootStack.Screen name="signupRequestModal" component={NavModalSignupRequest} />
+          <RootStack.Screen name="hearAboutUsModal" component={NavModalHearAboutUs} />
           <RootStack.Screen name="subscriptionInfoModal" component={NavModalSubscriptionInfo} />
           <RootStack.Screen name="textInputModal" component={NavModalTextInput} />
+          <RootStack.Screen name="editDetailsModal" component={NavModalEditDetails} />
           <RootStack.Screen
             name="whatsnewModal"
             component={NavModalWhatsnew}

@@ -82,7 +82,6 @@ Bench Press / 3x8 100lb / progress: dp(5lb, 8, 12)
       weekIndex: 0,
       exerciseUi: { edit: new Set(), collapsed: new Set() },
       dayUi: { collapsed: new Set() },
-      weekUi: { collapsed: new Set() },
     },
     history: {
       past: [],
@@ -199,7 +198,7 @@ function MainPlayground(props: IMainPlaygroundProps): JSX.Element {
 
   const dispatch: IDispatch = useCallback(
     (async (action: unknown) => {
-      const newProgress = buildCardsReducer(settings, stats, undefined)(progress, action as ICardsAction);
+      const newProgress = buildCardsReducer([], settings, stats, undefined)(progress, action as ICardsAction);
       track({ name: "main_playground" });
       setProgress(newProgress);
     }) as IDispatch,

@@ -4,10 +4,10 @@ import { parser as LiftoscriptParser } from "./liftoscript";
 import {
   IScriptBindings,
   IScriptFnContext,
-  IScriptFunctions,
   Progress_createEmptyScriptBindings,
   Progress_createScriptFunctions,
 } from "./models/progress";
+import { IScriptFunctions } from "./liftoscriptFns";
 import { Weight_build } from "./models/weight";
 import { IUnit, IWeight, IProgramState, IPercentage, IDayData, IExerciseType, ISettings } from "./types";
 import type { Tree } from "@lezer/common";
@@ -21,12 +21,27 @@ declare let Rollbar: RB;
 
 const lastAlertDisplayedTs: Partial<Record<string, number>> = {};
 
-// Parsing a Liftoscript expression with Lezer is expensive, and the same progress/update
-// scripts are scanned repeatedly (e.g. the same exercise instance in every week/day, and on
-// every tour/render pass). Cache by (script, name) since the result is pure.
+const parseLiftoscript = memoize((script: string): Tree => LiftoscriptParser.parse(script), { maxSize: 200 });
+
+// The semantic pass reads only the script, the mode, and which state and binding keys exist, never their values.
+// A pass that throws is not cached, so every run of a broken script still reports its error.
+const validateLiftoscript = memoize(
+  (_script: string, _mode: IProgramMode, _stateKeys: string, _bindingKeys: string, validate: () => void): true => {
+    validate();
+    return true;
+  },
+  { maxSize: 500, transformKey: (args) => args.slice(0, 4) }
+);
+
+// The pass checks membership with `in`, which also sees inherited keys. A state variable named `__proto__`
+// gives the state a prototype, and then `Object.keys` no longer describes what `in` finds.
+function hasOnlyOwnKeys(value: object): boolean {
+  return Object.getPrototypeOf(value) === Object.prototype;
+}
+
 const hasKeywordMemoized = memoize(
   (script: string, name: string): boolean => {
-    const expr = LiftoscriptParser.parse(script);
+    const expr = parseLiftoscript(script);
     const cursor = expr.cursor();
     do {
       if (cursor.node.type.name === NodeName.Keyword) {
@@ -101,7 +116,7 @@ export class ScriptRunner {
   }
 
   public parse(): [LiftoscriptEvaluator, Tree] {
-    const liftoscriptTree = LiftoscriptParser.parse(this.script);
+    const liftoscriptTree = parseLiftoscript(this.script);
     const liftoscriptEvaluator = new LiftoscriptEvaluator(
       this.script,
       this.state,
@@ -112,12 +127,23 @@ export class ScriptRunner {
       this.units,
       this.mode
     );
-    liftoscriptEvaluator.parse(liftoscriptTree.topNode);
+    const validate = (): void => liftoscriptEvaluator.parse(liftoscriptTree.topNode);
+    if (hasOnlyOwnKeys(this.state) && hasOnlyOwnKeys(this.bindings)) {
+      validateLiftoscript(
+        this.script,
+        this.mode,
+        Object.keys(this.state).sort().join("\n"),
+        Object.keys(this.bindings).sort().join("\n"),
+        validate
+      );
+    } else {
+      validate();
+    }
     return [liftoscriptEvaluator, liftoscriptTree];
   }
 
   public switchWeightsToUnit(toUnit: IUnit): string {
-    const liftoscriptTree = LiftoscriptParser.parse(this.script);
+    const liftoscriptTree = parseLiftoscript(this.script);
     const liftoscriptEvaluator = new LiftoscriptEvaluator(
       this.script,
       this.state,
@@ -132,7 +158,7 @@ export class ScriptRunner {
   }
 
   public getStateVariableKeys(): Set<string> {
-    const liftoscriptTree = LiftoscriptParser.parse(this.script);
+    const liftoscriptTree = parseLiftoscript(this.script);
     const liftoscriptEvaluator = new LiftoscriptEvaluator(
       this.script,
       this.state,
@@ -147,7 +173,7 @@ export class ScriptRunner {
   }
 
   public static hasStateVariable(script: string, name: string): boolean {
-    const expr = LiftoscriptParser.parse(script);
+    const expr = parseLiftoscript(script);
     const cursor = expr.cursor();
     do {
       if (cursor.node.type.name === NodeName.StateVariable) {
@@ -164,6 +190,10 @@ export class ScriptRunner {
   }
 
   public static hasKeyword(script: string, name: string): boolean {
+    // A keyword node's value is a slice of the script, so a name absent from the text cannot match.
+    if (script.indexOf(name) === -1) {
+      return false;
+    }
     return hasKeywordMemoized(script, name);
   }
 
@@ -216,7 +246,10 @@ export class ScriptRunner {
   ): number | IWeight | IPercentage | boolean {
     if (type === "reps" || type === "timer") {
       if (typeof result !== "number") {
-        throw new LiftoscriptSyntaxError("Expected to get number as a result", 0, 0, 0, 0);
+        throw new LiftoscriptSyntaxError("Expected to get number as a result", 0, 0, 0, 0, {
+          type: "wrongResultType",
+          data: { expected: "number" },
+        });
       } else if (result < 0) {
         return 0;
       } else {
@@ -224,13 +257,19 @@ export class ScriptRunner {
       }
     } else if (type === "rpe") {
       if (typeof result !== "number") {
-        throw new LiftoscriptSyntaxError("Expected to get number as a result", 0, 0, 0, 0);
+        throw new LiftoscriptSyntaxError("Expected to get number as a result", 0, 0, 0, 0, {
+          type: "wrongResultType",
+          data: { expected: "number" },
+        });
       } else {
         return Math.round(Math.min(10, Math.max(0, result)) / 0.5) * 0.5;
       }
     } else if (type === "weight") {
       if (typeof result === "boolean") {
-        throw new LiftoscriptSyntaxError("Expected to get number, percentage or weight as a result", 0, 0, 0, 0);
+        throw new LiftoscriptSyntaxError("Expected to get number, percentage or weight as a result", 0, 0, 0, 0, {
+          type: "wrongResultType",
+          data: { expected: "numberOrPercentageOrWeight" },
+        });
       } else if (typeof result === "number") {
         return Weight_build(result, this.units);
       } else {

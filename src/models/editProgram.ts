@@ -13,7 +13,13 @@ import { updateState, IState } from "./state";
 import { IProgram, IDayData, IProgramState, ISettings, IHistoryRecord } from "../types";
 import { Dialog_alert } from "../utils/dialog";
 import { updateStateVariable } from "./editProgramLenses";
-import { IPlannerProgramExercise, IPlannerExerciseState, IPlannerState } from "../pages/planner/models/types";
+import {
+  IPlannerProgramExercise,
+  IPlannerExerciseState,
+  IPlannerState,
+  IPlannerUi,
+  IPlannerEditMode,
+} from "../pages/planner/models/types";
 import { PP_iterate2 } from "./pp";
 import { PlannerProgramExercise_getState } from "../pages/planner/models/plannerProgramExercise";
 import { ProgramToPlanner } from "./programToPlanner";
@@ -91,22 +97,21 @@ export function EditProgram_setNextDay(dispatch: IDispatch, programId: string, n
   );
 }
 
-export function EditProgram_initPlannerState(
-  id: string,
-  program: IProgram,
-  focusedDay?: IDayData,
-  key?: string
-): IPlannerState {
+export const EditProgram_tabLabels = ["Preview", "Edit", "Playground"] as const;
+
+export function EditProgram_mode(ui: IPlannerUi): IPlannerEditMode {
+  return ui.mode ?? "grid";
+}
+
+export function EditProgram_initPlannerState(id: string, program: IProgram): IPlannerState {
   return {
     id,
     current: { program },
     ui: {
-      weekIndex: focusedDay?.week != null ? focusedDay.week - 1 : 0,
-      focusedDay: focusedDay ? { ...focusedDay, key } : undefined,
-      mode: "ui",
+      weekIndex: 0,
+      mode: "grid",
       exerciseUi: { edit: new Set(), collapsed: new Set() },
       dayUi: { collapsed: new Set() },
-      weekUi: { collapsed: new Set() },
     },
     history: { past: [], future: [] },
   };
@@ -128,11 +133,53 @@ export function EditProgram_initPlannerProgramExerciseState(
       weekIndex: dayData.week - 1,
       isProgressEnabled: !!programExercise?.progress,
       isUpdateEnabled: !!programExercise?.update,
+      isExerciseVariationsEnabled: (programExercise?.exerciseVariations?.length ?? 0) > 1,
       modeTabIndex: fromWorkout ? 1 : 0,
       acrossWeeksTabIndex: fromWorkout ? 1 : undefined,
       fromWorkout,
     },
   };
+}
+
+// A composite-key change (exercise-type swap, or add/remove/reorder of exercise variations) re-keys the
+// exercise. The keyed edit state lives at `${programId}_${key}`, so we clone it to the new key, reset undo
+// history (the key boundary is a commit point undo can't cross), and stash `pendingNewKey` on the old
+// entry — NavScreenProgram reacts by re-pointing the route via setParams and dropping the orphan.
+export function EditProgram_migrateExerciseStateKey(
+  dispatch: IDispatch,
+  programId: string,
+  oldStateKey: string,
+  newKey: string
+): void {
+  const newStateKey = `${programId}_${newKey}`;
+  updateState(
+    dispatch,
+    [
+      lb<IState>()
+        .p("editProgramExerciseStates")
+        .recordModify((states) => {
+          const currentState = states[oldStateKey];
+          if (!currentState) {
+            return states;
+          }
+          return {
+            ...states,
+            [oldStateKey]: { ...currentState, ui: { ...currentState.ui, pendingNewKey: newKey } },
+            [newStateKey]: {
+              ...currentState,
+              history: { past: [], future: [] },
+              ui: {
+                ...currentState.ui,
+                exercisePickerState: undefined,
+                exercisePickerChange: undefined,
+                exercisePickerVariationIndex: undefined,
+              },
+            },
+          };
+        }),
+    ],
+    "Update exercise key"
+  );
 }
 
 export function EditProgram_create(dispatch: IDispatch, name: string): void {

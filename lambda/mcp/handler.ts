@@ -10,12 +10,14 @@ import {
   McpReference_getLiftoscriptReference,
   McpReference_getLiftoscriptExamples,
   McpReference_getLiftohistoryReference,
+  McpReference_getProgramDesignGuide,
   McpReference_listBuiltinPrograms,
   McpReference_getBuiltinProgram,
   McpReference_listExercises,
 } from "./reference";
 import { McpToolExecutor_execute } from "./executor";
 import { Subscriptions } from "../utils/subscriptions";
+import { ApiKeyAuth_deviceIdForKey } from "../utils/apiKeyAuth";
 import { EventDao } from "../dao/eventDao";
 
 const SERVER_NAME = "liftosaur-mcp";
@@ -135,6 +137,7 @@ export const postMcpHandler: RouteHandler<IPayload, APIGatewayProxyResult, typeo
           name: t.name,
           description: t.description,
           inputSchema: t.inputSchema,
+          outputSchema: t.outputSchema,
           annotations: t.annotations,
         })),
       })
@@ -162,6 +165,21 @@ async function handleToolCall(
 
   di.log.log(`[MCP] tools/call: ${toolName}`, JSON.stringify(args));
 
+  function textResult(
+    id: number | string | undefined,
+    text: string,
+    extra?: { isError?: boolean }
+  ): APIGatewayProxyResult {
+    return mcpJson(
+      200,
+      jsonRpcResponse(id, {
+        content: [{ type: "text", text }],
+        structuredContent: extra?.isError ? { error: true, message: text } : { text },
+        ...(extra?.isError ? { isError: true } : {}),
+      })
+    );
+  }
+
   function fireEvent(userId?: string): void {
     new EventDao(di).post({
       type: "event",
@@ -175,34 +193,25 @@ async function handleToolCall(
   if (toolName === "get_liftoscript_reference") {
     fireEvent();
     di.log.log(`[MCP] ${toolName} -> ok (reference)`);
-    return mcpJson(
-      200,
-      jsonRpcResponse(req.id, {
-        content: [{ type: "text", text: McpReference_getLiftoscriptReference() }],
-      })
-    );
+    return textResult(req.id, McpReference_getLiftoscriptReference());
   }
 
   if (toolName === "get_liftoscript_examples") {
     fireEvent();
     di.log.log(`[MCP] ${toolName} -> ok (examples)`);
-    return mcpJson(
-      200,
-      jsonRpcResponse(req.id, {
-        content: [{ type: "text", text: McpReference_getLiftoscriptExamples() }],
-      })
-    );
+    return textResult(req.id, McpReference_getLiftoscriptExamples());
+  }
+
+  if (toolName === "get_program_design_guide") {
+    fireEvent();
+    di.log.log(`[MCP] ${toolName} -> ok (design guide)`);
+    return textResult(req.id, McpReference_getProgramDesignGuide());
   }
 
   if (toolName === "get_liftohistory_reference") {
     fireEvent();
     di.log.log(`[MCP] ${toolName} -> ok (reference)`);
-    return mcpJson(
-      200,
-      jsonRpcResponse(req.id, {
-        content: [{ type: "text", text: McpReference_getLiftohistoryReference() }],
-      })
-    );
+    return textResult(req.id, McpReference_getLiftohistoryReference());
   }
 
   if (toolName === "list_builtin_programs") {
@@ -210,12 +219,7 @@ async function handleToolCall(
     const programs = McpReference_listBuiltinPrograms();
     const text = programs.map((p) => `${p.id}: ${p.name}`).join("\n");
     di.log.log(`[MCP] ${toolName} -> ok (${programs.length} programs)`);
-    return mcpJson(
-      200,
-      jsonRpcResponse(req.id, {
-        content: [{ type: "text", text }],
-      })
-    );
+    return textResult(req.id, text);
   }
 
   if (toolName === "get_builtin_program") {
@@ -224,21 +228,10 @@ async function handleToolCall(
     const content = McpReference_getBuiltinProgram(id);
     if (!content) {
       di.log.log(`[MCP] ${toolName} -> error: not found`);
-      return mcpJson(
-        200,
-        jsonRpcResponse(req.id, {
-          content: [{ type: "text", text: `Built-in program not found: ${id}` }],
-          isError: true,
-        })
-      );
+      return textResult(req.id, `Built-in program not found: ${id}`, { isError: true });
     }
     di.log.log(`[MCP] ${toolName} -> ok`);
-    return mcpJson(
-      200,
-      jsonRpcResponse(req.id, {
-        content: [{ type: "text", text: content }],
-      })
-    );
+    return textResult(req.id, content);
   }
 
   if (toolName === "list_exercises") {
@@ -246,12 +239,7 @@ async function handleToolCall(
     const exercises = McpReference_listExercises();
     const text = exercises.join("\n");
     di.log.log(`[MCP] ${toolName} -> ok (${exercises.length} exercises)`);
-    return mcpJson(
-      200,
-      jsonRpcResponse(req.id, {
-        content: [{ type: "text", text }],
-      })
-    );
+    return textResult(req.id, text);
   }
 
   const tool = mcpTools.find((t) => t.name === toolName);
@@ -280,18 +268,24 @@ async function handleToolCall(
 
   const accessToken = authHeader.substring(7);
   let userId: string | undefined;
+  // Each MCP client gets its own node in the vector clock: an API key hashes to a stable id, and an
+  // OAuth client already has one. Sharing a single server node across clients would make two of the
+  // user's assistants indistinguishable, and their concurrent edits unorderable.
+  let deviceId: string | undefined;
   if (accessToken.startsWith("lftsk_")) {
     const apiKeyDao = new ApiKeyDao(di);
     const keyRecord = await apiKeyDao.getByKey(accessToken);
     userId = keyRecord?.userId;
+    deviceId = keyRecord ? ApiKeyAuth_deviceIdForKey(accessToken) : undefined;
   } else {
     const oauthDao = new OauthDao(di);
     const tokenRecord = await oauthDao.getByToken(accessToken);
     if (tokenRecord && tokenRecord.expiresAt >= Date.now()) {
       userId = tokenRecord.userId;
+      deviceId = `mcp_${tokenRecord.clientId.replace(/^lftcl_/, "")}`;
     }
   }
-  if (!userId) {
+  if (!userId || !deviceId) {
     di.log.log(`[MCP] ${toolName} -> 401: invalid/expired token`);
     const baseUrl = Utils_isLocal()
       ? "https://local.liftosaur.com:8080"
@@ -314,29 +308,24 @@ async function handleToolCall(
   const user = await userDao.getLimitedById(userId);
   if (!user) {
     di.log.log(`[MCP] ${toolName} -> error: user not found`);
-    return mcpJson(
-      200,
-      jsonRpcResponse(req.id, {
-        content: [{ type: "text", text: "User not found" }],
-        isError: true,
-      })
-    );
+    return textResult(req.id, "User not found", { isError: true });
   }
 
   const subscriptions = new Subscriptions(di.log, di.secrets);
   const hasSub = await subscriptions.hasSubscription(di, userId, user.storage.subscription);
   if (!hasSub) {
     di.log.log(`[MCP] ${toolName} -> 403: no subscription`);
-    return mcpJson(
-      200,
-      jsonRpcResponse(req.id, {
-        content: [{ type: "text", text: "Active subscription required to use MCP tools" }],
-        isError: true,
-      })
+    return textResult(
+      req.id,
+      `Active subscription required to use MCP tools (signed in as ${user.email}). If you subscribed on a different Liftosaur account, disconnect Liftosaur in your AI client and reconnect with that account.`,
+      { isError: true }
     );
   }
 
-  const result = await McpToolExecutor_execute(toolName, args, userId, user, di);
+  // No try/catch here on purpose: the executor returns tool errors for all anticipated argument
+  // problems, so anything that still throws is a genuine server bug — let it propagate to the router,
+  // which reports it to Rollbar and responds with a sanitized 500 (no internal exception text leaks).
+  const result = await McpToolExecutor_execute(toolName, args, userId, user, deviceId, di);
   if (!result.success) {
     di.log.log(`[MCP] ${toolName} -> error: ${result.error.message}`);
     let errorText = result.error.message;
@@ -348,16 +337,12 @@ async function handleToolCall(
       toolName === "create_program" || toolName === "update_program" || toolName === "run_playground"
         ? "\n\nHint: If you haven't read the Liftoscript reference yet, call get_liftoscript_reference first."
         : "";
-    return mcpJson(
-      200,
-      jsonRpcResponse(req.id, {
-        content: [{ type: "text", text: `${errorText}${hint}` }],
-        isError: true,
-      })
-    );
+    return textResult(req.id, `${errorText}${hint}`, { isError: true });
   }
 
   const text = typeof result.data === "string" ? result.data : JSON.stringify(result.data);
   di.log.log(`[MCP] ${toolName} -> ok:\n${text}`);
-  return mcpJson(200, jsonRpcResponse(req.id, { content: [{ type: "text", text }] }));
+  const structuredContent =
+    typeof result.data === "object" && result.data != null && !Array.isArray(result.data) ? result.data : { text };
+  return mcpJson(200, jsonRpcResponse(req.id, { content: [{ type: "text", text }], structuredContent }));
 }

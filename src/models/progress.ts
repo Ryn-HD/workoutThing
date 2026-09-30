@@ -4,20 +4,23 @@ import {
   Exercise_getIsUnilateral,
   Exercise_getWarmupSets,
   Exercise_toKey,
+  Exercise_eq,
 } from "./exercise";
 import {
   Reps_findNextEntryAndSet,
   Reps_isEmptyOrFinished,
   Reps_isCompleted,
   Reps_isEmpty,
-  Reps_isFinished,
   Reps_isAmrap,
   Reps_setType,
 } from "./set";
 import {
   Weight_build,
+  Weight_buildAny,
   Weight_eq,
   Weight_lt,
+  Weight_gt,
+  Weight_multiply,
   Weight_increment,
   Weight_isPct,
   Weight_buildPct,
@@ -48,9 +51,13 @@ import {
   Program_getProgramDay,
   Program_getProgramDayUsedExercises,
   Program_getProgramExerciseForKeyAndDay,
+  Program_getAllProgramExercisesWithType,
   Program_createEmptyProgram,
   Program_evaluate,
   Program_runAllFinishDayScripts,
+  Program_getDayExercisesInOrder,
+  Program_getDayData,
+  Program_nextHistoryEntry,
 } from "./program";
 import { IState, updateProgress, updateState } from "./state";
 import {
@@ -70,16 +77,19 @@ import {
   IStats,
   IProgram,
   IStorage,
+  IProgramExerciseWarmupSet,
 } from "../types";
-import { NativeTimerBridge_startTimer, NativeTimerBridge_stopTimer } from "../utils/nativeTimerBridge";
+import { INativeEffect } from "./nativeEffects";
 import { SendMessage_print } from "../utils/sendMessage";
 import { Subscriptions_hasSubscription } from "../utils/subscriptions";
-import { IPercentage } from "../types";
+import { IPercentage, IScriptErrorHandler, ITimedSetSide } from "../types";
+import { TimedSet_open, TimedSet_recordedFor } from "./timedSet";
 import {
   History_workoutTime,
   History_createCustomEntry,
   History_resumeWorkout,
   History_finishProgramDay,
+  History_findLastEntryForExerciseType,
 } from "./history";
 import { CollectionUtils_compact, CollectionUtils_findIndexReverse } from "../utils/collection";
 import { ILiftoscriptEvaluatorUpdate } from "../liftoscriptEvaluator";
@@ -91,57 +101,25 @@ import {
   PlannerProgramExercise_getUpdateScript,
   PlannerProgramExercise_getState,
   PlannerProgramExercise_currentEvaluatedSetVariationIndex,
+  PlannerProgramExercise_currentExerciseVariationIndex,
   PlannerProgramExercise_currentDescriptionIndex,
   PlannerProgramExercise_currentSetVariationIndex,
   PlannerProgramExercise_programWarmups,
 } from "../pages/planner/models/plannerProgramExercise";
 import { UidFactory_generateUid } from "../utils/generator";
 import { ProgramSet_getEvaluatedWeight } from "./programSet";
-import { Stats_getCurrentMovingAverageBodyweight } from "./stats";
+import { Stats_getCurrentMovingAverageBodyweight, Stats_getEmpty } from "./stats";
 import { IChangeAMRAPAction, ICompleteSetAction } from "../ducks/reducer";
 import {
   LiveActivityManager_updateProgressLiveActivity,
   LiveActivityManager_updateLiveActivityForNextEntry,
 } from "../utils/liveActivityManager";
 import { ProgramExercise_hasUserPromptedVars } from "./programExercise";
+import type { IScriptFunctions, IScriptBindings } from "../liftoscriptFns";
 import deepmerge from "deepmerge";
 import { Dialog_alert } from "../utils/dialog";
 
-export interface IScriptBindings {
-  day: number;
-  week: number;
-  dayInWeek: number;
-  originalWeights: (IWeight | IPercentage)[];
-  weights: (IWeight | undefined)[];
-  completedWeights: (IWeight | undefined)[];
-  rm1: IWeight;
-  reps: (number | undefined)[];
-  minReps: (number | undefined)[];
-  amraps: (number | undefined)[];
-  askweights: (number | undefined)[];
-  logrpes: (number | undefined)[];
-  timers: (number | undefined)[];
-  setTime: (number | undefined)[];
-  completedSetTime: (number | undefined)[];
-  RPE: (number | undefined)[];
-  completedRPE: (number | undefined)[];
-  completedReps: (number | undefined)[];
-  completedRepsLeft: (number | undefined)[];
-  isCompleted: (0 | 1)[];
-  w: (IWeight | undefined)[];
-  r: (number | undefined)[];
-  mr: (number | undefined)[];
-  cr: (number | undefined)[];
-  cw: (IWeight | undefined)[];
-  ns: number;
-  programNumberOfSets: number;
-  numberOfSets: number;
-  completedNumberOfSets: number;
-  setVariationIndex: number;
-  bodyweight: IWeight;
-  descriptionIndex: number;
-  setIndex: number;
-}
+export type { IScriptBindings } from "../liftoscriptFns";
 
 export interface IScriptFnContext {
   prints: (number | IWeight | IPercentage)[][];
@@ -159,50 +137,6 @@ export interface IScriptFinishContext {
 
 export interface IScriptUpdateContext {
   equipment?: IEquipment;
-}
-
-export interface IScriptFunctions {
-  roundWeight: (num: IWeight, context: IScriptFnContext) => IWeight;
-  roundConvertWeight: (num: IWeight, context: IScriptFnContext) => IWeight;
-  calculateTrainingMax: (weight: IWeight, reps: number, context: IScriptFnContext) => IWeight;
-  calculate1RM: (weight: IWeight, reps: number, context: IScriptFnContext) => IWeight;
-  rpeMultiplier: (reps: number, rpe: number, context: IScriptFnContext) => number;
-  floor(num: number): number;
-  floor(num: IWeight): IWeight;
-  ceil(num: number): number;
-  ceil(num: IWeight): IWeight;
-  round(num: number): number;
-  round(num: IWeight): IWeight;
-  sum(
-    ...vals: (number | number[] | IWeight | IWeight[] | IPercentage | IPercentage[])[]
-  ): number | IWeight | IPercentage;
-  min(
-    ...vals: (number | number[] | IWeight | IWeight[] | IPercentage | IPercentage[])[]
-  ): number | IWeight | IPercentage;
-  max(
-    ...vals: (number | number[] | IWeight | IWeight[] | IPercentage | IPercentage[])[]
-  ): number | IWeight | IPercentage;
-  zeroOrGte(a: number[] | IWeight[], b: number[] | IWeight[]): boolean;
-  print(...args: unknown[]): (typeof args)[0];
-  increment(val: IWeight, context: IScriptFnContext): IWeight;
-  increment(val: IPercentage, context: IScriptFnContext): IPercentage;
-  increment(val: number, context: IScriptFnContext): number;
-  decrement(val: IWeight, context: IScriptFnContext): IWeight;
-  decrement(val: IPercentage, context: IScriptFnContext): IPercentage;
-  decrement(val: number, context: IScriptFnContext): number;
-  sets(
-    from: number,
-    to: number,
-    minReps: number,
-    reps: number,
-    isAmrap: number,
-    weight: IWeight | IPercentage | number,
-    timer: number,
-    rpe: number,
-    logRpe: number,
-    context: IScriptFnContext,
-    bindings: IScriptBindings
-  ): number;
 }
 
 export interface IProgressWorkoutStep {
@@ -439,34 +373,14 @@ export function Progress_getNextWorkoutStep(
   };
 }
 
-function floor(num: number): number;
-function floor(num: IWeight): IWeight;
-function floor(num: IWeight | number): IWeight | number {
-  if (num == null) {
-    return 0;
-  }
-  return typeof num === "number" ? Math.floor(num) : Weight_build(Math.floor(num.value), num.unit);
-}
-
-function ceil(num: number): number;
-function ceil(num: IWeight): IWeight;
-function ceil(num: IWeight | number): IWeight | number {
-  if (num == null) {
-    return 0;
-  }
-  return typeof num === "number" ? Math.ceil(num) : Weight_build(Math.ceil(num.value), num.unit);
-}
-
-function round(num: number): number;
-function round(num: IWeight): IWeight;
-function round(num: IWeight | number): IWeight | number {
-  if (num == null) {
-    return 0;
-  }
-  return typeof num === "number" ? Math.round(num) : Weight_build(Math.round(num.value), num.unit);
-}
-
 type IScriptArg = number | IWeight | IPercentage;
+
+function applyRounding(num: IScriptArg | undefined, rounder: (n: number) => number): IScriptArg {
+  if (num == null) {
+    return 0;
+  }
+  return typeof num === "number" ? rounder(num) : Weight_buildAny(rounder(num.value), num.unit);
+}
 
 function isScriptValue(v: unknown): v is IScriptArg {
   return typeof v === "number" || Weight_is(v) || Weight_isPct(v);
@@ -488,7 +402,7 @@ function flattenScriptArgs(args: unknown[]): IScriptArg[] {
   return result;
 }
 
-function sum(...args: unknown[]): IWeight | IPercentage | number {
+function sum(args: unknown[]): IWeight | IPercentage | number {
   const flat = flattenScriptArgs(args);
   if (flat.length === 0) {
     return 0;
@@ -496,7 +410,7 @@ function sum(...args: unknown[]): IWeight | IPercentage | number {
   return flat.reduce<IScriptArg>((acc, a) => Weight_op(undefined, acc, a, (x, y) => x + y), 0);
 }
 
-function min(...args: unknown[]): IWeight | IPercentage | number {
+function min(args: unknown[]): IWeight | IPercentage | number {
   const flat = flattenScriptArgs(args);
   if (flat.length === 0) {
     return 0;
@@ -504,7 +418,7 @@ function min(...args: unknown[]): IWeight | IPercentage | number {
   return flat.reduce<IScriptArg>((acc, a) => (Weight_lt(a, acc) ? a : acc), flat[0]);
 }
 
-function max(...args: unknown[]): IWeight | IPercentage | number {
+function max(args: unknown[]): IWeight | IPercentage | number {
   const flat = flattenScriptArgs(args);
   if (flat.length === 0) {
     return 0;
@@ -512,7 +426,7 @@ function max(...args: unknown[]): IWeight | IPercentage | number {
   return flat.reduce<IScriptArg>((acc, a) => (Weight_lt(acc, a) ? a : acc), flat[0]);
 }
 
-function zeroOrGte(a: IWeight[] | number[], b: IWeight[] | number[]): boolean {
+function zeroOrGte(a: (IWeight | number | undefined | null)[], b: (IWeight | number | undefined | null)[]): boolean {
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
     const aVal = a[i];
     const bVal = b[i];
@@ -549,6 +463,7 @@ export function Progress_createEmptyScriptBindings(
     timers: [],
     setTime: [],
     completedSetTime: [],
+    completedSetTimeLeft: [],
     w: [],
     r: [],
     cr: [],
@@ -559,6 +474,7 @@ export function Progress_createEmptyScriptBindings(
     completedNumberOfSets: 0,
     ns: 0,
     setVariationIndex: 1,
+    exerciseVariationIndex: 1,
     descriptionIndex: 1,
     bodyweight: Weight_build(0, settings.units),
     setIndex: 1,
@@ -574,7 +490,8 @@ export function Progress_createScriptBindings(
   bodyweight: IWeight | undefined,
   setIndex?: number,
   setVariationIndex?: number,
-  descriptionIndex?: number
+  descriptionIndex?: number,
+  exerciseVariationIndex?: number
 ): IScriptBindings {
   const bindings = Progress_createEmptyScriptBindings(dayData, settings, entry.exercise);
   for (const set of entry.sets) {
@@ -593,6 +510,7 @@ export function Progress_createScriptBindings(
     bindings.timers.push(set.timer);
     bindings.setTime.push(set.setTimer);
     bindings.completedSetTime.push(set.completedSetTimer);
+    bindings.completedSetTimeLeft.push(set.completedSetTimerLeft);
     bindings.isCompleted.push(set.isCompleted ? 1 : 0);
   }
   bindings.w = bindings.weights;
@@ -606,15 +524,17 @@ export function Progress_createScriptBindings(
   bindings.completedNumberOfSets = entry.sets.filter((s) => s.isCompleted).length;
   bindings.setIndex = setIndex ?? 1;
   bindings.setVariationIndex = setVariationIndex ?? 1;
+  bindings.exerciseVariationIndex = exerciseVariationIndex ?? 1;
   bindings.descriptionIndex = descriptionIndex ?? 1;
   bindings.bodyweight = bodyweight ?? Weight_build(0, settings.units);
   return bindings;
 }
 
 export function Progress_createScriptFunctions(settings: ISettings): IScriptFunctions {
-  function increment(vals: number, context: IScriptFnContext): number;
-  function increment(vals: IWeight, context: IScriptFnContext): IWeight;
-  function increment(vals: IPercentage, context: IScriptFnContext): IPercentage;
+  function toWeight(value: IWeight | number): IWeight {
+    return Weight_is(value) ? value : Weight_build(value, settings.units);
+  }
+
   function increment(vals: IWeight | IPercentage | number, context: IScriptFnContext): IWeight | IPercentage | number {
     if (typeof vals === "number") {
       const weight = Weight_build(vals, context.unit);
@@ -626,9 +546,6 @@ export function Progress_createScriptFunctions(settings: ISettings): IScriptFunc
     }
   }
 
-  function decrement(vals: number, context: IScriptFnContext): number;
-  function decrement(vals: IWeight, context: IScriptFnContext): IWeight;
-  function decrement(vals: IPercentage, context: IScriptFnContext): IPercentage;
   function decrement(vals: IWeight | IPercentage | number, context: IScriptFnContext): IWeight | IPercentage | number {
     if (typeof vals === "number") {
       const weight = Weight_build(vals, context.unit);
@@ -641,74 +558,44 @@ export function Progress_createScriptFunctions(settings: ISettings): IScriptFunc
   }
 
   const fns: IScriptFunctions = {
-    roundWeight: (num, context) => {
-      if (!Weight_is(num)) {
-        num = Weight_build(num, settings.units);
-      }
+    roundWeight: ([num], context) => {
       const unit = Equipment_getUnitForExerciseType(settings, context?.exerciseType);
-      return Weight_round(num, settings, unit ?? settings.units, context?.exerciseType);
+      return Weight_round(toWeight(num), settings, unit ?? settings.units, context?.exerciseType);
     },
-    roundConvertWeight: (num, context) => {
-      if (!Weight_is(num)) {
-        num = Weight_build(num, settings.units);
-      }
+    roundConvertWeight: ([num], context) => {
       const unit = Equipment_getUnitForExerciseType(settings, context?.exerciseType);
-      return Weight_roundConvertTo(num, settings, unit ?? settings.units, context?.exerciseType);
+      return Weight_roundConvertTo(toWeight(num), settings, unit ?? settings.units, context?.exerciseType);
     },
-    calculateTrainingMax: (weight, reps, context) => {
-      if (!Weight_is(weight)) {
-        weight = Weight_build(weight, settings.units);
-      }
-      return Weight_getTrainingMax(weight, reps || 0, settings);
+    calculateTrainingMax: ([weight, reps]) => {
+      return Weight_getTrainingMax(toWeight(weight), reps || 0, settings);
     },
-    calculate1RM: (weight, reps, context) => {
-      if (!Weight_is(weight)) {
-        weight = Weight_build(weight, settings.units);
-      }
-      return Weight_getOneRepMax(weight, reps);
+    calculate1RM: ([weight, reps]) => {
+      return Weight_getOneRepMax(toWeight(weight), reps);
     },
-    rpeMultiplier: (repsRaw, rpeRawOrContext, context) => {
-      const reps = Weight_is(repsRaw) ? repsRaw.value : typeof repsRaw === "number" ? repsRaw : 1;
-      const rpe =
-        typeof rpeRawOrContext === "number" && context != null
-          ? Weight_is(rpeRawOrContext)
-            ? rpeRawOrContext.value
-            : typeof rpeRawOrContext === "number"
-              ? rpeRawOrContext
-              : 10
-          : 10;
+    rpeMultiplier: ([repsRaw, rpeRaw]) => {
+      const reps = Weight_is(repsRaw) ? repsRaw.value : repsRaw;
+      const rpe = rpeRaw == null ? 10 : Weight_is(rpeRaw) ? rpeRaw.value : rpeRaw;
       return Weight_rpeMultiplier(reps, rpe);
     },
-    floor,
-    ceil,
-    round,
-    sum,
-    min,
-    max,
-    increment,
-    decrement,
-    zeroOrGte,
-    print: (...fnArgs) => {
-      fnArgs.pop();
-      const context = fnArgs.pop() as IScriptFnContext;
-      const args = [...fnArgs.flat()] as (number | IWeight | IPercentage)[];
+    floor: ([num]) => applyRounding(num, Math.floor),
+    ceil: ([num]) => applyRounding(num, Math.ceil),
+    round: ([num]) => applyRounding(num, Math.round),
+    sum: (args) => sum(args),
+    min: (args) => min(args),
+    max: (args) => max(args),
+    increment: ([vals], context) => increment(vals, context),
+    decrement: ([vals], context) => decrement(vals, context),
+    zeroOrGte: ([a, b]) => zeroOrGte(a, b),
+    print: (args, context) => {
+      // flat() without filtering: booleans must survive so `if (print(cond))` keeps working.
+      // Liftoscript has no null — undefined values (e.g. completedReps of skipped sets) become 0,
+      // otherwise they'd serialize to null and fail storage validation.
+      const flatArgs = [...args.flat()].map((arg) => arg ?? 0) as (number | IWeight | IPercentage)[];
       context.prints = context.prints || [];
-      context.prints.push(args);
-      return args[0];
+      context.prints.push(flatArgs);
+      return flatArgs[0];
     },
-    sets(
-      from: number,
-      to: number,
-      minReps: number,
-      reps: number,
-      isAmrap: number,
-      weight: IWeight | IPercentage | number,
-      timer: number,
-      rpe: number,
-      logRpe: number,
-      context: IScriptFnContext,
-      bindings: IScriptBindings
-    ): number {
+    sets: ([from, to, minReps, reps, isAmrap, weight, timer, rpe, logRpe], context, bindings) => {
       for (let i = 0; i < bindings.numberOfSets; i++) {
         if (i >= from - 1 && i < to) {
           const weightValue = Weight_convertToWeight(bindings.rm1, weight, context.unit);
@@ -728,16 +615,19 @@ export function Progress_createScriptFunctions(settings: ISettings): IScriptFunc
   return fns;
 }
 
-export function Progress_isCurrent(progress: IHistoryRecord | undefined): boolean {
+export function Progress_isCurrent(progress: Pick<IHistoryRecord, "id"> | undefined): boolean {
   return progress?.id === 0;
 }
 
 export function Progress_scheduleTimerNotification(
+  effects: INativeEffect[],
   progress: IHistoryRecord,
   entryIndex: number,
   mode: IProgressMode,
   settings: ISettings,
-  duration: number
+  duration: number,
+  timerSinceMs: number,
+  timerSeconds: number
 ): void {
   const title = "It's time for the next set!";
   let subtitle = "";
@@ -764,20 +654,26 @@ export function Progress_scheduleTimerNotification(
     }
   }
   SendMessage_print(`Scheduling timer notification, volume: ${settings.volume}`);
-  NativeTimerBridge_startTimer({
-    duration,
-    title,
-    subtitleHeader,
-    subtitle,
-    bodyHeader,
-    body,
-    ignoreDoNotDisturb: !!settings.ignoreDoNotDisturb,
-    vibration: !!settings.vibration,
-    volume: settings.volume,
+  effects.push({
+    type: "startTimer",
+    params: {
+      duration,
+      title,
+      subtitleHeader,
+      subtitle,
+      bodyHeader,
+      body,
+      ignoreDoNotDisturb: !!settings.ignoreDoNotDisturb,
+      vibration: !!settings.vibration,
+      volume: settings.volume,
+      timerSinceMs,
+      timerSeconds,
+    },
   });
 }
 
 export function Progress_startTimer(
+  effects: INativeEffect[],
   progress: IHistoryRecord,
   timestamp: number,
   mode: IProgressMode,
@@ -818,11 +714,11 @@ export function Progress_startTimer(
     // aborts on a non-positive interval.
     const timerForPush = timer - Math.round((Date.now() - timestamp) / 1000);
     if (timerForPush > 0) {
-      Progress_scheduleTimerNotification(progress, entryIndex, mode, settings, timerForPush);
+      Progress_scheduleTimerNotification(effects, progress, entryIndex, mode, settings, timerForPush, timestamp, timer);
     } else {
       // Backdated start that's already overrun: schedule nothing, but clear any earlier pending
       // notification so a stale one doesn't fire.
-      NativeTimerBridge_stopTimer();
+      effects.push({ type: "stopTimer" });
     }
   }
   const newProgress: IHistoryRecord = {
@@ -838,6 +734,7 @@ export function Progress_startTimer(
 }
 
 function Progress_startRestAfterSet(
+  effects: INativeEffect[],
   progress: IHistoryRecord,
   mode: IProgressMode,
   entryIndex: number,
@@ -848,7 +745,7 @@ function Progress_startRestAfterSet(
   const nextStep = mode === "workout" ? Progress_getNextWorkoutStep(progress, entryIndex, setIndex) : undefined;
   if (nextStep != null && !nextStep.shouldStartTimer) {
     // No rest between myo/superset sets: clear any timer left running from the previous set.
-    return Progress_stopTimer(progress);
+    return Progress_stopTimer(effects, progress);
   }
   // A myo set's own timer is the short mini-set rest. When the rest leads into a different exercise
   // (superset partner after the activation, or the next exercise after the last mini), rest for that one.
@@ -863,7 +760,17 @@ function Progress_startRestAfterSet(
       settings.timers.workout ??
       undefined;
   }
-  return Progress_startTimer(progress, new Date().getTime(), mode, entryIndex, setIndex, settings, subscription, timer);
+  return Progress_startTimer(
+    effects,
+    progress,
+    new Date().getTime(),
+    mode,
+    entryIndex,
+    setIndex,
+    settings,
+    subscription,
+    timer
+  );
 }
 
 export function Progress_getNextSupersetEntry(
@@ -958,6 +865,7 @@ export function Progress_getNextEntryIndex(
 }
 
 export function Progress_updateTimer(
+  effects: INativeEffect[],
   progress: IHistoryRecord,
   program: IProgram | undefined,
   newTimer: number,
@@ -971,6 +879,7 @@ export function Progress_updateTimer(
   const timerForPush = newTimer - Math.round((Date.now() - timerSince) / 1000);
   if (timerForPush > 0) {
     const newProgress = Progress_startTimer(
+      effects,
       progress,
       progress.timerSince || Date.now(),
       progress.timerMode || "workout",
@@ -983,6 +892,7 @@ export function Progress_updateTimer(
     );
     if (!skipLiveActivityUpdate) {
       LiveActivityManager_updateProgressLiveActivity(
+        effects,
         program,
         progress,
         settings,
@@ -995,7 +905,7 @@ export function Progress_updateTimer(
     }
     return newProgress;
   } else {
-    NativeTimerBridge_stopTimer();
+    effects.push({ type: "stopTimer" });
     const newProgress = {
       ...progress,
       timer: Math.max(0, newTimer),
@@ -1006,6 +916,7 @@ export function Progress_updateTimer(
     };
     if (!skipLiveActivityUpdate) {
       LiveActivityManager_updateProgressLiveActivity(
+        effects,
         program,
         progress,
         settings,
@@ -1043,8 +954,8 @@ export function Progress_maybeApplySuperset(
   return progress;
 }
 
-export function Progress_stopTimer(progress: IHistoryRecord): IHistoryRecord {
-  NativeTimerBridge_stopTimer();
+export function Progress_stopTimer(effects: INativeEffect[], progress: IHistoryRecord): IHistoryRecord {
+  effects.push({ type: "stopTimer" });
   return Progress_stopTimerPure(progress);
 }
 
@@ -1084,16 +995,8 @@ export function Progress_isCompletedSet(entry: IHistoryEntry): boolean {
   return Reps_isCompleted(entry.sets);
 }
 
-export function Progress_isFullyFinishedSet(progress: IHistoryRecord): boolean {
-  return progress.entries.every((entry) => Progress_isFinishedSet(entry));
-}
-
 export function Progress_isFullyEmptySet(progress: IHistoryRecord): boolean {
   return progress.entries.every((entry) => Reps_isEmpty(entry.sets));
-}
-
-export function Progress_isFinishedSet(entry: IHistoryEntry): boolean {
-  return Reps_isFinished(entry.sets);
 }
 
 export function Progress_isFullyEmptyOrFinishedSet(progress: IHistoryRecord): boolean {
@@ -1131,13 +1034,33 @@ export function Progress_showUpdateDate(progress: IHistoryRecord, date: string, 
   };
 }
 
-export function Progress_getColorToSupersetGroup(progress: IHistoryRecord): Partial<Record<string, IHistoryEntry[]>> {
+// Shared with the program grid: a superset is the same grouping whether you are reading a program or
+// performing it, so it gets the same color in both.
+export const Progress_supersetColors = ["red", "blue", "green", "purple"];
+
+export function Progress_getColorToSupersetGroup(
+  progress: Pick<IHistoryRecord, "entries">
+): Partial<Record<string, IHistoryEntry[]>> {
   const groups = Progress_getSupersetGroups(progress.entries);
-  const colors = ["red", "blue", "green", "purple"];
   let index = 0;
   return ObjectUtils_entriesNonnull(groups).reduce<Partial<Record<string, IHistoryEntry[]>>>((memo, [, group]) => {
-    const color = colors[index % colors.length];
+    const color = Progress_supersetColors[index % Progress_supersetColors.length];
     memo[color] = group;
+    index += 1;
+    return memo;
+  }, {});
+}
+
+export function Progress_getSupersetToColor(entries: IHistoryEntry[]): Partial<Record<string, string>> {
+  const groups = Progress_getSupersetGroups(entries);
+  let index = 0;
+  return ObjectUtils_entriesNonnull(groups).reduce<Partial<Record<string, string>>>((memo, [superset, group]) => {
+    const color = Progress_supersetColors[index % Progress_supersetColors.length];
+    // Keep color assignment in lockstep with Progress_getColorToSupersetGroup (which advances the
+    // index for every group), but a lone leftover entry shouldn't get a pairing line.
+    if (group.length > 1) {
+      memo[superset] = color;
+    }
     index += 1;
     return memo;
   }, {});
@@ -1260,6 +1183,7 @@ export function Progress_runUpdateScriptForEntry(
   const state = ObjectUtils_clone(PlannerProgramExercise_getState(programExercise));
   const setVariationIndex = PlannerProgramExercise_currentEvaluatedSetVariationIndex(programExercise);
   const descriptionIndex = PlannerProgramExercise_currentDescriptionIndex(programExercise);
+  const exerciseVariationIndex = PlannerProgramExercise_currentExerciseVariationIndex(programExercise);
   const bindings = Progress_createScriptBindings(
     dayData,
     entry,
@@ -1268,7 +1192,8 @@ export function Progress_runUpdateScriptForEntry(
     Stats_getCurrentMovingAverageBodyweight(stats, settings),
     setIndex + 1,
     setVariationIndex,
-    descriptionIndex
+    descriptionIndex,
+    exerciseVariationIndex
   );
   const fnContext: IScriptFnContext = { exerciseType: exercise, unit: settings.units, prints: [] };
   const runner = new ScriptRunner(
@@ -1343,7 +1268,8 @@ export function Progress_runUpdateScript(
   setIndex: number,
   mode: IProgressMode,
   settings: ISettings,
-  stats: IStats
+  stats: IStats,
+  onError?: IScriptErrorHandler
 ): IHistoryRecord {
   if (mode === "warmup") {
     return aProgress;
@@ -1363,7 +1289,12 @@ export function Progress_runUpdateScript(
   } catch (error) {
     const e = error as Error;
     console.error(e);
-    Dialog_alert(`Error during executing 'update: custom()' script for ${programExercise.fullName}: ${e.message}`);
+    const message = `Error during executing 'update: custom()' script for ${programExercise.fullName}: ${e.message}`;
+    if (onError) {
+      onError(message);
+    } else {
+      Dialog_alert(message);
+    }
     newEntry = entry;
   }
   const progress = lf(aProgress).p("entries").i(entryIndex).set(newEntry);
@@ -1387,9 +1318,15 @@ export function Progress_applyBindings(
     "originalWeights",
     "askweights",
   ] as const;
-  const entry = ObjectUtils_clone(oldEntry);
+  // Deep-clone ONLY `sets` (the part the loop below mutates) and shallow-spread the rest of the entry,
+  // so `exercise`/`warmupSets` keep their reference. The previous whole-entry ObjectUtils_clone gave
+  // entry.exercise a value-identical NEW reference on every set completion, which defeated the
+  // O(per-exercise-history) memos in the graph/history workout cards downstream.
   const lastCompletedIndex = CollectionUtils_findIndexReverse(bindings.completedReps, (r) => r != null) + 1;
-  entry.sets = entry.sets.slice(0, Math.max(lastCompletedIndex, bindings.numberOfSets, 0));
+  const entry: IHistoryEntry = {
+    ...oldEntry,
+    sets: ObjectUtils_clone(oldEntry.sets.slice(0, Math.max(lastCompletedIndex, bindings.numberOfSets, 0))),
+  };
   for (const key of keys) {
     for (let i = 0; i < bindings[key].length; i += 1) {
       if (entry.sets[i] == null) {
@@ -1504,27 +1441,27 @@ export function Progress_completeSet(
   setIndex: number,
   mode: IProgressMode,
   hasUserPromptedVars: boolean,
-  settings: ISettings
+  settings: ISettings,
+  isPlayground?: boolean
 ): IHistoryRecord {
   const entry = progress.entries[entryIndex];
   const set = mode === "warmup" ? entry.warmupSets[setIndex] : entry.sets[setIndex];
-  const setTimerModal = progress.setTimer;
+  const setTimerModal = Progress_getActiveSetTimer(progress);
   const hasOpenSetTimer =
     setTimerModal != null && setTimerModal.entryIndex === entryIndex && setTimerModal.setIndex === setIndex;
   // The first "complete" on a timed set starts its clock (opens the set-timer modal) instead of
   // completing it — the actual completion happens on the second signal (Stop & record), mirroring
   // how the AMRAP modal defers completion. See Progress_completeSetAction for the recording step.
-  if (
-    mode === "workout" &&
-    set?.setTimer != null &&
-    !set.isCompleted &&
-    !hasOpenSetTimer &&
-    set.completedSetTimer == null
-  ) {
-    return {
-      ...progress,
-      setTimer: { entryIndex, setIndex, startedAt: Date.now(), nonce: Date.now() },
-    };
+  if (mode === "workout" && set?.setTimer != null && !set.isCompleted && !hasOpenSetTimer) {
+    const now = Date.now();
+    const opened = TimedSet_open(progress, entryIndex, setIndex, settings, {
+      getReadySeconds: isPlayground ? 0 : (settings.timers.getReady ?? 0),
+      startedAt: now,
+      nonce: now,
+    });
+    if (opened != null) {
+      return { ...progress, setTimer: undefined, setTimerGetReady: undefined, ...opened };
+    }
   }
   const shouldLogRpe = !!set?.logRpe;
   const shouldPromptUserVars = hasUserPromptedVars && Progress_hasLastUnfinishedSet(entry);
@@ -1586,6 +1523,85 @@ export function Progress_getFirstIncompleteWorkoutSet(
   return undefined;
 }
 
+export type IActiveSetTimer =
+  | {
+      phase: "getReady";
+      entryIndex: number;
+      setIndex: number;
+      setId: string;
+      id: string;
+      side: ITimedSetSide;
+      startedAt: number;
+      getReady: number;
+      nonce?: number;
+    }
+  | {
+      phase: "work";
+      entryIndex: number;
+      setIndex: number;
+      setId: string;
+      id: string;
+      side: ITimedSetSide;
+      startedAt: number;
+      nonce?: number;
+      keepTiming?: boolean;
+    };
+
+// A watch on a cached bundle writes a phase with no setId, at the same storage version, so the migration
+// never reaches it — such a phase falls back to indices rather than being rejected as unresolvable.
+export function Progress_resolveTimedSetPhase(
+  progress: IHistoryRecord,
+  phase: { entryIndex: number; setIndex: number; setId?: string } | undefined
+): ISet | undefined {
+  if (phase == null) {
+    return undefined;
+  }
+  const set = progress.entries[phase.entryIndex]?.sets[phase.setIndex];
+  if (set == null) {
+    return undefined;
+  }
+  return phase.setId == null || set.id === phase.setId ? set : undefined;
+}
+
+// `setTimer` wins when both fields are set: version merging is field-by-field, so a merge can legally
+// produce both, and preferring the later phase is the correct recovery.
+export function Progress_getActiveSetTimer(progress: IHistoryRecord): IActiveSetTimer | undefined {
+  const stm = progress.setTimer;
+  if (stm != null && Progress_resolveTimedSetPhase(progress, stm) != null) {
+    return { phase: "work", ...stm, side: stm.side ?? "bilateral" };
+  }
+  const getReady = progress.setTimerGetReady;
+  if (getReady != null && Progress_resolveTimedSetPhase(progress, getReady) != null) {
+    return { phase: "getReady", ...getReady, side: getReady.side ?? "bilateral" };
+  }
+  return undefined;
+}
+
+export function Progress_startSetTimerWork(progress: IHistoryRecord, startedAt: number): IHistoryRecord {
+  const getReady = progress.setTimerGetReady;
+  // The setTimer != null half is not redundant: a merge can leave both fields set, and a stale "Start now"
+  // must not restart a running clock or retarget it at the countdown's set.
+  if (getReady == null || progress.setTimer != null) {
+    return progress;
+  }
+  return {
+    ...progress,
+    setTimerGetReady: undefined,
+    setTimer: {
+      entryIndex: getReady.entryIndex,
+      setIndex: getReady.setIndex,
+      setId: getReady.setId,
+      id: getReady.id,
+      side: getReady.side,
+      startedAt,
+      // Reusing the nonce is what stops the presenter re-navigating on the flip.
+      nonce: getReady.nonce,
+    },
+  };
+}
+
+// Conditions must mirror the auto-advance branch of Progress_isSetTimerCheckDue, or the cue fires for a
+// rest that never rolls into a work window.
 export function Progress_getNextTimedSet(
   progress: IHistoryRecord
 ): { entryIndex: number; setIndex: number } | undefined {
@@ -1637,18 +1653,46 @@ function Progress_getNextTimedSetInSuperset(
 // Moves the set-timer banner to the next timed set (or closes it if there's none) and clears any rest
 // timer. `freshNonce` controls whether the workout screen re-opens the banner: keep the nonce for an
 // in-place advance (EMOM, banner already open), use a fresh one after rest (banner was closed).
-export function Progress_advanceTimedSet(progress: IHistoryRecord, freshNonce: boolean): IHistoryRecord {
+// An `auto` set's countdown comes OUT of its rest rather than being added in front of it, so the circuit's
+// cadence is unchanged: `45s|15s auto` with a 5s countdown rests 10s, then counts down 5. Clamping to the
+// rest is what makes a zero-rest EMOM produce no countdown at all.
+export function Progress_getAutoGetReadySeconds(set: ISet | undefined, settings: ISettings): number {
+  if (!set?.auto) {
+    return 0;
+  }
+  return Math.min(settings.timers.getReady ?? 0, set.timer ?? 0);
+}
+
+// `startedAt` is when the previous phase actually ended, not when we noticed. Reading the clock here
+// instead would hand a late reconcile a full fresh countdown and stretch the circuit past its cadence.
+export function Progress_advanceTimedSet(
+  effects: INativeEffect[],
+  progress: IHistoryRecord,
+  settings: ISettings,
+  freshNonce: boolean,
+  getReadySeconds: number = 0,
+  startedAt?: number
+): IHistoryRecord {
+  const phaseStartedAt = startedAt ?? Date.now();
   const next = Progress_getNextTimedSet(progress);
   const prevNonce = progress.setTimer?.nonce;
   // Advancing ends the current (auto) rest — cancel its pending "rest is over" notification so it doesn't
   // fire during the next set's clock.
   if (progress.timerSince != null) {
-    NativeTimerBridge_stopTimer();
+    effects.push({ type: "stopTimer" });
   }
   // Follow the clock to the next set's exercise so the shown exercise tracks the active set (EMOM/Tabata can
   // roll into a different exercise). currentEntryIndex syncs, so every client's view moves with it.
   const nextEntryIndex = next != null ? next.entryIndex : progress.currentEntryIndex;
   const entryChanged = nextEntryIndex !== (progress.currentEntryIndex ?? 0);
+  const opened =
+    next != null
+      ? TimedSet_open(progress, next.entryIndex, next.setIndex, settings, {
+          getReadySeconds,
+          startedAt: phaseStartedAt,
+          nonce: freshNonce ? Date.now() : prevNonce,
+        })
+      : undefined;
   return {
     ...progress,
     timerSince: undefined,
@@ -1656,7 +1700,9 @@ export function Progress_advanceTimedSet(progress: IHistoryRecord, freshNonce: b
     timerMode: undefined,
     timerEntryIndex: undefined,
     timerSetIndex: undefined,
-    setTimer: next != null ? { ...next, startedAt: Date.now(), nonce: freshNonce ? Date.now() : prevNonce } : undefined,
+    setTimer: undefined,
+    setTimerGetReady: undefined,
+    ...opened,
     currentEntryIndex: nextEntryIndex,
     // The pager scrolls on a forceUpdateEntryIndex flip, not on currentEntryIndex alone (so swipes aren't
     // fought). Flip it when an auto-advance crosses into another exercise so the pager scrolls to follow.
@@ -1664,8 +1710,33 @@ export function Progress_advanceTimedSet(progress: IHistoryRecord, freshNonce: b
   };
 }
 
+export function Progress_handOffToOtherSide(
+  progress: IHistoryRecord,
+  entryIndex: number,
+  setIndex: number,
+  settings: ISettings,
+  endedAt: number,
+  nonce?: number,
+  isPlayground?: boolean
+): IHistoryRecord {
+  const set = progress.entries[entryIndex]?.sets[setIndex];
+  if (set == null) {
+    return progress;
+  }
+  const opened = TimedSet_open(progress, entryIndex, setIndex, settings, {
+    getReadySeconds: isPlayground ? 0 : (settings.timers.getReady ?? 0),
+    startedAt: set.auto ? endedAt : Date.now(),
+    nonce,
+  });
+  if (opened == null) {
+    return progress;
+  }
+  return { ...progress, setTimer: undefined, setTimerGetReady: undefined, ...opened };
+}
+
 // The single place that decides what happens after a timed set is recorded+completed from its clock.
 export function Progress_proceedAfterTimedSet(
+  effects: INativeEffect[],
   progress: IHistoryRecord,
   entryIndex: number,
   setIndex: number,
@@ -1685,25 +1756,44 @@ export function Progress_proceedAfterTimedSet(
     return { ...progress, setTimer: undefined };
   }
   const set = progress.entries[entryIndex]?.sets[setIndex];
+  // "Log & keep timing" records a set early but leaves its clock running to the target, so the recorded
+  // duration and the clock's end are different moments. Rest, the next EMOM window and any countdown all
+  // start from the clock's end, so a late reconcile resumes the cadence instead of restarting it.
+  const clockStartedAt = progress.setTimer?.startedAt;
+  const reachedTarget =
+    clockStartedAt != null &&
+    set?.setTimer != null &&
+    !set.isOverflowSetTimer &&
+    Date.now() - clockStartedAt >= set.setTimer * 1000;
+  const endedOffsetSeconds = reachedTarget ? set?.setTimer : set?.completedSetTimer;
+  const timedSetEndedAt =
+    clockStartedAt != null && endedOffsetSeconds != null ? clockStartedAt + endedOffsetSeconds * 1000 : Date.now();
   // EMOM-style: auto with no rest rolls straight into the next timed set in the same banner.
   if (set?.auto && (set.timer ?? 0) === 0) {
-    return Progress_advanceTimedSet(progress, false);
+    return Progress_advanceTimedSet(effects, progress, settings, false, 0, timedSetEndedAt);
   }
-  // Otherwise close the banner and start the deferred rest timer. Backdate its start to when the set
-  // should have ended (clock start + recorded duration) rather than "now", so reopening the app after
-  // the screen was locked past the target reconciles to the correct rest elapsed instead of resetting it.
-  let newProgress: IHistoryRecord = { ...progress, setTimer: undefined };
+  const autoGetReady = Progress_getAutoGetReadySeconds(set, settings);
+  // The countdown eats the whole rest (rest <= getReady), so there is no rest left to run - go straight into
+  // it, otherwise Progress_startTimer would clear the timer for a 0s rest and nothing would reopen the clock.
+  if (autoGetReady > 0 && (set?.timer ?? 0) - autoGetReady <= 0) {
+    return Progress_advanceTimedSet(effects, progress, settings, true, autoGetReady, timedSetEndedAt);
+  }
+  let newProgress: IHistoryRecord = { ...progress, setTimer: undefined, setTimerGetReady: undefined };
   if (set?.isCompleted && set.setTimer != null) {
-    const startedAt = progress.setTimer?.startedAt;
-    // Rest begins when the timed window actually ended on the clock — not at the logged history value. A set
-    // logged early via "Log & keep timing" keeps that earlier time as its record, but its clock runs on to the
-    // target and auto-closes there. So when a non-overflow set reached its target, backdate the rest from the
-    // target; only an early "Stop & Record" (clock stopped before the target) backdates from the recorded time.
-    const reachedTarget = startedAt != null && !set.isOverflowSetTimer && Date.now() - startedAt >= set.setTimer * 1000;
-    const restOffsetSeconds = reachedTarget ? set.setTimer : set.completedSetTimer;
-    const restSince =
-      startedAt != null && restOffsetSeconds != null ? startedAt + restOffsetSeconds * 1000 : Date.now();
-    newProgress = Progress_startTimer(newProgress, restSince, "workout", entryIndex, setIndex, settings, subscription);
+    // Shortened by the countdown, so the existing "rest is over" push lands at the moment the countdown
+    // opens rather than at the moment work starts.
+    const restTimer = autoGetReady > 0 ? (set.timer ?? 0) - autoGetReady : undefined;
+    newProgress = Progress_startTimer(
+      effects,
+      newProgress,
+      timedSetEndedAt,
+      "workout",
+      entryIndex,
+      setIndex,
+      settings,
+      subscription,
+      restTimer
+    );
   }
   return newProgress;
 }
@@ -1711,20 +1801,23 @@ export function Progress_proceedAfterTimedSet(
 // Discard the set timer banner without recording. If the set was already logged (via "Log & keep"),
 // start its deferred rest.
 export function Progress_closeTimedSet(
+  effects: INativeEffect[],
   progress: IHistoryRecord,
   settings: ISettings,
   subscription: ISubscription | undefined,
   isPlayground?: boolean
 ): IHistoryRecord {
   const stm = progress.setTimer;
+  // Without the countdown branch a dismissal during it strands the field, and the banner reopens.
   if (stm == null) {
-    return progress;
+    return progress.setTimerGetReady != null ? { ...progress, setTimerGetReady: undefined } : progress;
   }
-  let newProgress: IHistoryRecord = { ...progress, setTimer: undefined };
+  let newProgress: IHistoryRecord = { ...progress, setTimer: undefined, setTimerGetReady: undefined };
   const set = newProgress.entries[stm.entryIndex]?.sets[stm.setIndex];
   // The playground has no rest timers, so discarding a "Log & keep timing" set just closes the banner.
   if (!isPlayground && set?.isCompleted && set.setTimer != null && newProgress.amrapModal == null) {
     newProgress = Progress_startTimer(
+      effects,
       newProgress,
       Date.now(),
       "workout",
@@ -1737,11 +1830,23 @@ export function Progress_closeTimedSet(
   return newProgress;
 }
 
+export function Progress_reconcileTimedSet(progress: IHistoryRecord, now: number): IHistoryRecord {
+  const getReady = progress.setTimerGetReady;
+  if (progress.setTimer != null || getReady == null || now - getReady.startedAt < getReady.getReady * 1000) {
+    return progress;
+  }
+  return Progress_startSetTimerWork(progress, getReady.startedAt + getReady.getReady * 1000);
+}
+
 // Cheap pure predicate (no program evaluation) telling whether Progress_checkSetTimer would do anything.
 // Lets per-second pollers skip resolving program context + dispatching when nothing is due.
 export function Progress_isSetTimerCheckDue(progress: IHistoryRecord, now: number): boolean {
   if (progress.amrapModal != null) {
     return false;
+  }
+  const getReady = progress.setTimerGetReady;
+  if (progress.setTimer == null && getReady != null) {
+    return now - getReady.startedAt >= getReady.getReady * 1000;
   }
   const stm = progress.setTimer;
   if (stm != null) {
@@ -1771,6 +1876,7 @@ export function Progress_isSetTimerCheckDue(progress: IHistoryRecord, now: numbe
 // its target → record+complete+proceed (overflow `+` sets count up past target and are stopped manually);
 // (B) an `auto` set's rest expired → advance to the next timed set.
 export function Progress_checkSetTimer(
+  effects: INativeEffect[],
   settings: ISettings,
   stats: IStats,
   progress: IHistoryRecord,
@@ -1784,19 +1890,19 @@ export function Progress_checkSetTimer(
   if (progress.amrapModal != null) {
     return progress;
   }
-  const stm = progress.setTimer;
+  const current = Progress_reconcileTimedSet(progress, now);
+  const stm = current.setTimer;
   if (stm != null) {
-    const set = progress.entries[stm.entryIndex]?.sets[stm.setIndex];
+    const set = current.entries[stm.entryIndex]?.sets[stm.setIndex];
     // No !isCompleted guard: a "Log & keep timing" set is already completed but keeps the clock running, and
     // must still auto-close + rest at the target. completeSetAction's already-logged branch handles it.
     if (set?.setTimer != null && !set.isOverflowSetTimer && now - stm.startedAt >= set.setTimer * 1000) {
-      // A set logged via "Log & keep timing" keeps the time the user logged it at — don't overwrite it with
-      // the target. A not-yet-logged set records the target (it ran the full duration).
-      const recordedSeconds = set.isCompleted ? (set.completedSetTimer ?? set.setTimer) : set.setTimer;
+      const recordedSeconds = TimedSet_recordedFor(set, stm.side) ?? set.setTimer;
       return Progress_completeSetAction(
+        effects,
         settings,
         stats,
-        progress,
+        current,
         {
           type: "CompleteSetAction",
           entryIndex: stm.entryIndex,
@@ -1812,24 +1918,35 @@ export function Progress_checkSetTimer(
         subscription
       );
     }
-    return progress;
+    // `current`, not `progress`, or a promotion made above is silently discarded.
+    return current;
   }
   if (
-    progress.timer != null &&
-    progress.timerSince != null &&
-    progress.timerEntryIndex != null &&
-    progress.timerSetIndex != null
+    current.timer != null &&
+    current.timerSince != null &&
+    current.timerEntryIndex != null &&
+    current.timerSetIndex != null
   ) {
-    const restSet = progress.entries[progress.timerEntryIndex]?.sets[progress.timerSetIndex];
+    const restSet = current.entries[current.timerEntryIndex]?.sets[current.timerSetIndex];
     if (
       restSet?.auto &&
-      now - progress.timerSince >= progress.timer * 1000 &&
-      Progress_getNextTimedSet(progress) != null
+      now - current.timerSince >= current.timer * 1000 &&
+      Progress_getNextTimedSet(current) != null
     ) {
-      return Progress_advanceTimedSet(progress, true);
+      // The rest that just ended was already shortened by the countdown, so what follows it is the countdown
+      // itself, not the work clock. It starts at the rest's deadline, not now: a tick that lands late (a
+      // throttled timer, a wake) must not hand out a full fresh countdown and stretch the round.
+      return Progress_advanceTimedSet(
+        effects,
+        current,
+        settings,
+        true,
+        Progress_getAutoGetReadySeconds(restSet, settings),
+        current.timerSince + current.timer * 1000
+      );
     }
   }
-  return progress;
+  return current;
 }
 
 export function Progress_getIsRpeEnabled(sets: ISet[]): boolean {
@@ -1917,22 +2034,120 @@ export function Progress_isEligibleForInferredWeight(set: ISet): boolean {
   return set.originalWeight == null && set.reps != null && set.rpe != null;
 }
 
+// Which past set to read the new exercise off. Closest reps rather than the heaviest set: the e1RM
+// round trip below only cancels its own error near the rep range it was estimated from, and an e1RM
+// extrapolated from a 15-rep accessory is meaningless far away from 15. Warmups are not considered —
+// they would drag the estimate down.
+function findSwapSourceSet(prevEntry: IHistoryEntry | undefined, targetReps: number): ISet | undefined {
+  let best: ISet | undefined;
+  let bestDistance = Infinity;
+  let bestOnerm: IWeight | undefined;
+  for (const set of prevEntry?.sets ?? []) {
+    const reps = set.completedReps ?? set.reps;
+    const weight = set.completedWeight ?? set.weight;
+    if (!set.isCompleted || reps == null || reps <= 0 || weight == null || weight.value <= 0) {
+      continue;
+    }
+    const distance = Math.abs(reps - targetReps);
+    const onerm = Weight_getOneRepMax(weight, reps, set.completedRpe ?? set.rpe);
+    if (distance < bestDistance || (distance === bestDistance && (bestOnerm == null || Weight_gt(onerm, bestOnerm)))) {
+      best = set;
+      bestDistance = distance;
+      bestOnerm = onerm;
+    }
+  }
+  return best;
+}
+
+// What the new exercise should weigh for this set's target, when the program's own number is an
+// absolute weight and so means nothing on a different lift — 500lb of leg press is not 500lb of
+// lateral raise. Answered through an e1RM, which is unreliable as an absolute number for high-rep
+// accessories but fine as an intermediate, because the error cancels on the way back out: a source
+// set at the same reps and RPE returns exactly its own weight, with no special case for it.
+function swapDerivedWeight(
+  set: ISet,
+  exerciseType: IExerciseType,
+  settings: ISettings,
+  prevEntry: IHistoryEntry | undefined
+): IWeight {
+  const targetReps = set.reps ?? 1;
+  const targetRpe = set.rpe ?? 10;
+  const source = findSwapSourceSet(prevEntry, targetReps);
+  const sourceWeight = source?.completedWeight ?? source?.weight;
+  const sourceReps = source?.completedReps ?? source?.reps;
+  if (sourceWeight == null || sourceReps == null) {
+    // No history for this exercise, so fall back to its 1RM — explicit if the user set one, the
+    // exercise DB's starting weight otherwise. That is already what a percentage-based set does on
+    // a swap, so the no-history case behaves the same for both kinds of program.
+    return Weight_evaluateWeight(Weight_rpePct(targetReps, targetRpe), exerciseType, settings);
+  }
+  // Defaulting the source RPE to the *target's* rather than to 10 is what makes the two multipliers
+  // cancel for the many programs that carry no RPE at all, so equal reps hand back the same weight.
+  const sourceRpe = source?.completedRpe ?? source?.rpe ?? targetRpe;
+  const ratio = Weight_rpeMultiplier(targetReps, targetRpe) / Weight_rpeMultiplier(sourceReps, sourceRpe);
+  return Weight_multiply(sourceWeight, ratio);
+}
+
+// A swapped-in exercise the program already knows about brings its own authored ramp with it, even
+// when the definition lives on a day the user isn't doing today. The first authored definition wins:
+// the same exercise carrying different warmups on different days is rare, and `warmup: none` is
+// authored too, so it is honored as an answer rather than skipped over as a missing one.
+export function Progress_programWarmupsForExerciseType(
+  evaluatedProgram: IEvaluatedProgram | undefined,
+  exerciseType: IExerciseType,
+  settings: ISettings
+): IProgramExerciseWarmupSet[] | undefined {
+  for (const programExercise of evaluatedProgram ? Program_getAllProgramExercisesWithType(evaluatedProgram) : []) {
+    if (Exercise_eq(programExercise.exerciseType, exerciseType)) {
+      const warmups = PlannerProgramExercise_programWarmups(programExercise, settings);
+      if (warmups != null) {
+        return warmups;
+      }
+    }
+  }
+  return undefined;
+}
+
 export function Progress_updateSetWeights(
   entry: IHistoryEntry,
   exerciseType: IExerciseType,
-  settings: ISettings
+  settings: ISettings,
+  prevEntry?: IHistoryEntry,
+  programWarmups?: IProgramExerciseWarmupSet[]
 ): IHistoryEntry {
+  const unit = Equipment_getUnitForExerciseType(settings, exerciseType) ?? settings.units;
   const newSets = entry.sets.map((set) => {
-    if ((Progress_isEligibleForInferredWeight(set) || Weight_isPct(set.originalWeight)) && !set.isCompleted) {
+    if (set.isCompleted) {
+      return set;
+    }
+    if (Progress_isEligibleForInferredWeight(set) || Weight_isPct(set.originalWeight)) {
       const originalWeight = set.originalWeight ?? Weight_rpePct(set.reps ?? 1, set.rpe ?? 10);
       const evaluatedWeight = Weight_evaluateWeight(originalWeight, exerciseType, settings);
-      const unit = Equipment_getUnitForExerciseType(settings, exerciseType) ?? settings.units;
       const weight = Weight_roundConvertTo(evaluatedWeight, settings, unit, exerciseType);
       return { ...set, weight };
     }
+    if (set.originalWeight != null) {
+      const weight = Weight_roundConvertTo(
+        swapDerivedWeight(set, exerciseType, settings, prevEntry),
+        settings,
+        unit,
+        exerciseType
+      );
+      // Both fields take the loadable number. The target here is one the app invented, not a program
+      // value being approximated, so leaving them different would light up the rounding strikethrough
+      // — and its "adjusted to match what you can load" explanation — for a weight nothing rounded.
+      return { ...set, weight, originalWeight: weight };
+    }
     return set;
   });
-  return { ...entry, sets: newSets };
+  // The old exercise's ramp is meaningless on the new one, so it is rebuilt: from whatever the
+  // program authors for the new exercise if it defines it anywhere, and from that exercise's own
+  // default scheme otherwise — which correctly leaves an accessory with no warmups at all.
+  const hasCompletedWarmup = entry.warmupSets.some((set) => set.isCompleted);
+  const warmupSets = hasCompletedWarmup
+    ? entry.warmupSets
+    : Exercise_getWarmupSets(exerciseType, newSets[0]?.weight, settings, programWarmups);
+  return { ...entry, sets: newSets, warmupSets };
 }
 
 export function Progress_doesUse1RM(entry: IHistoryEntry): boolean {
@@ -1942,11 +2157,18 @@ export function Progress_doesUse1RM(entry: IHistoryEntry): boolean {
 export function Progress_changeExercise(
   dispatch: IDispatch,
   settings: ISettings,
+  history: IHistoryRecord[],
+  evaluatedProgram: IEvaluatedProgram | undefined,
   progressId: number,
   exerciseType: IExerciseType,
   entryIndex: number,
   shouldKeepProgramExerciseId: boolean
 ): void {
+  // `progressId` is the record's own id — 0 for the ongoing workout (Program_nextHistoryRecord),
+  // the real id when a past workout is being edited — which is exactly what has to be excluded from
+  // the history lookup, so no caller has to remember to pass it.
+  const prevEntry = History_findLastEntryForExerciseType(history, exerciseType, progressId);
+  const programWarmups = Progress_programWarmupsForExerciseType(evaluatedProgram, exerciseType, settings);
   updateState(
     dispatch,
     [
@@ -1954,7 +2176,7 @@ export function Progress_changeExercise(
         .p("entries")
         .i(entryIndex)
         .recordModify((entry) => {
-          entry = Progress_updateSetWeights(entry, exerciseType, settings);
+          entry = Progress_updateSetWeights(entry, exerciseType, settings, prevEntry, programWarmups);
           return {
             ...entry,
             exercise: exerciseType,
@@ -1964,6 +2186,97 @@ export function Progress_changeExercise(
         }),
     ],
     "Change exercise"
+  );
+}
+
+// Swapping a program exercise re-keys it, and entries point at the program by key — without
+// this the ongoing workout silently stops following the exercise it came from. Entries the
+// user already swapped by hand (`changed`) keep their own exercise either way, so they're
+// left alone. Once the ids line up the usual ApplyProgramChangesToProgress pass swaps the
+// exercise and regenerates its sets.
+export function Progress_remapProgramExerciseId(
+  progress: IHistoryRecord,
+  oldKey: string,
+  newKey: string
+): IHistoryRecord {
+  const entries = progress.entries.map((entry) =>
+    entry.programExerciseId === oldKey && !entry.changed ? { ...entry, programExerciseId: newKey } : entry
+  );
+  return { ...progress, entries };
+}
+
+// Every entry index stored on the record is a position in `entries`, so inserting, dropping or re-sorting
+// invalidates all of them at once — a rest timer or an open AMRAP prompt would silently retarget a different
+// exercise. Anything whose entry is gone is cleared rather than left pointing at whoever moved into that slot.
+//
+// Matched by object identity, not by `entry.id`: ids are derived from the exercise
+// (`Progress_getEntryId`), so a program Squat and an ad-hoc Squat carry the same one, and a lookup would
+// hand a timer to the wrong entry. Callers therefore have to pass through the *same* entry objects for
+// everything that survived — which is what reconciling by filter/splice/sort already does.
+export function Progress_reindexEntries(progress: IHistoryRecord, newEntries: IHistoryEntry[]): IHistoryRecord {
+  const newIndexOf = new Map<IHistoryEntry, number>(newEntries.map((e, i) => [e, i]));
+  const remap = (index: number | undefined): number | undefined => {
+    const entry = index != null ? progress.entries[index] : undefined;
+    return entry != null ? newIndexOf.get(entry) : undefined;
+  };
+  // Only ever a position to render at, never a subject that can go missing, so it lands on a neighbor instead of
+  // being cleared — a workout with entries always has one selected.
+  const clamp = (index: number | undefined): number | undefined => {
+    if (index == null || newEntries.length === 0) {
+      return undefined;
+    }
+    return remap(index) ?? Math.max(0, Math.min(index, newEntries.length - 1));
+  };
+  const keepAt = <T extends { entryIndex: number }>(value: T | undefined): T | undefined => {
+    const entryIndex = value != null ? remap(value.entryIndex) : undefined;
+    return value != null && entryIndex != null ? { ...value, entryIndex } : undefined;
+  };
+  const ui = progress.ui;
+  const currentEntryIndex = clamp(progress.currentEntryIndex);
+  const pickerState = ui?.exercisePicker?.state;
+  return {
+    ...progress,
+    entries: newEntries.map((e, i) => (e.index === i ? e : { ...e, index: i })),
+    currentEntryIndex,
+    timerEntryIndex: remap(progress.timerEntryIndex),
+    setTimer: keepAt(progress.setTimer),
+    setTimerGetReady: keepAt(progress.setTimerGetReady),
+    amrapModal: keepAt(progress.amrapModal),
+    ui:
+      ui == null
+        ? ui
+        : {
+            ...ui,
+            editModal: keepAt(ui.editModal),
+            editSetModal: keepAt(ui.editSetModal),
+            setTimerEditModal: keepAt(ui.setTimerEditModal),
+            roundingModal: keepAt(ui.roundingModal),
+            exerciseBottomSheet: keepAt(ui.exerciseBottomSheet),
+            entryIndexEditMode: remap(ui.entryIndexEditMode),
+            // The open swap picker writes straight into `entries[entryIndex]`, so a stale one retargets whoever
+            // moved into that slot. Nested a level deeper than the rest, hence not a `keepAt`.
+            exercisePicker:
+              pickerState?.entryIndex == null
+                ? ui.exercisePicker
+                : { ...ui.exercisePicker, state: { ...pickerState, entryIndex: remap(pickerState.entryIndex) } },
+            // The pager only scrolls when this flips — `currentEntryIndex` alone moves the highlight and leaves
+            // the shown exercise behind. Flipped only when the selected entry actually moved, so the user keeps
+            // looking at the exercise they were on.
+            forceUpdateEntryIndex:
+              currentEntryIndex !== progress.currentEntryIndex ? !ui.forceUpdateEntryIndex : ui.forceUpdateEntryIndex,
+          },
+  };
+}
+
+// Warmups count: they're work the user did and would have to redo. One definition, so the swap confirmation and
+// the reconciliation below can't disagree about whether an entry is worth protecting.
+export function Progress_hasCompletedWork(entry: IHistoryEntry): boolean {
+  return entry.sets.some((set) => set.isCompleted) || entry.warmupSets.some((set) => set.isCompleted);
+}
+
+export function Progress_hasCompletedSetsForProgramExerciseId(progress: IHistoryRecord, key: string): boolean {
+  return progress.entries.some(
+    (entry) => entry.programExerciseId === key && !entry.changed && Progress_hasCompletedWork(entry)
   );
 }
 
@@ -2028,6 +2341,11 @@ export function Progress_applyProgramExercise(
           isAmrap: programSet.isAmrap,
           logRpe: programSet.logRpe,
           label: programSet.label,
+          timer: programSet.timer,
+          setTimer: programSet.setTimer,
+          isOverflowSetTimer: programSet.isOverflowSetTimer,
+          auto: programSet.auto,
+          askWeight: programSet.askWeight,
         });
       }
     }
@@ -2071,6 +2389,11 @@ export function Progress_applyProgramExercise(
         logRpe: set.logRpe,
         isAmrap: set.isAmrap,
         label: set.label,
+        timer: set.timer,
+        setTimer: set.setTimer,
+        isOverflowSetTimer: set.isOverflowSetTimer,
+        auto: set.auto,
+        askWeight: set.askWeight,
       };
     });
     const firstWeight = newSets[0]?.weight;
@@ -2094,18 +2417,109 @@ export function Progress_getEntryId(exerciseType: IExerciseType, label?: string)
   return CollectionUtils_compact([label, Exercise_toKey(exerciseType)]).join("_");
 }
 
+export interface IApplyProgramDayOptions {
+  // Restricts the pass to these exercises. Callers that pass it mean "just re-apply these" (equipment, exercise
+  // data), so they never get structural work.
+  programExerciseIds?: string[];
+  // The day's keys in canonical order *before* the program changed, from `Program_getDayExerciseKeys`. Structure
+  // is reconciled against this rather than against the entries alone: whether an exercise the day contains but
+  // the workout lacks was never added or was removed by the user is only answerable by diffing the two programs.
+  // Absent (fresh boot, restore, non-program change) means no structural work.
+  oldDayKeys?: string[];
+  // Only read when inserting — a newly added exercise runs its update script the same way a freshly started
+  // workout would, and that reads bodyweight.
+  stats?: IStats;
+}
+
+// The entry list is the program day minus the user's overrides, recomputed from scratch each time. Every step is
+// a function of (entries, oldDayKeys, newDayKeys), so applying the same program change twice is a no-op — the
+// listener can fire more than once for one logical edit, and a second pass must not insert a second copy.
+function reconcileStructure(
+  progress: IHistoryRecord,
+  program: IEvaluatedProgram,
+  day: number,
+  settings: ISettings,
+  oldDayKeys: string[],
+  stats: IStats
+): IHistoryEntry[] {
+  const dayExercises = Program_getDayExercisesInOrder(program, day);
+  const newDayKeys = dayExercises.map((e) => e.key);
+
+  // An exercise the day has but the workout doesn't is either one the user removed or one that was just added,
+  // and only the diff can tell them apart. Removals therefore need nothing recorded on the record.
+  const kept = progress.entries.filter(
+    (entry) =>
+      entry.programExerciseId == null ||
+      entry.changed ||
+      newDayKeys.indexOf(entry.programExerciseId) !== -1 ||
+      Progress_hasCompletedWork(entry)
+  );
+
+  const entries = [...kept];
+  const dayData = Program_getDayData(program, day);
+  for (const exercise of dayExercises) {
+    if (oldDayKeys.indexOf(exercise.key) !== -1) {
+      continue;
+    }
+    if (entries.some((e) => e.programExerciseId === exercise.key)) {
+      continue;
+    }
+    // Placed after whatever its program predecessor turned into, walking back past exercises the workout doesn't
+    // have: an added line asserts a position relative to its neighbors, not a re-sort of the whole day.
+    let at = 0;
+    for (let i = newDayKeys.indexOf(exercise.key) - 1; i >= 0; i -= 1) {
+      const predecessor = entries.findIndex((e) => e.programExerciseId === newDayKeys[i]);
+      if (predecessor !== -1) {
+        at = predecessor + 1;
+        break;
+      }
+    }
+    entries.splice(at, 0, Program_nextHistoryEntry(program, dayData, at, exercise, stats, settings));
+  }
+
+  const commonBefore = oldDayKeys.filter((key) => newDayKeys.indexOf(key) !== -1);
+  const commonAfter = newDayKeys.filter((key) => oldDayKeys.indexOf(key) !== -1);
+  const isReordered =
+    commonBefore.length !== commonAfter.length || commonBefore.some((key, i) => key !== commonAfter[i]);
+  if (!isReordered) {
+    return entries;
+  }
+  // Adhoc entries and orphans kept for their logged sets have no position of their own, so they take their
+  // predecessor's and ride along with it — someone who added an accessory right after Squat meant it to be there.
+  // Entries ahead of the first program exercise stay at the front.
+  let inherited = -1;
+  const sortKeys = entries.map((entry) => {
+    const own = entry.programExerciseId != null ? newDayKeys.indexOf(entry.programExerciseId) : -1;
+    if (own !== -1) {
+      inherited = own;
+    }
+    return own !== -1 ? own : inherited;
+  });
+  return entries
+    .map((entry, index) => ({ entry, index, sortKey: sortKeys[index] }))
+    .sort((a, b) => (a.sortKey !== b.sortKey ? a.sortKey - b.sortKey : a.index - b.index))
+    .map((e) => e.entry);
+}
+
 export function Progress_applyProgramDay(
   progress: IHistoryRecord,
   program: IEvaluatedProgram,
   day: number,
   settings: ISettings,
-  programExerciseIds?: string[]
+  options?: IApplyProgramDayOptions
 ): IHistoryRecord {
+  const programExerciseIds = options?.programExerciseIds;
   const programDay = Program_getProgramDay(program, day);
   if (!programDay) {
     return progress;
   }
-  const newEntries = progress.entries.map((entry, index) => {
+  // A caller that named exercises means "just re-apply these" and never gets structural work.
+  const structural =
+    programExerciseIds == null && options?.oldDayKeys != null
+      ? reconcileStructure(progress, program, day, settings, options.oldDayKeys, options.stats ?? Stats_getEmpty())
+      : undefined;
+  const reindexed = structural != null ? Progress_reindexEntries(progress, structural) : progress;
+  const newEntries = reindexed.entries.map((entry, index) => {
     if (entry.programExerciseId == null) {
       return entry;
     }
@@ -2119,15 +2533,17 @@ export function Progress_applyProgramDay(
     return Progress_applyProgramExercise(entry, index, programExercise, settings, false);
   });
 
-  return { ...progress, entries: newEntries };
+  return { ...reindexed, entries: newEntries };
 }
 
 export function Progress_changeAmrapAction(
+  effects: INativeEffect[],
   settings: ISettings,
   stats: IStats,
   progress: IHistoryRecord,
   action: IChangeAMRAPAction,
-  subscription: ISubscription | undefined
+  subscription: ISubscription | undefined,
+  onError?: IScriptErrorHandler
 ): IHistoryRecord {
   let newProgress = { ...progress };
   if (
@@ -2165,11 +2581,12 @@ export function Progress_changeAmrapAction(
       action.setIndex,
       "workout",
       settings,
-      stats
+      stats,
+      onError
     );
   }
-  if (Progress_isFullyFinishedSet(newProgress)) {
-    newProgress = Progress_stopTimer(newProgress);
+  if (Progress_isFullyEmptyOrFinishedSet(newProgress)) {
+    newProgress = Progress_stopTimer(effects, newProgress);
   }
   newProgress = Progress_maybeApplySuperset(newProgress, action.entryIndex, action.setIndex, "workout");
   // A timed set keeps its set-timer modal open behind the amrap modal (see Progress_proceedAfterTimedSet).
@@ -2177,19 +2594,24 @@ export function Progress_changeAmrapAction(
   // otherwise close the banner and start the deferred rest. For non-timed sets setTimerModal is already
   // undefined, so this is just the normal rest start.
   const amrapSetTimerModal = newProgress.setTimer;
+  // Clearing the countdown too is not redundant. A field-by-field merge can legally leave both phase fields
+  // set, and Progress_getActiveSetTimer only *prefers* the work clock — it never repairs the record. Drop
+  // the work clock alone and the stale countdown becomes active again, reopening for a set just resolved.
   if (amrapSetTimerModal?.keepTiming) {
     newProgress = {
       ...newProgress,
       setTimer: { ...amrapSetTimerModal, keepTiming: undefined },
+      setTimerGetReady: undefined,
     };
   } else {
-    newProgress = { ...newProgress, setTimer: undefined };
+    newProgress = { ...newProgress, setTimer: undefined, setTimerGetReady: undefined };
     // Intentionally "now", NOT backdated to the clock end like Progress_proceedAfterTimedSet does (see
     // time-based-exercises.md §5.2). The time spent in the AMRAP modal is data entry, not rest — backdating
     // would count it as elapsed rest and a short rest could be over the instant the user submits.
     // The playground has no rest timers (matches Progress_proceedAfterTimedSet + normal-set completion).
     if (!action.isPlayground) {
       newProgress = Progress_startRestAfterSet(
+        effects,
         newProgress,
         "workout",
         action.entryIndex,
@@ -2200,12 +2622,14 @@ export function Progress_changeAmrapAction(
     }
   }
   newProgress.intervals = History_resumeWorkout(
+    effects,
     newProgress,
     action.isPlayground,
     settings.timers.reminder,
     subscription != null && Subscriptions_hasSubscription(subscription)
   );
   LiveActivityManager_updateLiveActivityForNextEntry(
+    effects,
     newProgress,
     action.entryIndex,
     "workout",
@@ -2216,12 +2640,82 @@ export function Progress_changeAmrapAction(
   return { ...newProgress, amrapModal: undefined };
 }
 
+export interface ITimedSetDurations {
+  left?: number;
+  right?: number;
+}
+
+// Takes explicit durations rather than deriving them from the clock: a completed `auto` set backdates the
+// next set's clock into the future, so Date.now() against it went negative and recorded [25, -25, 0].
+export function Progress_settleTimedSet(
+  effects: INativeEffect[],
+  settings: ISettings,
+  stats: IStats,
+  progress: IHistoryRecord,
+  entryIndex: number,
+  setIndex: number,
+  mode: IProgressMode,
+  durations: ITimedSetDurations,
+  ctx: {
+    programExercise?: IPlannerProgramExercise;
+    otherStates?: IByExercise<IProgramState>;
+    subscription?: ISubscription;
+    isPlayground?: boolean;
+  },
+  onError?: IScriptErrorHandler
+): IHistoryRecord {
+  let current = progress;
+  for (let pass = 0; pass < 4; pass += 1) {
+    const phase = Progress_getActiveSetTimer(current);
+    if (phase == null || phase.entryIndex !== entryIndex || phase.setIndex !== setIndex) {
+      return current;
+    }
+    if (phase.phase === "getReady") {
+      current = Progress_startSetTimerWork(current, phase.startedAt);
+      continue;
+    }
+    const setsKey = mode === "warmup" ? "warmupSets" : "sets";
+    const set = current.entries[entryIndex]?.[setsKey][setIndex];
+    if (set == null) {
+      return current;
+    }
+    const reported = phase.side === "left" ? durations.left : durations.right;
+    current = Progress_completeSetAction(
+      effects,
+      settings,
+      stats,
+      current,
+      {
+        type: "CompleteSetAction",
+        entryIndex,
+        setIndex,
+        mode,
+        programExercise: ctx.programExercise,
+        otherStates: ctx.otherStates,
+        forceUpdateEntryIndex: false,
+        isExternal: true,
+        isPlayground: ctx.isPlayground ?? false,
+        recordedSeconds: reported ?? TimedSet_recordedFor(set, phase.side) ?? set.setTimer,
+      },
+      ctx.subscription,
+      onError
+    );
+    const after = current.entries[entryIndex]?.[setsKey][setIndex];
+    if (after == null || TimedSet_recordedFor(after, phase.side) == null) {
+      return current;
+    }
+  }
+  return current;
+}
+
 export function Progress_completeSetAction(
+  effects: INativeEffect[],
   settings: ISettings,
   stats: IStats,
   progress: IHistoryRecord,
   action: ICompleteSetAction,
-  subscription: ISubscription | undefined
+  subscription: ISubscription | undefined,
+  onError?: IScriptErrorHandler
 ): IHistoryRecord {
   const setTimerModal = progress.setTimer;
   const wasSetTimerOpen =
@@ -2229,6 +2723,16 @@ export function Progress_completeSetAction(
     setTimerModal != null &&
     setTimerModal.entryIndex === action.entryIndex &&
     setTimerModal.setIndex === action.setIndex;
+  const countdown = progress.setTimerGetReady;
+  if (
+    action.mode === "workout" &&
+    !wasSetTimerOpen &&
+    countdown != null &&
+    countdown.entryIndex === action.entryIndex &&
+    countdown.setIndex === action.setIndex
+  ) {
+    return progress;
+  }
   // A Stop/Log tap from the set-timer banner (keepSetTimerRunning is set only by those) is a deferred user
   // action — if the clock already auto-completed, advanced, or closed just before the event landed, the banner
   // is stale and completing here would fall through to normal toggling and flip an already-completed set back
@@ -2238,11 +2742,63 @@ export function Progress_completeSetAction(
     return progress;
   }
   const oldSet = progress.entries[action.entryIndex][action.mode === "warmup" ? "warmupSets" : "sets"][action.setIndex];
+  const timedSide = setTimerModal?.side ?? "bilateral";
+  const recordedThisSide = TimedSet_recordedFor(oldSet, timedSide);
+
+  if (wasSetTimerOpen && setTimerModal != null && timedSide === "left") {
+    const recorded =
+      recordedThisSide ?? action.recordedSeconds ?? Math.round((Date.now() - setTimerModal.startedAt) / 1000);
+    let banked = lf(progress)
+      .p("entries")
+      .i(action.entryIndex)
+      .p("sets")
+      .i(action.setIndex)
+      .p("completedSetTimerLeft")
+      .set(recorded);
+    if (!action.keepSetTimerRunning) {
+      const target = oldSet.setTimer;
+      const reachedTarget =
+        target != null && !oldSet.isOverflowSetTimer && Date.now() - setTimerModal.startedAt >= target * 1000;
+      const endedAt = reachedTarget ? setTimerModal.startedAt + target * 1000 : Date.now();
+      const handedOff = Progress_handOffToOtherSide(
+        banked,
+        action.entryIndex,
+        action.setIndex,
+        settings,
+        endedAt,
+        setTimerModal.nonce,
+        action.isPlayground
+      );
+      if (handedOff === banked) {
+        return Progress_completeSetAction(
+          effects,
+          settings,
+          stats,
+          { ...banked, setTimer: undefined, setTimerGetReady: undefined },
+          { ...action, keepSetTimerRunning: undefined, recordedSeconds: undefined },
+          subscription,
+          onError
+        );
+      }
+      banked = handedOff;
+    }
+    LiveActivityManager_updateLiveActivityForNextEntry(
+      effects,
+      banked,
+      action.entryIndex,
+      action.mode,
+      action.programExercise,
+      settings,
+      subscription
+    );
+    return banked;
+  }
 
   // Stopping the clock on a set that's already logged (e.g. after "Log & keep timing"): just update the
   // recorded time and close/keep the banner — don't run completion, which would toggle the set off.
   if (wasSetTimerOpen && setTimerModal != null && oldSet.isCompleted) {
-    const recorded = action.recordedSeconds ?? Math.round((Date.now() - setTimerModal.startedAt) / 1000);
+    const recorded =
+      recordedThisSide ?? action.recordedSeconds ?? Math.round((Date.now() - setTimerModal.startedAt) / 1000);
     let stopped = lf(progress)
       .p("entries")
       .i(action.entryIndex)
@@ -2252,6 +2808,7 @@ export function Progress_completeSetAction(
       .set(recorded);
     if (!action.keepSetTimerRunning) {
       stopped = Progress_proceedAfterTimedSet(
+        effects,
         stopped,
         action.entryIndex,
         action.setIndex,
@@ -2261,12 +2818,14 @@ export function Progress_completeSetAction(
       );
     }
     stopped.intervals = History_resumeWorkout(
+      effects,
       stopped,
       action.isPlayground,
       settings.timers.reminder,
       subscription != null && Subscriptions_hasSubscription(subscription)
     );
     LiveActivityManager_updateLiveActivityForNextEntry(
+      effects,
       stopped,
       action.entryIndex,
       action.mode,
@@ -2279,7 +2838,7 @@ export function Progress_completeSetAction(
 
   // Completing a timed set from its running clock: record the elapsed time first (derived from when the
   // clock started, unless the surface passed an explicit recordedSeconds).
-  if (wasSetTimerOpen && setTimerModal != null && !oldSet.isCompleted && oldSet.completedSetTimer == null) {
+  if (wasSetTimerOpen && setTimerModal != null && !oldSet.isCompleted && recordedThisSide == null) {
     const recorded = action.recordedSeconds ?? Math.round((Date.now() - setTimerModal.startedAt) / 1000);
     progress = lf(progress)
       .p("entries")
@@ -2297,25 +2856,28 @@ export function Progress_completeSetAction(
     action.setIndex,
     action.mode,
     !!hasUserPromptedVars,
-    settings
+    settings,
+    action.isPlayground
   );
   const newSet =
     newProgress.entries[action.entryIndex][action.mode === "warmup" ? "warmupSets" : "sets"][action.setIndex];
   const didFinish = !oldSet.isCompleted && newSet.isCompleted;
   // First tap on a timed set just opened its clock (see Progress_completeSet) — nothing is completed
   // yet, so skip the completion side-effects and only refresh the live activity to show the timer.
+  const startedTimer = Progress_getActiveSetTimer(newProgress);
   const justStartedSetTimer =
     !wasSetTimerOpen &&
     !newSet.isCompleted &&
-    newProgress.setTimer?.entryIndex === action.entryIndex &&
-    newProgress.setTimer?.setIndex === action.setIndex;
+    startedTimer?.entryIndex === action.entryIndex &&
+    startedTimer?.setIndex === action.setIndex;
   if (justStartedSetTimer) {
     // Starting this set's clock means the previous set's rest is over — stop it (and cancel its pending
     // "rest is over" notification) so it doesn't fire in the middle of this set's clock.
     if (newProgress.timerSince != null) {
-      newProgress = Progress_stopTimer(newProgress);
+      newProgress = Progress_stopTimer(effects, newProgress);
     }
     LiveActivityManager_updateLiveActivityForNextEntry(
+      effects,
       newProgress,
       action.entryIndex,
       action.mode,
@@ -2334,12 +2896,13 @@ export function Progress_completeSetAction(
       action.setIndex,
       action.mode,
       settings,
-      stats
+      stats,
+      onError
     );
   }
 
-  if (Progress_isFullyFinishedSet(newProgress)) {
-    newProgress = Progress_stopTimer(newProgress);
+  if (Progress_isFullyEmptyOrFinishedSet(newProgress)) {
+    newProgress = Progress_stopTimer(effects, newProgress);
   }
   if (didFinish) {
     newProgress = Progress_maybeApplySuperset(newProgress, action.entryIndex, action.setIndex, action.mode);
@@ -2350,6 +2913,7 @@ export function Progress_completeSetAction(
   // rest between their sets, and a rest starts only when the next step calls for it.
   if (!action.isPlayground && newSet.setTimer == null) {
     newProgress = Progress_startRestAfterSet(
+      effects,
       newProgress,
       action.mode,
       action.entryIndex,
@@ -2362,6 +2926,7 @@ export function Progress_completeSetAction(
   // banner and start rest — the one place that decision lives. "Log & keep timing" skips it.
   if (wasSetTimerOpen && !action.keepSetTimerRunning) {
     newProgress = Progress_proceedAfterTimedSet(
+      effects,
       newProgress,
       action.entryIndex,
       action.setIndex,
@@ -2383,12 +2948,14 @@ export function Progress_completeSetAction(
     };
   }
   newProgress.intervals = History_resumeWorkout(
+    effects,
     newProgress,
     action.isPlayground,
     settings.timers.reminder,
     subscription != null && Subscriptions_hasSubscription(subscription)
   );
   LiveActivityManager_updateLiveActivityForNextEntry(
+    effects,
     newProgress,
     action.entryIndex,
     action.mode,
@@ -2396,7 +2963,12 @@ export function Progress_completeSetAction(
     settings,
     subscription
   );
-  if (action.forceUpdateEntryIndex) {
+  // The pager scrolls only on a flip of this flag; the superset advance above moves currentEntryIndex
+  // without one, and timed-set completions dispatch with the flag off, so the thumbnail moved while the
+  // card stayed. An EMOM advance already flipped it — flip exactly once.
+  const entryChanged = (newProgress.currentEntryIndex ?? 0) !== (progress.currentEntryIndex ?? 0);
+  const alreadyFlipped = !!newProgress.ui?.forceUpdateEntryIndex !== !!progress.ui?.forceUpdateEntryIndex;
+  if ((action.forceUpdateEntryIndex || entryChanged) && !alreadyFlipped) {
     newProgress = {
       ...newProgress,
       ui: { ...newProgress.ui, forceUpdateEntryIndex: !newProgress.ui?.forceUpdateEntryIndex },
@@ -2424,12 +2996,16 @@ export function Progress_forceUpdateEntryIndex(dispatch: IDispatch): void {
   );
 }
 
-export function Progress_finishWorkout(storage: IStorage, progress: IHistoryRecord): IStorage {
+export function Progress_finishWorkout(
+  effects: INativeEffect[],
+  storage: IStorage,
+  progress: IHistoryRecord
+): IStorage {
   const settings = storage.settings;
   const programIndex = storage.programs.findIndex((p) => p.id === progress.programId)!;
   const program = progress.programId === emptyProgramId ? Program_createEmptyProgram() : storage.programs[programIndex];
   const evaluatedProgram = program ? Program_evaluate(program, settings) : undefined;
-  Progress_stopTimer(progress);
+  Progress_stopTimer(effects, progress);
   const historyRecord = History_finishProgramDay(
     progress,
     storage.settings,

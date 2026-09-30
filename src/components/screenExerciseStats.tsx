@@ -165,7 +165,7 @@ export function ScreenExerciseStats(props: IProps): JSX.Element {
   );
 
   return (
-    <View className="px-4">
+    <View className="px-gutter">
       <Text className="text-xl font-bold">{fullName}</Text>
       <Text className="text-xs text-text-secondary">{isCustom ? "Custom exercise" : "Built-in exercise"}</Text>
       <View className="py-2">
@@ -235,7 +235,13 @@ export function ScreenExerciseStats(props: IProps): JSX.Element {
           <ExerciseAllTimePRs maxWeight={maxWeightProp} max1RM={max1RMProp} settings={settings} dispatch={dispatch} />
         </View>
       )}
-      <ExerciseHistory exerciseType={exerciseType} settings={settings} dispatch={dispatch} history={history} />
+      <ExerciseHistory
+        exerciseType={exerciseType}
+        settings={settings}
+        dispatch={dispatch}
+        history={history}
+        source="stats"
+      />
     </View>
   );
 }

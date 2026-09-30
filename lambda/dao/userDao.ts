@@ -11,19 +11,15 @@ import {
   IStatsLengthValue,
   IStatsWeightValue,
   IStatsPercentageValue,
+  IStatsHealthValue,
 } from "../../src/types";
 import { Settings_build } from "../../src/models/settings";
-import {
-  Storage_get,
-  Storage_fillVersions,
-  Storage_applyUpdate,
-  Storage_updateVersions,
-} from "../../src/models/storage";
+import { Storage_get, Storage_fillVersions, Storage_updateVersions } from "../../src/models/storage";
 import { Utils_getEnv } from "../utils";
 import {
   CollectionUtils_uniqBy,
   CollectionUtils_inGroupsOf,
-  CollectionUtils_collectToSet,
+  CollectionUtils_diffByKey,
   CollectionUtils_groupByKey,
 } from "../../src/utils/collection";
 import { ObjectUtils_keys, ObjectUtils_clone } from "../../src/utils/object";
@@ -32,23 +28,35 @@ import { getLatestMigrationVersion } from "../../src/migrations/migrations";
 import { freeUsersTableNames } from "./freeUserDao";
 import { LogDao, logTableNames } from "./logDao";
 import { subscriptionDetailsTableNames } from "./subscriptionDetailsDao";
-import { IStorageUpdate, IStorageUpdate2 } from "../../src/utils/sync";
+import { IStorageUpdate2 } from "../../src/utils/sync";
 import { IEither } from "../../src/utils/types";
 import { LftS3Buckets } from "./buckets";
 import JWT from "jsonwebtoken";
 import { DateUtils_formatYYYYMMDDHHMM } from "../../src/utils/date";
 import * as path from "path";
-import { ICollectionVersions, VersionTracker } from "../../src/models/versionTracker";
+import { ICollectionVersions, isCollectionVersions, VersionTracker } from "../../src/models/versionTracker";
 import { DebugDao } from "./debugDao";
+import { StorageDao } from "./storageDao";
+import { ApiKeyDao } from "./apiKeyDao";
+import { PushSync_notify, PushSync_removeAllForUser } from "../utils/pushSync";
 import { EventDao } from "./eventDao";
+import {
+  ISyncMergeNoopArgs,
+  SyncMergeNoop_counts,
+  SyncMergeNoop_hasTombstones,
+  SyncMergeNoop_isNoop,
+  SyncMergeNoop_row,
+} from "../utils/syncMergeNoop";
+import { ProgramRowWrites_plan } from "../utils/programRowWrites";
+import { IUserRowItem, UserRow_pack, UserRow_unpack } from "../utils/userRow";
+import { StatRowWrites_plan } from "../utils/statRowWrites";
 
 export const userTableNames = {
   dev: {
     users: "lftUsersDev",
-    usersGoogleId: "lftUsersGoogleIdDev",
-    usersAppleId: "lftUsersAppleIdDev",
-    usersEmail: "lftUsersEmailDev",
-    usersNickname: "lftUsersNicknameDev",
+    usersGoogleIdKeys: "lftUsersGoogleIdKeysDev",
+    usersAppleIdKeys: "lftUsersAppleIdKeysDev",
+    usersEmailKeys: "lftUsersEmailKeysDev",
     historyRecords: "lftHistoryRecordsDev",
     historyRecordsDate: "lftHistoryRecordsDateDev",
     stats: "lftStatsDev",
@@ -58,10 +66,9 @@ export const userTableNames = {
   },
   prod: {
     users: "lftUsers",
-    usersGoogleId: "lftUsersGoogleId",
-    usersAppleId: "lftUsersAppleId",
-    usersEmail: "lftUsersEmail",
-    usersNickname: "lftUsersNickname",
+    usersGoogleIdKeys: "lftUsersGoogleIdKeys",
+    usersAppleIdKeys: "lftUsersAppleIdKeys",
+    usersEmailKeys: "lftUsersEmailKeys",
     historyRecords: "lftHistoryRecords",
     historyRecordsDate: "lftHistoryRecordsDate",
     stats: "lftStats",
@@ -86,6 +93,8 @@ export type IUserDao = {
   createdAt: number;
   googleId?: string;
   appleId?: string;
+  passwordHash?: string;
+  emailVerifiedAt?: number;
   storage: IStorage;
   nickname?: string;
 };
@@ -100,46 +109,82 @@ export type ILimitedUserDao = Omit<IUserDao, "storage"> & {
   storage: IPartialStorage;
 };
 
-interface IStatDb {
+export type IUserStatsFields = Pick<IUserDao, "id" | "email" | "createdAt"> & {
+  storage?: Pick<IStorage, "subscription">;
+};
+
+export interface IUserReadArgs {
+  skipPrograms?: boolean;
+  skipStats?: boolean;
+  historyLimit?: number;
+}
+
+export interface IApplySafeSync2Result {
+  originalId: number;
+  newStorage?: IPartialStorage;
+  didWrite: boolean;
+}
+
+export interface IStatDb {
   name: string;
-  value: IWeight | ILength | IPercentage;
+  // Plain number for "health" rows (sleep minutes / kcal / grams), unit-tagged object for the rest.
+  value: IWeight | ILength | IPercentage | number;
   timestamp: number;
-  type: "length" | "weight" | "percentage";
+  type: "length" | "weight" | "percentage" | "health";
+  updatedAt?: number;
+  hidden?: boolean;
+  appleUuid?: string;
+  googleUuid?: string;
 }
 
 // Maps an outdated client storage version to the server version it's safe to sync against anyway.
-// Only include gaps that are a single, idempotent, sync-safe migration (server re-runs all migrations
-// on every sync, so old-format fields get relocated server-side). See rn-ota-delivery.md: releases that
-// bump runtimeVersion strand users who haven't installed the new native binary, and OTA can't reach them.
-// `20260304084247 -> 20260628120000` = move_amrap_modal_to_progress (the versionCode 140 -> 141 release).
+// Only include gaps composed entirely of idempotent, data-only migrations that don't change the storage
+// shape (the server re-runs all migrations on every sync, so old-format fields get relocated/re-derived
+// server-side). See rn-ota-delivery.md: releases that bump runtimeVersion strand users who haven't
+// installed the new native binary, and OTA can't reach them.
+// Re-point these when adding a data-only migration; leave them alone for a shape-changing one.
 const syncSafeOutdatedClientVersions: Record<string, string> = {
-  "20260304084247": "20260628120000",
+  "20260304084247": "20260919120000",
+  "20260628120000": "20260919120000",
+  "20260702120000": "20260919120000",
+  "20260903120000": "20260919120000",
+  "20260906120000": "20260919120000",
 };
 
 function isSyncSafeOutdatedClient(clientVersion: string, serverVersion: string): boolean {
   return syncSafeOutdatedClientVersions[clientVersion] === serverVersion;
 }
 
+// BatchGetItem returns rows in no fixed order, and signin picks the first row with a passwordHash.
+export function UserDao_emailCandidates(rows: ILimitedUserDao[], email: string): ILimitedUserDao[] {
+  return rows
+    .filter((row) => row.email === email)
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id));
+}
+
 export class UserDao {
   constructor(private readonly di: IDI) {}
 
-  public async getByGoogleId(googleId: string, args: { historyLimit?: number }): Promise<IUserDao | undefined> {
-    const env = Utils_getEnv();
-
-    const items = await this.di.dynamo.query<IUserDao>({
-      tableName: userTableNames[env].users,
-      indexName: userTableNames[env].usersGoogleId,
-      expression: "#googleId = :googleId",
-      attrs: { "#googleId": "googleId" },
-      values: { ":googleId": googleId },
+  private async queryUserIds(attr: "googleId" | "appleId" | "email", value: string): Promise<string[]> {
+    const names = userTableNames[Utils_getEnv()];
+    const indexes = {
+      googleId: names.usersGoogleIdKeys,
+      appleId: names.usersAppleIdKeys,
+      email: names.usersEmailKeys,
+    };
+    const rows = await this.di.dynamo.query<{ id: string }>({
+      tableName: names.users,
+      indexName: indexes[attr],
+      expression: "#attr = :value",
+      attrs: { "#attr": attr },
+      values: { ":value": value },
     });
+    return Array.from(new Set(rows.map((row) => row.id)));
+  }
 
-    const id: string | undefined = items?.[0]?.id;
-    if (id != null) {
-      return this.getById(id, args);
-    } else {
-      return undefined;
-    }
+  public async getByGoogleId(googleId: string, args: { historyLimit?: number }): Promise<IUserDao | undefined> {
+    const [id] = await this.queryUserIds("googleId", googleId);
+    return id != null ? this.getById(id, args) : undefined;
   }
 
   public async getCurrentUserIdFromCookie(cookies: { [key: string]: string }): Promise<string | undefined> {
@@ -164,6 +209,13 @@ export class UserDao {
       return session.userId;
     }
     return undefined;
+  }
+
+  private logMergeCounts(
+    args: ISyncMergeNoopArgs,
+    written: { noop: boolean; historyDeletes: number; statPuts: number; statDeletes: number }
+  ): void {
+    this.di.log.log("sync2-merge", JSON.stringify(SyncMergeNoop_counts({ ...args, ...written })));
   }
 
   private async augmentLimitedUser(
@@ -212,14 +264,16 @@ export class UserDao {
   public async applySafeSync2(
     limitedUser: ILimitedUserDao,
     storageUpdate: IStorageUpdate2,
-    deviceId?: string
-  ): Promise<IEither<{ originalId: number; newStorage?: IPartialStorage }, string>> {
+    deviceId: string
+  ): Promise<IEither<IApplySafeSync2Result, string>> {
     const env = Utils_getEnv();
+    let migrated = false;
     if (limitedUser.storage.version !== getLatestMigrationVersion()) {
       const fullUser = await this.getById(limitedUser.id);
       const storage = Storage_get(fullUser!.storage);
       if (storage.success) {
-        await this.saveStorage(fullUser!, storage.data);
+        await this.saveMigratedStorage(fullUser!, storage.data, deviceId, fullUser!.storage);
+        migrated = true;
       } else {
         this.di.log.log("corrupted_server_storage validation errors (sync2):", JSON.stringify(storage.error));
         return { success: false, error: "corrupted_server_storage" };
@@ -257,11 +311,12 @@ export class UserDao {
       Object.keys(storageUpdate.storage || {}).length === 0 &&
       Object.keys(storageUpdate.versions || {}).length === 0
     ) {
-      return { success: true, data: { originalId: storageUpdate.originalId || Date.now() } };
+      return { success: true, data: { originalId: storageUpdate.originalId || Date.now(), didWrite: migrated } };
     }
     const versionTracker = new VersionTracker(STORAGE_VERSION_TYPES, { deviceId });
     const originalId = Date.now();
     const newVersions = versionTracker.mergeVersions(_versions || {}, storageUpdate.versions || {});
+    const storedRow = SyncMergeNoop_row(ObjectUtils_clone(limitedUserStorage));
     const mergedStorage = versionTracker.mergeByVersions(
       limitedUserStorage,
       _versions || {},
@@ -281,10 +336,27 @@ export class UserDao {
       originalId,
       _versions: newVersions,
     };
-    const newStorage = Storage_fillVersions(preNewStorage);
+    const newStorage = Storage_fillVersions(preNewStorage, deviceId);
 
     const versionsHistory = newStorage._versions?.history as ICollectionVersions | undefined;
     const deletedVersionsHistory = ObjectUtils_keys(versionsHistory?.deleted || {}).map((v) => Number(v));
+    const noopArgs: ISyncMergeNoopArgs = {
+      storedVersions: _versions,
+      mergedVersions: newStorage._versions,
+      storedRow,
+      mergedRow: SyncMergeNoop_row(newStorage),
+      incomingHistoryIds: (storageUpdate.storage?.history || []).map((h) => h.id),
+      loadedHistoryIds: (limitedUserStorage.history || []).map((h) => h.id),
+      incomingPrograms: storageUpdate.storage?.programs || [],
+      hasIncomingStats: storageUpdate.storage?.stats != null,
+      hasIncomingTombstones: SyncMergeNoop_hasTombstones(storageUpdate.versions),
+      storedOriginalId: originalStorage.originalId,
+    };
+    const noop = SyncMergeNoop_isNoop(noopArgs);
+    if (noop) {
+      this.logMergeCounts(noopArgs, { noop, historyDeletes: 0, statPuts: 0, statDeletes: 0 });
+      return { data: { originalId: originalStorage.originalId!, didWrite: migrated }, success: true };
+    }
     const historyDeletes = this.di.dynamo.batchDelete({
       tableName: userTableNames[env].historyRecords,
       keys: deletedVersionsHistory.map((id) => ({ id, userId: limitedUser.id })),
@@ -302,19 +374,15 @@ export class UserDao {
     const versionsPrograms = newStorage._versions?.programs as ICollectionVersions | undefined;
     const deletedVersionsPrograms = ObjectUtils_keys(versionsPrograms?.deleted || {}).map((v) => Number(v));
     const userPrograms = deletedVersionsPrograms.length > 0 ? await this.getProgramsByUserId(limitedUser.id) : [];
-    const programIdsToDelete = userPrograms
-      .filter((p) => p.clonedAt != null && deletedVersionsPrograms.indexOf(p.clonedAt) !== -1)
-      .map((p) => p.id);
+    const programWrites = ProgramRowWrites_plan(userPrograms, newStorage.programs || [], deletedVersionsPrograms);
     const programDeletes = this.di.dynamo.batchDelete({
       tableName: userTableNames[env].programs,
-      keys: programIdsToDelete.map((id) => ({ id, userId: limitedUser.id })),
+      keys: programWrites.idsToDelete.map((id) => ({ id, userId: limitedUser.id })),
     });
 
     const programUpdates = this.di.dynamo.batchPut({
       tableName: userTableNames[env].programs,
-      items: (newStorage.programs || [])
-        .filter((p) => programIdsToDelete.indexOf(p.id) === -1)
-        .map((record) => ({ ...record, userId: limitedUser.id })),
+      items: programWrites.programsToPut.map((record) => ({ ...record, userId: limitedUser.id })),
     });
 
     const versionsStats = storageUpdate.versions?.stats as ICollectionVersions | undefined;
@@ -342,6 +410,13 @@ export class UserDao {
         }
       }
     }
+    for (const type of ObjectUtils_keys(stats.health || {})) {
+      for (const stat of stats.health?.[type] || []) {
+        if (deletedVersionsStats.indexOf(stat.timestamp) === -1) {
+          statsDb.push({ ...stat, type: "health", name: `${stat.timestamp}_${type}` });
+        }
+      }
+    }
     const statsDeletes =
       deletedVersionsStats.length > 0
         ? (async () => {
@@ -366,16 +441,15 @@ export class UserDao {
     delete newStorage.history;
     delete newStorage.programs;
     delete newStorage.stats;
+    this.logMergeCounts(noopArgs, {
+      noop,
+      historyDeletes: deletedVersionsHistory.length,
+      statPuts: statsDb.length,
+      statDeletes: deletedVersionsStats.length,
+    });
     try {
-      await Promise.all([
-        this.store({ ...limitedUser, storage: newStorage }),
-        historyUpdates,
-        historyDeletes,
-        programUpdates,
-        programDeletes,
-        statsDeletes,
-        statsUpdates,
-      ]);
+      await Promise.all([historyUpdates, historyDeletes, programUpdates, programDeletes, statsDeletes, statsUpdates]);
+      await this.store({ ...limitedUser, storage: newStorage });
     } catch (e) {
       if (e instanceof Error && e.message.includes("Provided list of item keys contains duplicates")) {
         const data = {
@@ -389,163 +463,63 @@ export class UserDao {
       }
       throw e;
     }
-    return { data: { originalId, newStorage }, success: true };
-  }
-
-  public async applySafeSync(
-    limitedUser: ILimitedUserDao,
-    storageUpdate: IStorageUpdate
-  ): Promise<IEither<{ originalId: number; newStorage?: IPartialStorage }, string>> {
-    const env = Utils_getEnv();
-    const result = Storage_get(limitedUser.storage);
-    if (!result.success) {
-      this.di.log.log("corrupted_server_storage validation errors (sync1):", JSON.stringify(result.error));
-      return { success: false, error: "corrupted_server_storage" };
-    }
-    const limitedUserStorage = result.data;
-    if (limitedUserStorage.version !== storageUpdate.version) {
-      if (isSyncSafeOutdatedClient(storageUpdate.version, limitedUserStorage.version)) {
-        this.di.log.log(
-          "sync-safe outdated storage (sync1), allowing merge, client version:",
-          storageUpdate.version,
-          "server version:",
-          limitedUserStorage.version
-        );
-      } else {
-        return { success: false, error: "outdated_client_storage" };
-      }
-    }
-    const { originalId: oldOriginalId, version, settings, tempUserId, ...restStorageUpdate } = storageUpdate;
-    if (Object.keys(restStorageUpdate).length === 0 && ObjectUtils_keys(settings).length === 0) {
-      return { success: true, data: { originalId: oldOriginalId || Date.now() } };
-    }
-
-    const originalId = Date.now();
-    const newStorage = {
-      ...Storage_applyUpdate(limitedUserStorage, storageUpdate),
-      originalId,
-    };
-
-    const historyDeletes = this.di.dynamo.batchDelete({
-      tableName: userTableNames[env].historyRecords,
-      keys: (storageUpdate.deletedHistory || []).map((id) => ({ id, userId: limitedUser.id })),
-    });
-    const historyUpdates = this.di.dynamo.batchPut({
-      tableName: userTableNames[env].historyRecords,
-      items: CollectionUtils_uniqBy(storageUpdate.history || [], "id").map((record) => ({
-        ...record,
-        userId: limitedUser.id,
-      })),
-    });
-
-    const userPrograms =
-      (storageUpdate.deletedPrograms || []).length > 0 ? await this.getProgramsByUserId(limitedUser.id) : [];
-    const programIdsToDelete = userPrograms
-      .filter((p) => p.clonedAt != null && (storageUpdate.deletedPrograms || []).indexOf(p.clonedAt) !== -1)
-      .map((p) => p.id);
-    const programDeletes = this.di.dynamo.batchDelete({
-      tableName: userTableNames[env].programs,
-      keys: programIdsToDelete.map((id) => ({ id, userId: limitedUser.id })),
-    });
-
-    const programUpdates = this.di.dynamo.batchPut({
-      tableName: userTableNames[env].programs,
-      items: (storageUpdate.programs || []).map((record) => ({ ...record, userId: limitedUser.id })),
-    });
-
-    const stats = storageUpdate.stats;
-    const statsDb = ObjectUtils_keys(stats || {})
-      .map((type) => {
-        return (stats?.[type] || []).map((stat) => {
-          const name = `${stat.timestamp}_${type}`;
-          const statDb: IStatDb = { ...stat, name };
-          return statDb;
-        });
-      })
-      .flat();
-    const statsDeletes =
-      (storageUpdate.deletedStats || []).length > 0
-        ? (async () => {
-            const userStats = await this.di.dynamo.query<IStatDb & { userId?: string }>({
-              tableName: userTableNames[env].stats,
-              expression: "#userId = :userId",
-              attrs: { "#userId": "userId" },
-              values: { ":userId": limitedUser.id },
-            });
-            const statsIdToDelete = userStats.filter((s) => storageUpdate.deletedStats?.indexOf(s.timestamp) !== -1);
-            return this.di.dynamo.batchDelete({
-              tableName: userTableNames[env].stats,
-              keys: statsIdToDelete.map((s) => ({ userId: limitedUser.id, name: s.name })),
-            });
-          })()
-        : Promise.resolve();
-    const statsUpdates = this.di.dynamo.batchPut({
-      tableName: userTableNames[env].stats,
-      items: statsDb.map((record) => ({ ...record, userId: limitedUser.id })),
-    });
-
-    delete newStorage.history;
-    delete newStorage.programs;
-    delete newStorage.stats;
-    await Promise.all([
-      this.store({ ...limitedUser, storage: newStorage }),
-      historyUpdates,
-      historyDeletes,
-      programUpdates,
-      programDeletes,
-      statsDeletes,
-      statsUpdates,
-    ]);
-    return { data: { originalId, newStorage }, success: true };
+    return { data: { originalId, newStorage, didWrite: true }, success: true };
   }
 
   public async getByAppleId(appleId: string, args: { historyLimit?: number }): Promise<IUserDao | undefined> {
-    const env = Utils_getEnv();
-
-    const items = await this.di.dynamo.query<IUserDao>({
-      tableName: userTableNames[env].users,
-      indexName: userTableNames[env].usersAppleId,
-      expression: "#appleId = :appleId",
-      attrs: { "#appleId": "appleId" },
-      values: { ":appleId": appleId },
-    });
-
-    const id: string | undefined = items?.[0]?.id;
-    if (id != null) {
-      return this.getById(id, args);
-    } else {
-      return undefined;
-    }
+    const [id] = await this.queryUserIds("appleId", appleId);
+    return id != null ? this.getById(id, args) : undefined;
   }
 
   public async getByEmail(email: string, args?: { historyLimit?: number }): Promise<IUserDao | undefined> {
-    const env = Utils_getEnv();
-
-    const items = await this.di.dynamo.query<IUserDao>({
-      tableName: userTableNames[env].users,
-      indexName: userTableNames[env].usersEmail,
-      expression: "#email = :email",
-      attrs: { "#email": "email" },
-      values: { ":email": email },
-    });
-
-    const id: string | undefined = items?.[0]?.id;
-    if (id != null) {
-      return this.getById(id, args || {});
-    } else {
-      return undefined;
-    }
+    const [id] = await this.queryUserIds("email", email);
+    return id != null ? this.getById(id, args || {}) : undefined;
   }
 
-  public static build(id: string, email: string, opts: { appleId?: string; googleId?: string }): IUserDao {
+  public async getAllByEmail(email: string): Promise<ILimitedUserDao[]> {
+    const ids = await this.queryUserIds("email", email);
+    const rows = await this.getLimitedByIds(ids, { consistentRead: true });
+    return UserDao_emailCandidates(rows, email);
+  }
+
+  // History record ids are timestamp-based, so the max non-deleted key in
+  // _versions.history.items is the latest workout date without querying the
+  // history table. The vector-clock `t` values are modification times bumped
+  // by edits/sync churn, so the keys are the more truthful activity signal.
+  public static lastWorkoutTs(user: ILimitedUserDao): number {
+    const history = user.storage._versions?.history;
+    if (history == null || !isCollectionVersions(history) || history.items == null) {
+      return 0;
+    }
+    const deleted = history.deleted || {};
+    let max = 0;
+    for (const key of Object.keys(history.items)) {
+      if (deleted[key] == null) {
+        const ts = parseInt(key, 10);
+        if (Number.isFinite(ts) && ts > max) {
+          max = ts;
+        }
+      }
+    }
+    return max;
+  }
+
+  public static build(
+    id: string,
+    email: string,
+    opts: { appleId?: string; googleId?: string; passwordHash?: string; emailVerifiedAt?: number }
+  ): IUserDao {
     return {
       id,
       email,
       googleId: opts.googleId,
       appleId: opts.appleId,
+      passwordHash: opts.passwordHash,
+      emailVerifiedAt: opts.emailVerifiedAt,
       createdAt: Date.now(),
       storage: {
         progress: [],
+        // Builds before 2026-09-26 require the deleted* arrays in VStorage. Drop with their removal migration.
         deletedHistory: [],
         deletedPrograms: [],
         deletedStats: [],
@@ -606,15 +580,21 @@ export class UserDao {
   public async saveStat(
     userId: string,
     statKey: string,
-    type: "weight" | "length" | "percentage",
-    stat: IStatsWeightValue | IStatsLengthValue | IStatsPercentageValue
+    type: "weight" | "length" | "percentage" | "health",
+    stat: IStatsWeightValue | IStatsLengthValue | IStatsPercentageValue | IStatsHealthValue
   ): Promise<void> {
     const env = Utils_getEnv();
+    // `put` replaces the whole item, so the optional fields must be carried over — dropping them here
+    // would clobber e.g. a health row's `hidden` flag or source uuid on every single-value write.
     const statDb: IStatDb = {
       name: `${stat.timestamp}_${statKey}`,
       value: stat.value,
       timestamp: stat.timestamp,
       type,
+      ...(stat.updatedAt != null ? { updatedAt: stat.updatedAt } : {}),
+      ...("hidden" in stat && stat.hidden ? { hidden: true } : {}),
+      ...(stat.appleUuid != null ? { appleUuid: stat.appleUuid } : {}),
+      ...(stat.googleUuid != null ? { googleUuid: stat.googleUuid } : {}),
     };
     await this.di.dynamo.put({
       tableName: userTableNames[env].stats,
@@ -632,40 +612,66 @@ export class UserDao {
 
   public async store(user: ILimitedUserDao): Promise<void> {
     const env = Utils_getEnv();
-    const storage = ObjectUtils_clone(user.storage);
-    delete storage.programs;
-    delete storage.history;
-    delete storage.stats;
-    const item = { ...user, storage, nickname: storage.settings.nickname?.toLowerCase() };
+    const item = { ...UserRow_pack(user), nickname: user.storage.settings.nickname?.toLowerCase() };
     await this.di.dynamo.put({ tableName: userTableNames[env].users, item });
+  }
+
+  // New-account writes must be conditional: signup/signin endpoints accept a
+  // client-suggested id (anonymous-account continuity), and an unconditional
+  // put would let anyone overwrite an existing user row and take over that id
+  public async create(user: ILimitedUserDao): Promise<boolean> {
+    const env = Utils_getEnv();
+    const item = { ...UserRow_pack(user), nickname: user.storage.settings.nickname?.toLowerCase() };
+    return this.di.dynamo.putIfNotExists({ tableName: userTableNames[env].users, item, partitionKey: "id" });
   }
 
   public async applyStorageUpdate(
     user: ILimitedUserDao,
     buildNewStorage: (oldStorage: IPartialStorage) => IPartialStorage,
+    deviceId: string,
     sideEffects?: Promise<unknown>[]
   ): Promise<void> {
     const oldStorage = user.storage;
     const newStorage = buildNewStorage(oldStorage);
     newStorage.originalId = Date.now();
-    newStorage._versions = Storage_updateVersions(oldStorage, newStorage);
+    newStorage._versions = Storage_updateVersions(oldStorage, newStorage, deviceId);
     user.storage = newStorage;
     await Promise.all([this.store(user), ...(sideEffects || [])]);
+    await PushSync_notify(this.di, user.id, deviceId, newStorage.originalId);
   }
 
   public async getLimitedById(userId: string): Promise<ILimitedUserDao | undefined> {
     const env = Utils_getEnv();
-    return this.di.dynamo.get<ILimitedUserDao>({
+    const item = await this.di.dynamo.get<IUserRowItem>({
       tableName: userTableNames[env].users,
       key: { id: userId },
     });
+    return item != null ? UserRow_unpack(item) : undefined;
   }
 
-  public async getLimitedByIds(userIds: string[]): Promise<ILimitedUserDao[]> {
+  public async getLimitedByIds(userIds: string[], args?: { consistentRead?: boolean }): Promise<ILimitedUserDao[]> {
     const env = Utils_getEnv();
-    return this.di.dynamo.batchGet<ILimitedUserDao>({
+    const items = await this.di.dynamo.batchGet<IUserRowItem>({
       tableName: userTableNames[env].users,
       keys: userIds.map((ui) => ({ id: ui })),
+      consistentRead: args?.consistentRead,
+    });
+    return items.map((item) => UserRow_unpack(item));
+  }
+
+  public async getStatsFieldsByIds(userIds: string[]): Promise<IUserStatsFields[]> {
+    const env = Utils_getEnv();
+    return this.di.dynamo.batchGet<IUserStatsFields>({
+      tableName: userTableNames[env].users,
+      keys: userIds.map((ui) => ({ id: ui })),
+      projection: "#id, #email, #createdAt, #storage.#subscription",
+      attrs: {
+        "#id": "id",
+        "#email": "email",
+        "#createdAt": "createdAt",
+        "#storage": "storage",
+        "#subscription": "subscription",
+      },
     });
   }
 
@@ -708,7 +714,7 @@ export class UserDao {
 
   public getHistoryByUserId(
     userId: string,
-    args: { limit?: number; after?: number; ids?: number[] } = {}
+    args: { limit?: number; after?: number; ids?: number[]; consistentRead?: boolean } = {}
   ): Promise<IHistoryRecord[]> {
     const env = Utils_getEnv();
     if (args.ids != null) {
@@ -716,6 +722,7 @@ export class UserDao {
         .batchGet<IHistoryRecord & { userId?: string }>({
           tableName: userTableNames[env].historyRecords,
           keys: args.ids.map((id) => ({ id, userId })),
+          consistentRead: args.consistentRead,
         })
         .then((arr) =>
           arr.map((r) => {
@@ -766,7 +773,7 @@ export class UserDao {
   public async getStatsPage(
     userId: string,
     args: { statKey: string; beforeTimestamp?: number; limit: number }
-  ): Promise<(IStatsWeightValue | IStatsLengthValue | IStatsPercentageValue)[]> {
+  ): Promise<(IStatsWeightValue | IStatsLengthValue | IStatsPercentageValue | IStatsHealthValue)[]> {
     const env = Utils_getEnv();
     const hasCursor = args.beforeTimestamp != null;
     const statsDb = await this.di.dynamo.query<IStatDb & { userId?: string }>({
@@ -787,8 +794,9 @@ export class UserDao {
       vtype: "stat" as const,
       value: s.value,
       timestamp: s.timestamp,
-      updatedAt: s.timestamp,
-    })) as (IStatsWeightValue | IStatsLengthValue | IStatsPercentageValue)[];
+      updatedAt: s.updatedAt ?? s.timestamp,
+      ...(s.hidden ? { hidden: true } : {}),
+    })) as (IStatsWeightValue | IStatsLengthValue | IStatsPercentageValue | IStatsHealthValue)[];
   }
 
   public async getLastBodyweightStats(userId: string): Promise<IStats> {
@@ -880,6 +888,10 @@ export class UserDao {
         fromUser.googleId = token;
         delete fromUser.appleId;
       }
+      if (toUser.passwordHash != null) {
+        fromUser.passwordHash = toUser.passwordHash;
+        fromUser.emailVerifiedAt = toUser.emailVerifiedAt;
+      }
       fromUser.email = toUser.email;
       fromUser.storage.email = toUser.email;
       await this.store(fromUser);
@@ -888,6 +900,10 @@ export class UserDao {
     }
   }
 
+  // Payments and affiliate rows deliberately survive: tax law requires us to keep transaction
+  // records (GDPR art. 17(3)(b)), and affiliate payouts are computed by joining those payments
+  // through the affiliate row, so dropping it would silently shrink an affiliate's past earnings.
+  // Both are disclosed in the privacy policy - keep them in sync if this changes.
   public async removeUser(userId: string): Promise<void> {
     const env = Utils_getEnv();
     const programs = await this.getProgramsByUserId(userId);
@@ -968,6 +984,15 @@ export class UserDao {
         })
       );
     }
+
+    await new StorageDao(this.di).removeAll(userId);
+    await new DebugDao(this.di).removeAll(userId);
+    await new EventDao(this.di).removeAllForUser(userId);
+
+    const apiKeyDao = new ApiKeyDao(this.di);
+    const apiKeys = await apiKeyDao.listByUserId(userId);
+    await Promise.all(apiKeys.map((apiKey) => apiKeyDao.deleteKey(apiKey.key)));
+    await PushSync_removeAllForUser(this.di, userId);
   }
 
   public async getImages(userId: string): Promise<string[]> {
@@ -977,27 +1002,20 @@ export class UserDao {
     });
   }
 
-  public async getById(
-    userId: string,
-    args?: {
-      skipPrograms?: boolean;
-      skipStats?: boolean;
-      historyLimit?: number;
-    }
-  ): Promise<IUserDao | undefined> {
+  public async getById(userId: string, args?: IUserReadArgs): Promise<IUserDao | undefined> {
     const userDao = await this.getLimitedById(userId);
-    if (userDao != null) {
-      const history =
-        args?.historyLimit == null || args.historyLimit > 0
-          ? await this.getHistoryByUserId(userId, { limit: args?.historyLimit })
-          : [];
-      const programs = !args?.skipPrograms ? await this.getProgramsByUserId(userId) : [];
-      const stats = !args?.skipStats ? await this.getStatsByUserId(userId) : { weight: {}, length: {}, percentage: {} };
-
-      return { ...userDao, storage: { ...userDao.storage, history, programs, stats } };
-    } else {
+    if (userDao == null) {
       return undefined;
     }
+    const emptyStats: IStats = { weight: {}, length: {}, percentage: {} };
+    const [history, programs, stats] = await Promise.all([
+      args?.historyLimit == null || args.historyLimit > 0
+        ? this.getHistoryByUserId(userId, { limit: args?.historyLimit })
+        : Promise.resolve<IHistoryRecord[]>([]),
+      !args?.skipPrograms ? this.getProgramsByUserId(userId) : Promise.resolve<IProgram[]>([]),
+      !args?.skipStats ? this.getStatsByUserId(userId) : Promise.resolve(emptyStats),
+    ]);
+    return { ...userDao, storage: { ...userDao.storage, history, programs, stats } };
   }
 
   public async maybeSaveProgramRevision(userId: string, storageUpdate: IStorageUpdate2): Promise<void> {
@@ -1058,28 +1076,46 @@ export class UserDao {
     return JSON.parse(programRevision.toString());
   }
 
-  public async saveStorage(user: ILimitedUserDao, aStorage: IPartialStorage): Promise<void> {
-    const storage = Storage_fillVersions(aStorage);
+  public async saveStorage(user: ILimitedUserDao, aStorage: IPartialStorage, deviceId: string): Promise<void> {
+    await this.writeStorage(user, aStorage, deviceId, undefined);
+  }
+
+  private async saveMigratedStorage(
+    user: ILimitedUserDao,
+    aStorage: IPartialStorage,
+    deviceId: string,
+    unchangedSnapshot: IPartialStorage
+  ): Promise<void> {
+    await this.writeStorage(user, aStorage, deviceId, unchangedSnapshot);
+  }
+
+  private async writeStorage(
+    user: ILimitedUserDao,
+    aStorage: IPartialStorage,
+    deviceId: string,
+    snapshot: IPartialStorage | undefined
+  ): Promise<void> {
+    const storage = Storage_fillVersions(aStorage, deviceId);
     const { history, programs, stats, ...userStorage } = storage;
-    const statsObj = stats || { length: {}, weight: {}, percentage: {} };
     const env = Utils_getEnv();
     const updatedUser: ILimitedUserDao = { ...user, storage: userStorage };
 
     let historyDeletes: Promise<void>[] = [];
     let historyUpdates: Promise<void>[] = [];
     if (history) {
-      const userHistory = await this.getHistoryByUserId(user.id);
-      const newHistoryIds = CollectionUtils_collectToSet(history || [], "id");
-      const historyToDelete = userHistory.filter((r) => !newHistoryIds.has(r.id));
+      const before = snapshot?.history ?? (await this.getHistoryByUserId(user.id));
+      const diff = CollectionUtils_diffByKey(before, history, (r) => String(r.id));
+      const historyToPut = snapshot == null ? history : diff.changed;
+      const historyIdsToDelete = diff.removedKeys.map(Number);
 
-      historyDeletes = CollectionUtils_inGroupsOf(23, historyToDelete).map(async (group) => {
+      historyDeletes = CollectionUtils_inGroupsOf(23, historyIdsToDelete).map(async (group) => {
         await this.di.dynamo.batchDelete({
           tableName: userTableNames[env].historyRecords,
-          keys: group.map((record) => ({ id: record.id, userId: user.id })),
+          keys: group.map((id) => ({ id, userId: user.id })),
         });
       });
 
-      historyUpdates = CollectionUtils_inGroupsOf(23, history).map(async (group) => {
+      historyUpdates = CollectionUtils_inGroupsOf(23, historyToPut).map(async (group) => {
         const items = CollectionUtils_uniqBy(group, "id").map((record) => ({ ...record, userId: user.id }));
         await this.di.dynamo.batchPut({ tableName: userTableNames[env].historyRecords, items });
       });
@@ -1088,17 +1124,18 @@ export class UserDao {
     let programDeletes: Promise<void>[] = [];
     let programUpdates: Promise<void>[] = [];
     if (programs) {
-      const userPrograms = await this.getProgramsByUserId(user.id);
-      const newProgramIds = CollectionUtils_collectToSet(programs || [], "id");
-      const programsToDelete = userPrograms.filter((r) => !newProgramIds.has(r.id));
-      programDeletes = CollectionUtils_inGroupsOf(23, programsToDelete).map(async (group) => {
+      const before = snapshot?.programs ?? (await this.getProgramsByUserId(user.id));
+      const diff = CollectionUtils_diffByKey(before, programs, (p) => p.id);
+      const programsToPut = snapshot == null ? programs : diff.changed;
+      const programIdsToDelete = diff.removedKeys;
+      programDeletes = CollectionUtils_inGroupsOf(23, programIdsToDelete).map(async (group) => {
         await this.di.dynamo.batchDelete({
           tableName: userTableNames[env].programs,
-          keys: group.map((record) => ({ id: record.id, userId: user.id })),
+          keys: group.map((id) => ({ id, userId: user.id })),
         });
       });
 
-      programUpdates = CollectionUtils_inGroupsOf(23, programs).map(async (group) => {
+      programUpdates = CollectionUtils_inGroupsOf(23, programsToPut).map(async (group) => {
         await this.di.dynamo.batchPut({
           tableName: userTableNames[env].programs,
           items: group.map((record) => ({ ...record, userId: user.id })),
@@ -1109,75 +1146,15 @@ export class UserDao {
     let statsDeletes: Promise<void>[] = [];
     let statsUpdates: Promise<void>[] = [];
     if (stats) {
-      const userStats = await this.getStatsByUserId(user.id);
-      const newStatNames = new Set<string>();
-      for (const k of ObjectUtils_keys(statsObj.length)) {
-        const s = statsObj.length[k];
-        for (const v of s || []) {
-          newStatNames.add(`${v.timestamp}_${k}`);
-        }
-      }
-      for (const k of ObjectUtils_keys(statsObj.weight)) {
-        const s = statsObj.weight[k];
-        for (const v of s || []) {
-          newStatNames.add(`${v.timestamp}_${k}`);
-        }
-      }
-      for (const k of ObjectUtils_keys(statsObj.percentage)) {
-        const s = statsObj.percentage[k];
-        for (const v of s || []) {
-          newStatNames.add(`${v.timestamp}_${k}`);
-        }
-      }
-      const statsToDelete = [];
-      for (const k of ObjectUtils_keys(userStats.weight)) {
-        const s = userStats.weight[k];
-        for (const v of s || []) {
-          const name = `${v.timestamp}_${k}`;
-          if (!newStatNames.has(name)) {
-            statsToDelete.push(name);
-          }
-        }
-      }
-      for (const k of ObjectUtils_keys(userStats.length)) {
-        const s = userStats.length[k];
-        for (const v of s || []) {
-          const name = `${v.timestamp}_${k}`;
-          if (!newStatNames.has(name)) {
-            statsToDelete.push(name);
-          }
-        }
-      }
-      for (const k of ObjectUtils_keys(userStats.percentage)) {
-        const s = userStats.percentage[k];
-        for (const v of s || []) {
-          const name = `${v.timestamp}_${k}`;
-          if (!newStatNames.has(name)) {
-            statsToDelete.push(name);
-          }
-        }
-      }
+      const before = snapshot?.stats ?? (await this.getStatsByUserId(user.id));
+      const { puts: statsToPut, deleteNames: statsToDelete } = StatRowWrites_plan(before, stats, snapshot == null);
       statsDeletes = CollectionUtils_inGroupsOf(23, statsToDelete).map(async (group) => {
         await this.di.dynamo.batchDelete({
           tableName: userTableNames[env].stats,
           keys: group.map((record) => ({ userId: user.id, name: record })),
         });
       });
-
-      const statsLengthArray: IStatDb[] = ObjectUtils_keys(statsObj.length).flatMap((key) => {
-        const st = statsObj.length[key] || [];
-        return st.map((s) => ({ ...s, name: `${s.timestamp}_${key}`, type: "length" }));
-      });
-      const statsWeightArray: IStatDb[] = ObjectUtils_keys(statsObj.weight).flatMap((key) => {
-        const st = statsObj.weight[key] || [];
-        return st.map((s) => ({ ...s, name: `${s.timestamp}_${key}`, type: "weight" }));
-      });
-      const statsPercentageArray: IStatDb[] = ObjectUtils_keys(statsObj.percentage).flatMap((key) => {
-        const st = statsObj.percentage[key] || [];
-        return st.map((s) => ({ ...s, name: `${s.timestamp}_${key}`, type: "percentage" }));
-      });
-      const statsArray = statsLengthArray.concat(statsWeightArray).concat(statsPercentageArray);
-      statsUpdates = CollectionUtils_inGroupsOf(23, statsArray).map(async (group) => {
+      statsUpdates = CollectionUtils_inGroupsOf(23, statsToPut).map(async (group) => {
         await this.di.dynamo.batchPut({
           tableName: userTableNames[env].stats,
           items: group.map((record) => ({ ...record, userId: user.id })),
@@ -1198,7 +1175,8 @@ export class UserDao {
 
   public async getAllLimited(args: { limit?: number } = {}): Promise<ILimitedUserDao[]> {
     const env = Utils_getEnv();
-    return this.di.dynamo.scan({ tableName: userTableNames[env].users, limit: args.limit });
+    const items = await this.di.dynamo.scan<IUserRowItem>({ tableName: userTableNames[env].users, limit: args.limit });
+    return items.map((item) => UserRow_unpack(item));
   }
 
   public async getAll(): Promise<IUserDao[]> {
@@ -1237,21 +1215,29 @@ function convertStatsFromDb(statsDb: IStatDb[]): IStats {
     weight: Partial<Record<string, unknown[]>>;
     length: Partial<Record<string, unknown[]>>;
     percentage: Partial<Record<string, unknown[]>>;
+    health: Partial<Record<string, unknown[]>>;
   }>(
     (memo, statDb) => {
       const type = statDb.type;
       const name = statDb.name.split("_")[1];
       memo[type][name] = memo[type][name] || [];
-      const stat: IStatsLengthValue | IStatsWeightValue | IStatsPercentageValue = {
+      // The sync write paths spread the whole client value into the row, so reconstruction must hand the
+      // extra fields back: `hidden` is the user's only removal mechanism for imported health records, and
+      // the uuids feed the health importer's no-churn upsert check after a restore. `updatedAt` falls back
+      // to `timestamp` for rows written before it was preserved (or by the API's saveStat).
+      const stat: IStatsLengthValue | IStatsWeightValue | IStatsPercentageValue | IStatsHealthValue = {
         timestamp: statDb.timestamp,
-        updatedAt: statDb.timestamp,
+        updatedAt: statDb.updatedAt ?? statDb.timestamp,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         value: statDb.value as any,
         vtype: "stat",
+        ...(statDb.hidden ? { hidden: true } : {}),
+        ...(statDb.appleUuid != null ? { appleUuid: statDb.appleUuid } : {}),
+        ...(statDb.googleUuid != null ? { googleUuid: statDb.googleUuid } : {}),
       };
       memo[type][name]!.push(stat);
       return memo;
     },
-    { weight: {}, length: {}, percentage: {} }
+    { weight: {}, length: {}, percentage: {}, health: {} }
   );
 }

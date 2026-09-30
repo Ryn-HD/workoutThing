@@ -1,5 +1,6 @@
 import { JSX, useState } from "react";
-import { View, Pressable, TextInput, ScrollView } from "react-native";
+import { View, Pressable, ScrollView } from "react-native";
+import { TextInput } from "./primitives/textInput";
 import { Text } from "./primitives/text";
 import { StringUtils_dashcase } from "../utils/string";
 import { Tailwind_semantic } from "../utils/tailwindConfig";
@@ -51,7 +52,7 @@ export function Multiselect(props: IMultiselectProps): JSX.Element {
             className="absolute left-0 right-0 border rounded-lg shadow-sm bg-background-default border-border-neutral"
             style={{ top: "100%" }}
           >
-            <ScrollView className="max-h-48" keyboardShouldPersistTaps="always" nestedScrollEnabled={true}>
+            <ScrollView className="max-h-scaled-48" keyboardShouldPersistTaps="always" nestedScrollEnabled={true}>
               {filteredValues.map((value) => (
                 <Pressable
                   key={value}

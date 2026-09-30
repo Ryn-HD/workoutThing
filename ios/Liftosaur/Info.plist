@@ -62,9 +62,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Liftosaur needs access to your camera to take photos for use as workout share backgrounds.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>App will sync this data with Apple Health.</string>
+	<string>Liftosaur reads your bodyweight, body fat, waist, sleep, and nutrition (calories and protein) from Apple Health to show them alongside your workouts.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>App will read this data from Apple Health and add to measurements inside the app.</string>
+	<string>Liftosaur writes your bodyweight, body fat, and waist measurements, plus completed workouts and their active energy, to Apple Health.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Liftosaur needs access to your photo library to pick photos for use as workout share backgrounds.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -280,27 +280,28 @@
 	<true/>
 	<key>LftUpdatesManifestURL</key>
 	<string>https://www.liftosaur.com/api/updates/manifest</string>
-	<key>LftUpdatesSigningCertificate</key>
-	<string>-----BEGIN CERTIFICATE-----
-MIIDUTCCAjmgAwIBAgIUHLl2tunW/kUgZ2/XE72t+3fZoV0wDQYJKoZIhvcNAQEL
-BQAwJDEiMCAGA1UEAwwZTGlmdG9zYXVyIFVwZGF0ZXMgU2lnbmluZzAeFw0yNjA1
-MTMyMTAxMjJaFw0zNjA1MTAyMTAxMjJaMCQxIjAgBgNVBAMMGUxpZnRvc2F1ciBV
-cGRhdGVzIFNpZ25pbmcwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDB
-VeJA/LN6p8TAlRNUHTJj3M0P92ScnpW0nlCDyGPntC3PDO52DfiT4nOKPXtDwZEy
-99PI4lUl5aEATV9pVqwbrGS+aRbVToF8GFnBfODnGSkgDFfQzuY2MRuovvpGAWp1
-mE094/z8QGIqY3f7rBYeoSJiLLS2WeUUquAilwYnaDtUcsg8zSognDO5LcenFalk
-WRMAilEAVY79lsoy4YJi+6x9gnXXNHr90zNx21+OJxBWiGYp1zUn5Fo9n+Whwwds
-V+oQWcMiKyLZ5Y6/v24v1a1MAzJa4+V2+VKp51cj3isjoEXOH7lWkS85MrWrERVl
-T74HV10TyMSYiGAvxAe7AgMBAAGjezB5MB0GA1UdDgQWBBTij6TcRuDfnUrU2lJK
-E1qY7NdcxDAfBgNVHSMEGDAWgBTij6TcRuDfnUrU2lJKE1qY7NdcxDAPBgNVHRMB
-Af8EBTADAQH/MA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAKBggrBgEFBQcD
-AzANBgkqhkiG9w0BAQsFAAOCAQEAQ/jAH5lhx0U0amJ7kBCJ/Oxj/AIROQQqjlij
-SFxSLk6ISBJ3O4GdHvyRGlVBGVKAXa90gOlZZ86yPG1+xkScKx8rSCCuOtYqqbRr
-U1Ay7iCzHBl0bCsG4csean5bnoeEorWLnkjNs6iXqky3kFsfjCpJFQwaJ1RrLL3E
-BiDw26hvNggLnwpjAGwi9OMXa1Qo4CoMK7Dz9rNYcpy7FHN9X3sXNNjFhDOylU0a
-sgxkvn64/GZy9Y8o1A5+qUWZ6N9rFU/Fw30Yhpo0g4DMXqdBBb+CPQf9OmriQXDt
-pIUWwHOqm45uFmSi7fzX5KbgOugdAFb1uhz+uaxATSs93rnAHQ==
------END CERTIFICATE-----</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>

@@ -21,6 +21,7 @@ export type IOnboardingStackParamList = {
   units: undefined;
   setupequipment: undefined;
   setupplates: undefined;
+  hearaboutus: undefined;
   programselect: undefined;
   programs: undefined;
   programPreview: undefined;
@@ -62,6 +63,7 @@ export type IMeStackParamList = {
   muscleGroups: undefined;
   stats: undefined;
   measurements: { key: IStatsKey } | undefined;
+  sleepNutrition: undefined;
   exerciseStats: undefined;
   apiKeys: undefined;
   recentImports: undefined;
@@ -86,6 +88,13 @@ export type IRootStackParamList = {
   onboarding: NavigatorScreenParams<IOnboardingStackParamList>;
   mainTabs: NavigatorScreenParams<IRootTabParamList>;
   subscription: undefined;
+  exerciseLiftoEditorModal:
+    | { programId: string; key: string; dayData: Required<IDayData>; fromWorkout?: boolean }
+    | undefined;
+  // The absolute day number, not week/dayInWeek — the same thing a workout carries, and the
+  // sheet resolves the planner indices from it so they can't go stale.
+  dayLiftoEditorModal: { programId: string; day: number; fromWorkout?: boolean } | undefined;
+  liftoEditorExercisePickerModal: undefined;
   amrapModal: NonNullable<IHistoryRecord["amrapModal"]> &
     ({ context: "workout"; progressId: number } | { context: "playground"; weekIndex: number; dayIndex: number });
   exercisePickerModal: { progressId: number };
@@ -94,7 +103,8 @@ export type IRootStackParamList = {
     programId: string;
     exerciseStateKey?: string;
     dayData: IShortDayData;
-    change: "one" | "all" | "duplicate";
+    change: "one" | "all" | "duplicate" | "variationAdd" | "variationEdit";
+    variationIndex?: number;
     exerciseKey?: string;
   };
   editSetTargetModal:
@@ -104,6 +114,9 @@ export type IRootStackParamList = {
     | { context: "workout"; progressId: number }
     | { context: "playground"; weekIndex: number; dayIndex: number };
   setTimerEditModal:
+    | { context: "workout"; progressId: number }
+    | { context: "playground"; weekIndex: number; dayIndex: number };
+  roundingInfoModal:
     | { context: "workout"; progressId: number }
     | { context: "playground"; weekIndex: number; dayIndex: number };
   dateModal: { progressId: number };
@@ -126,10 +139,11 @@ export type IRootStackParamList = {
   nextWorkoutModal: undefined;
   whatsnewModal: undefined;
   signupRequestModal: undefined;
+  hearAboutUsModal: undefined;
   corruptedStateModal: undefined;
   debugModal: undefined;
   workoutShareModal: { progressId: number };
-  socialShareModal: { type: "igstory" | "igfeed" | "tiktok"; progressId?: number };
+  socialShareModal: { type: "igstory" | "igfeed" | "tiktok"; progressId?: number; historyRecordId?: number };
   customExerciseModal: { exerciseId?: string };
   musclesOverrideModal: { exerciseType: IExerciseType };
   tourModal: undefined;
@@ -144,6 +158,8 @@ export type IRootStackParamList = {
   editUpdateScriptModal: { exerciseStateKey: string; programId: string };
   monthCalendarModal: undefined;
   accountModal: undefined;
+  emailAuthModal: { navigateHomeOnSignIn?: boolean } | undefined;
+  changePasswordModal: undefined;
   subscriptionInfoModal: { type: "platesCalculator" | "graphs" | "notifications" | "weekInsights" | "watch" | "mcp" };
   weekInsightsDetailsModal: { selectedFirstDayOfWeek: number };
   setSplitModal: {
@@ -160,7 +176,12 @@ export type IRootStackParamList = {
   programInfoModal: { programId: string; hasCustomPrograms: boolean };
   changeNextDayModal: undefined;
   inputSelectModal: undefined;
+  stateVarsModal: undefined;
+  // Data and result travel through ModalStateContext, not route params.
+  acrossProgramModal: undefined;
+  createStateVarModal: undefined;
   textInputModal: undefined;
+  editDetailsModal: undefined;
   repMaxCalculatorModal: undefined;
   muscleGroupMusclePickerModal: { muscleGroup: IScreenMuscle };
   programPreviewMusclesModal: { type: "program" } | { type: "day"; dayIndex: number };

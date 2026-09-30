@@ -19,6 +19,7 @@ import { ProgramQrCode } from "./programQrCode";
 import { Equipment_currentEquipment } from "../models/equipment";
 import { Text } from "./primitives/text";
 import { HostConfig_resolveUrl } from "../utils/hostConfig";
+import { n } from "../utils/math";
 
 export interface IProgramShareOutputOptions {
   showInfo: boolean;
@@ -230,7 +231,7 @@ function Workout(props: IWorkoutProps): JSX.Element {
         return (
           <View key={i} className={`mx-4 pb-4 ${i > 0 ? "pt-2 border-t border-border-neutral" : ""}`}>
             <View className="flex-row items-stretch pl-1" style={{ paddingRight: 1 }} key={Exercise_toKey(exercise)}>
-              <View className="flex-row items-center w-12 pr-2">
+              <View className="flex-row items-center w-scaled-12 pr-2">
                 <ExerciseImage suppressCustom={true} exerciseType={exercise} size="small" settings={props.settings} />
               </View>
               <View className="flex-col justify-center flex-1">
@@ -272,7 +273,7 @@ function Set(props: ISetProps): JSX.Element | null {
     return null;
   }
   return (
-    <Text className="text-base leading-4 text-right text-text-secondary">
+    <Text className="text-base leading-scaled-4 text-right text-text-secondary">
       {repRange.numberOfSets > 1 && (
         <Text className="text-base text-text-secondary">
           <Text className="text-base font-semibold text-text-purple">{repRange.numberOfSets}</Text>
@@ -292,7 +293,7 @@ function Set(props: ISetProps): JSX.Element | null {
       {set.weight ? (
         <Text className="text-base text-text-secondary">
           <Text className="text-xs text-text-secondary"> × </Text>
-          <Text className="text-base text-text-primary">{set.weight.value}</Text>
+          <Text className="text-base text-text-primary">{n(set.weight.value)}</Text>
           {set.askWeight && <Text className="text-base font-semibold text-text-primary">+</Text>}
           <Text className="text-xs text-text-secondary">{set.weight.unit}</Text>
         </Text>

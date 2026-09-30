@@ -1,5 +1,6 @@
 import { JSX, useState } from "react";
-import { View, Pressable, ScrollView, TextInput } from "react-native";
+import { View, Pressable, ScrollView } from "react-native";
+import { TextInput } from "./primitives/textInput";
 import { Text } from "./primitives/text";
 import { IDispatch } from "../ducks/types";
 import {
@@ -123,7 +124,7 @@ export function BottomSheetMusclesOverrideContent(props: IBottomSheetMusclesOver
       <SheetDragHandle>
         <View className="flex-row items-center pt-0 pb-4 mt-2">
           <Pressable
-            className="px-4 py-2"
+            className="px-gutter py-2"
             hitSlop={12}
             data-testid="muscle-overrides-close"
             testID="muscle-overrides-close"
@@ -132,7 +133,7 @@ export function BottomSheetMusclesOverrideContent(props: IBottomSheetMusclesOver
             <IconClose2 size={22} />
           </Pressable>
           <View className="flex-1" />
-          <View className="px-4">
+          <View className="px-gutter">
             <Button
               kind="purple"
               buttonSize="md"
@@ -173,7 +174,7 @@ export function BottomSheetMusclesOverrideContent(props: IBottomSheetMusclesOver
         keyboardDismissMode="interactive"
         automaticallyAdjustKeyboardInsets
       >
-        <View className="px-4">
+        <View className="px-gutter">
           <MusclesOverrideList
             musclesAndMultipliers={musclesAndMultipliers}
             setMusclesAndMultipliers={setMusclesAndMultipliers}
@@ -230,16 +231,16 @@ export function MusclesOverrideList(props: {
                   <MuscleImage muscle={mm.muscle} size={61} />
                 </View>
                 <View className="flex-1">
-                  <Text className="leading-5">{mm.muscle}</Text>
+                  <Text className="leading-scaled-5">{mm.muscle}</Text>
                   <Text className="text-xs text-text-secondary">
                     {Muscle_getMuscleGroupName(muscleGroup, props.settings)}
                   </Text>
                 </View>
-                <View className="w-12">
+                <View className="w-scaled-12">
                   <TextInput
                     testID={`muscle-multiplier-${StringUtils_dashcase(mm.muscle)}-input`}
                     data-testid={`muscle-multiplier-${StringUtils_dashcase(mm.muscle)}-input`}
-                    className="px-2 py-2 text-base leading-5 text-center border rounded-md bg-background-default border-border-prominent text-text-primary"
+                    className="px-2 py-2 text-base text-center border rounded-md bg-background-default border-border-prominent text-text-primary"
                     keyboardType="decimal-pad"
                     value={mm.multiplier != null ? String(mm.multiplier) : ""}
                     onChangeText={(text) => {

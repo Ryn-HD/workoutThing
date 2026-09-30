@@ -12,10 +12,10 @@ import {
   Program_getProgramExercise,
   IEvaluatedProgram,
 } from "../models/program";
-import { Weight_parse } from "../models/weight";
+import { Weight_parse, Weight_build } from "../models/weight";
 import { LiftohistorySerializer_serialize } from "../liftohistory/liftohistorySerializer";
 import { IEither } from "../utils/types";
-import { Progress_completeSetAction } from "../models/progress";
+import { Progress_completeSetAction, Progress_changeAmrapAction, Progress_settleTimedSet } from "../models/progress";
 
 export interface IPlaygroundResult {
   workout: string;
@@ -30,12 +30,20 @@ export interface IPlaygroundInput {
 }
 
 interface IParsedCommand {
-  type: "complete_set" | "change_weight" | "change_reps" | "change_rpe" | "set_state_variable" | "finish_workout";
+  type:
+    | "complete_set"
+    | "change_weight"
+    | "change_reps"
+    | "change_rpe"
+    | "change_set_time"
+    | "set_state_variable"
+    | "finish_workout";
   exerciseIndex: number;
   setIndex: number;
   weight?: IWeight;
   reps?: number;
   rpe?: number;
+  setTime?: number;
   varName?: string;
   varValue?: string;
 }
@@ -91,6 +99,16 @@ function parseCommand(cmd: string): IParsedCommand | undefined {
       exerciseIndex: parseInt(args[0], 10),
       setIndex: parseInt(args[1], 10),
       rpe: parseFloat(args[2]),
+    };
+  } else if (name === "change_set_time") {
+    if (args.length < 3) {
+      return undefined;
+    }
+    return {
+      type: "change_set_time",
+      exerciseIndex: parseInt(args[0], 10),
+      setIndex: parseInt(args[1], 10),
+      setTime: parseInt(args[2], 10),
     };
   } else if (name === "set_state_variable") {
     if (args.length < 3) {
@@ -222,7 +240,8 @@ function applyCommand(
     }
     const entry = progress.entries[entryIndex];
     const programExercise = Program_getProgramExercise(progress.day, evaluatedProgram, entry.programExerciseId);
-    const newProgress = Progress_completeSetAction(
+    let newProgress = Progress_completeSetAction(
+      [],
       settings,
       stats,
       progress,
@@ -239,6 +258,49 @@ function applyCommand(
       },
       undefined
     );
+    // The first "complete" on a timed set only starts its clock (opens the set-timer banner) - the app
+    // records the held time and finishes the set on a second "Stop & Record" signal. The playground has no
+    // real clock, so immediately fire that second signal here, recording the set's programmed hold duration
+    // (setTimer) as the held time. A caller can then tweak it with change_set_time to test hold progression.
+    newProgress = Progress_settleTimedSet(
+      [],
+      settings,
+      stats,
+      newProgress,
+      entryIndex,
+      setIndex,
+      "workout",
+      {},
+      { programExercise, otherStates: evaluatedProgram.states, isPlayground: true }
+    );
+    // Completing an AMRAP set, a set with no weight, or one that logs RPE opens the AMRAP modal instead of
+    // finishing the set - the app waits for the user to fill it in. The playground has no modal, so answer it
+    // with the set's programmed target values so the set finalizes. A caller can then tweak the completed set
+    // with change_reps / change_weight / change_rpe (e.g. to test failure/deload or AMRAP progression paths).
+    if (newProgress.amrapModal != null) {
+      const modal = newProgress.amrapModal;
+      const set = newProgress.entries[modal.entryIndex].sets[modal.setIndex];
+      newProgress = Progress_changeAmrapAction(
+        [],
+        settings,
+        stats,
+        newProgress,
+        {
+          type: "ChangeAMRAPAction",
+          entryIndex: modal.entryIndex,
+          setIndex: modal.setIndex,
+          isPlayground: true,
+          programExercise,
+          otherStates: evaluatedProgram.states,
+          amrapValue: modal.isAmrap ? (set.reps ?? undefined) : undefined,
+          logRpe: modal.logRpe,
+          rpeValue: modal.logRpe ? (set.rpe ?? undefined) : undefined,
+          askWeight: modal.askWeight,
+          weightValue: modal.askWeight ? (set.weight ?? Weight_build(0, settings.units)) : undefined,
+        },
+        undefined
+      );
+    }
     return { success: true, data: newProgress };
   } else if (parsed.type === "change_weight") {
     const err = checkEntryAndSetExist(progress, parsed.exerciseIndex, parsed.setIndex);
@@ -248,10 +310,12 @@ function applyCommand(
     const newProgress = { ...progress, entries: [...progress.entries] };
     const entry = { ...newProgress.entries[entryIndex], sets: [...newProgress.entries[entryIndex].sets] };
     const set = { ...entry.sets[setIndex] };
-    set.weight = parsed.weight!;
-    if (set.isCompleted) {
-      set.completedWeight = parsed.weight!;
-    }
+    // change_* commands record what the user actually did (the completed value), never the programmed target.
+    // Overwriting the target would make progressions that compare completed-vs-target (e.g. completedReps >=
+    // reps) always pass, so a deliberately-failed set couldn't be simulated. For a not-yet-completed set the
+    // completed value seeds what complete_set finalizes (it keeps an already-set completed*), leaving the
+    // target intact either way.
+    set.completedWeight = parsed.weight!;
     entry.sets[setIndex] = set;
     newProgress.entries[entryIndex] = entry;
     return { success: true, data: newProgress };
@@ -263,10 +327,19 @@ function applyCommand(
     const newProgress = { ...progress, entries: [...progress.entries] };
     const entry = { ...newProgress.entries[entryIndex], sets: [...newProgress.entries[entryIndex].sets] };
     const set = { ...entry.sets[setIndex] };
-    set.reps = parsed.reps!;
-    if (set.isCompleted) {
-      set.completedReps = parsed.reps!;
+    set.completedReps = parsed.reps!;
+    entry.sets[setIndex] = set;
+    newProgress.entries[entryIndex] = entry;
+    return { success: true, data: newProgress };
+  } else if (parsed.type === "change_set_time") {
+    const err = checkEntryAndSetExist(progress, parsed.exerciseIndex, parsed.setIndex);
+    if (err) {
+      return { success: false, error: err };
     }
+    const newProgress = { ...progress, entries: [...progress.entries] };
+    const entry = { ...newProgress.entries[entryIndex], sets: [...newProgress.entries[entryIndex].sets] };
+    const set = { ...entry.sets[setIndex] };
+    set.completedSetTimer = parsed.setTime!;
     entry.sets[setIndex] = set;
     newProgress.entries[entryIndex] = entry;
     return { success: true, data: newProgress };

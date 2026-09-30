@@ -2,70 +2,34 @@ import { Exercise_get, Exercise_getIsUnilateral, Exercise_fullName } from "../mo
 import { ExerciseImageUtils_url } from "../models/exerciseImage";
 import { Program_evaluate, Program_getProgramExercise } from "../models/program";
 import { ProgramExercise_hasUserPromptedVars } from "../models/programExercise";
-import { Progress_shouldShowAmrapModal, Progress_getNextEntry } from "../models/progress";
-import { ISetsStatus, Reps_setsStatus, Reps_findNextSetIndex } from "../models/set";
+import { Progress_shouldShowAmrapModal, Progress_getNextEntry, Progress_getActiveSetTimer } from "../models/progress";
+import { Reps_setsStatus, Reps_findNextSetIndex } from "../models/set";
 import { Weight_calculatePlates, Weight_print, Weight_formatOneSide } from "../models/weight";
 import { IPlannerProgramExercise } from "../pages/planner/models/types";
 import { IHistoryRecord, IProgram, ISettings, ISubscription } from "../types";
+import { TimedSet_toView } from "../models/timedSet";
 import { n } from "./math";
-import { NativeWorkoutBridge_updateLiveActivity } from "./nativeWorkoutBridge";
+import {
+  ILiveActivityEntry,
+  ILiveActivityGetReady,
+  ILiveActivitySetTimer,
+  ILiveActivityState,
+} from "./liveActivityState";
+import { INativeEffect } from "../models/nativeEffects";
 import { SendMessage_print } from "./sendMessage";
 import { Subscriptions_hasSubscription } from "./subscriptions";
 import { UrlUtils_build } from "./url";
 
 declare const __HOST__: string;
 
-export interface ILiveActivitySet {
-  status: ISetsStatus;
-  isWarmup: boolean;
-}
-
-export interface ILiveActivityEntry {
-  exerciseName: string;
-  currentSet: number;
-  totalSets: number;
-  completedSets: ILiveActivitySet[];
-  canCompleteFromLiveActivity: boolean;
-  isWarmup: boolean;
-  entryIndex: number;
-  setIndex: number;
-
-  exerciseImageUrl?: string;
-  targetReps?: string;
-  targetWeight?: string;
-  targetRPE?: string;
-  targetTimer?: string;
-  plates?: string;
-  currentWeight?: string;
-  currentReps?: string;
-  isSetTimer?: boolean;
-}
-
-export interface ILiveActivityRest {
-  restTimerSince: number;
-  restTimer: number;
-  // Whether the resting set is part of an `auto` circuit (so the live activity shows "tap to update" when
-  // the rest ends, to auto-advance to the next set's work timer). Non-auto rest just expires.
-  isAuto: boolean;
-}
-
-export interface ILiveActivitySetTimer {
-  setTimerSince: number;
-  setTimer: number;
-  isOverflow: boolean;
-  isCompleted: boolean;
-  entryIndex: number;
-  setIndex: number;
-  restTimer: number;
-}
-
-export interface ILiveActivityState {
-  restTimer?: ILiveActivityRest;
-  setTimer?: ILiveActivitySetTimer;
-  historyEntryState?: ILiveActivityEntry;
-  workoutStartTimestamp: number;
-  ignoreDoNotDisturb: boolean;
-}
+export type {
+  ILiveActivitySet,
+  ILiveActivityEntry,
+  ILiveActivityRest,
+  ILiveActivitySetTimer,
+  ILiveActivityGetReady,
+  ILiveActivityState,
+} from "./liveActivityState";
 
 export function LiveActivityManager_getLiveActivityEntry(
   progress: IHistoryRecord,
@@ -140,6 +104,7 @@ export function LiveActivityManager_getLiveActivityEntry(
 }
 
 export function LiveActivityManager_updateProgressLiveActivity(
+  effects: INativeEffect[],
   program: IProgram | undefined,
   progress: IHistoryRecord,
   settings: ISettings,
@@ -156,6 +121,7 @@ export function LiveActivityManager_updateProgressLiveActivity(
       ? Program_getProgramExercise(progress.day, evaluatedProgram, entry.programExerciseId)
       : undefined;
   LiveActivityManager_updateLiveActivity(
+    effects,
     progress,
     entryIndex,
     setIndex,
@@ -168,6 +134,7 @@ export function LiveActivityManager_updateProgressLiveActivity(
 }
 
 export function LiveActivityManager_updateLiveActivity(
+  effects: INativeEffect[],
   progress: IHistoryRecord,
   entryIndex: number | undefined,
   setIndex: number | undefined,
@@ -190,33 +157,40 @@ export function LiveActivityManager_updateLiveActivity(
 
   // A running set timer takes over the live activity entirely: it shows the timed set's
   // count-up clock and "complete the set" buttons instead of the next-exercise/rest layout.
-  // It's driven by `progress.setTimer` so every existing update call site reflects it
-  // automatically, and reverts to the normal layout the moment the clock is cleared.
-  const setTimerModal = progress.setTimer;
+  const view = TimedSet_toView(progress, Progress_getActiveSetTimer(progress), settings);
   let setTimerState: ILiveActivitySetTimer | undefined;
-  if (setTimerModal) {
-    const timedEntry = progress.entries[setTimerModal.entryIndex];
-    const timedSet = timedEntry?.sets[setTimerModal.setIndex];
-    if (timedEntry && timedSet) {
-      const absoluteSetIndex = timedEntry.warmupSets.length + setTimerModal.setIndex;
-      const timedEntryState = LiveActivityManager_getLiveActivityEntry(
+  let getReadyState: ILiveActivityGetReady | undefined;
+  if (view != null) {
+    liveActivityEntry =
+      LiveActivityManager_getLiveActivityEntry(
         progress,
-        setTimerModal.entryIndex,
-        absoluteSetIndex,
+        view.entryIndex,
+        view.currentSet - 1,
         programExercise,
         settings
-      );
-      // Count current/total across warmups+work (the absolute index), matching the rest timer view — so a
-      // timed set after warmups reads "4/5" rather than the work-only "2/3".
-      liveActivityEntry = timedEntryState ?? liveActivityEntry;
+      ) ?? liveActivityEntry;
+    if (view.stage === "work") {
       setTimerState = {
-        setTimerSince: setTimerModal.startedAt,
-        setTimer: timedSet.setTimer ?? 0,
-        isOverflow: !!timedSet.isOverflowSetTimer,
-        isCompleted: !!timedSet.isCompleted,
-        entryIndex: setTimerModal.entryIndex,
-        setIndex: setTimerModal.setIndex,
-        restTimer: timedSet.timer ?? 0,
+        setTimerSince: view.startedAt,
+        setTimer: view.targetSeconds,
+        isOverflow: view.isOverflow,
+        isCompleted: view.isCompleted,
+        entryIndex: view.entryIndex,
+        setIndex: view.setIndex,
+        restTimer: view.restSeconds,
+        phaseId: view.phaseId,
+        side: view.side,
+        recordedThisSide: view.recordedThisSide,
+      };
+    } else {
+      getReadyState = {
+        getReadySince: view.startedAt,
+        getReady: view.getReadySeconds,
+        entryIndex: view.entryIndex,
+        setIndex: view.setIndex,
+        setTimer: view.targetSeconds,
+        phaseId: view.phaseId,
+        side: view.side,
       };
     }
   }
@@ -229,8 +203,9 @@ export function LiveActivityManager_updateLiveActivity(
     workoutStartTimestamp: progress.startTime,
     historyEntryState: liveActivityEntry,
     setTimer: setTimerState,
+    getReady: getReadyState,
     restTimer:
-      setTimerState == null && progress.timerSince != null && progress.timer != null
+      setTimerState == null && getReadyState == null && progress.timerSince != null && progress.timer != null
         ? {
             restTimerSince: restTimerSince ?? progress.timerSince,
             restTimer: restTimer ?? progress.timer,
@@ -242,10 +217,11 @@ export function LiveActivityManager_updateLiveActivity(
   SendMessage_print(
     `Main App: Updating live activity for ${liveActivityEntry?.exerciseName} (${liveActivityEntry?.entryIndex}/${liveActivityEntry?.setIndex})`
   );
-  NativeWorkoutBridge_updateLiveActivity(attributes);
+  effects.push({ type: "updateLiveActivity", state: attributes });
 }
 
 export function LiveActivityManager_updateLiveActivityForNextEntry(
+  effects: INativeEffect[],
   progress: IHistoryRecord,
   entryIndex: number,
   mode: "workout" | "warmup",
@@ -261,6 +237,7 @@ export function LiveActivityManager_updateLiveActivityForNextEntry(
   const nextEntryIndex = nextEntry ? progress.entries.indexOf(nextEntry) : undefined;
   const nextSetIndex = nextEntry ? Reps_findNextSetIndex(nextEntry) : undefined;
   LiveActivityManager_updateLiveActivity(
+    effects,
     progress,
     nextEntryIndex,
     nextSetIndex,

@@ -8,10 +8,256 @@
   Use bullet lists (- ...) only when you want bullets to render as actual bullets.
 
   Custom inline directives:
-    ::icon-discord::, ::icon-doc::, ::icon-swap::, ::icon-help::
+    ::icon-discord::, ::icon-doc::, ::icon-swap::, ::icon-help::, ::icon-edit2::, ::icon-preview::
+    Editor mode buttons: ::icon-reorder:: (grid), ::icon-ui-mode:: (per-day UI),
+      ::icon-day-text-mode:: (per-day text), ::icon-full-text-mode:: (full text)
     [label](internal:/path)        — internal app/website link
     ```liftoscript ... ```          — Liftoscript code block with syntax highlighting
 -->
+
+---
+date: 2026-09-29
+title: Show heart rate on the workout screen
+---
+
+On iOS, it now shows the heart rate (if available) on the workout screen. It takes it from the Apple Watch - if you have them. Alternatively, it can also get the heart rate from AirPods 3 Pro as well.
+
+---
+date: 2026-09-22
+title: Redesign of the workout screen
+---
+
+Redesigned the workout screen. Main goal was to declutter it, make it easier to use with shaking hands after heavy weight, and also ability to see things in distance (e.g. when your phone is laying down on a bench).
+
+So, did the following changes. For the next set:
+
+* The next set is **expanded** now, gets a large reps/weight fields, plates, and large checkmark button.
+* It also shows the best/last/same day reps/weights underneath.
+* Swiping of a set is gone, there's ::icon-edit2:: icon to edit/delete it now
+* You can expand / collapse sets by tapping on them
+
+Also:
+
+* Workout/exercise notes are toggleable now, in the kebab or cog menus
+* Delete, help, etc also moved to the kebab menu
+* You reorder exercises now by long-tapping and dragging them
+* AMRAP modal got bigger inputs and buttons
+
+And there're also some other minor tweaks here and there.
+
+---
+date: 2026-09-19
+title: Realtime sync on the phone
+---
+
+Now if you update your workouts or programs or anything outside of the app - e.g. via Claude/ChatGPT, via API, from Web Editor, etc - the phone will get the updates in real time. No need to close/open the app anymore.
+
+---
+date: 2026-09-17
+title: Editable preview in bottom sheet Liftoscript editor
+---
+
+There's a preview icon ::icon-preview:: in the bottom sheet Liftoscript editor on the right of the pills.
+It shows how the exercise liftoscript looks with all resolved reuses. E.g. if it shows:
+
+```liftoscript
+Squat / ...t1
+```
+and t1 is defined like
+
+```liftoscript
+t1 / used: none / 3x8 100lb
+```
+
+it will show
+
+```liftoscript
+Squat / 3x8 100lb
+```
+
+Now that preview is editable. You can tap e.g. on that `100lb` in `t1` and change it to e.g. `105lb`, and the
+original exercise text will have that override - becomes:
+
+```liftoscript
+Squat / ...t1 / 105lb
+```
+
+It's useful when you need to tweak some values of the reusing exercise, but they only exist in the reused exercise.
+
+---
+date: 2026-09-09
+title: Time-based exercises: Countdown and unilateral exercises support
+---
+
+There's now a countdown timer for the time-based exercises. It starts when you approach the end of rest time.
+You can set it in **Me -> Timers**.
+
+Also, now the unilateral exercises will present 2 set timers one after another - for the left, and the for right side. With the countdown in-between as well.
+
+Countdown is extracted from the rest time:
+* With `30s|60s`, and countdown == 5s, your rest time would be `55s`, and then `5s` countdown would start. If you want to disable countdown completely on specific exercise.
+* With `30s|0s` there will be no countdown (and if it's unilateral - no countdown between sides)
+
+---
+date: 2026-09-01
+title: Autocompletion suggestions in freeform mode in Liftoscript editor
+---
+
+Now if in the freeform mode in Liftoscript editor you have autocompletion. It'll suggest the exercise names,
+variable names in `progress`/`update` blocks, the template names when you add reusing, etc etc.
+
+---
+date: 2026-08-28
+title: New grid view for structuring the program
+---
+
+Huge change on the Program screen - the previous ::icon-reorder:: that let you reorder weeks now is waaay more powerful.
+
+Now, that mode shows a calendar-like view grid view of your program. If your exercises span multiple weeks with repeat ranges, you'll see them as a single strip crossing multiple weeks. You can drag the end of that strip to extend it to more weeks - and it'll adjust the repeat ranges.
+
+When you select an exercise, it now highlights the template it reuses.
+
+Everything is draggable there, you can long-tap and then drag exercises to reorder within the same day, and across days.
+You can also drag weeks to reorder them. When you select a day and drag - it drags across all weeks though - because the program layout is usually the same across all weeks, and dragging a single day in a multiweek program likely would break the program.
+
+You can pinch-zoom the grid to scale the weeks. All that stuff hopefully gives you a good birds-eye view of your entire program (especially useful if it's multiweek), and you can easily restructure across all of the weeks.
+
+You can also add multiple exercises from the same picker now there.
+
+I'm thinking to eventually remove per-day mode as well (the ::icon-ui-mode:: mode), that new view should do pretty much all the same things. But let me know what you think!
+
+And yeah, it was a massive and very complex change, so let me know if you find any bugs or issues - in Discord, Reddit, or by emailing to **info@liftosaur.com**.
+
+---
+date: 2026-08-17
+title: Some Liftoeditor improvements
+---
+
+1. If you tap ::icon-edit2:: icon on the workout screen, it now opens the liftoeditor in a bottomsheet with the current program day, that you can edit.
+
+2. You can reorder exercises in the editor by long-press and dragging them.
+
+3. On the "Edit Program Exercise" sheet, there's ::icon-preview:: icon that shows the preview of the exercise with all the reuses filled in.
+
+4. On the "Edit Program Exercise" it also will tell you if the progress is defined on some other week/day, and you jump there, or show it right for this week/day, editable.
+
+---
+date: 2026-08-12
+title: Improvements in exercise swapping during workout
+---
+
+When you swap an exercise during a workout, it now remembers the last exercises you swapped, and offers them in a "Recent" section at the top of the exercise picker. That should make doing repeated swaps faster.
+
+Also, it used to keep the same weight when you swap to an adhoc exercise. Which only makes sense if you used 1RM percentage weights. But for absolute weights it almost never makes sense.
+
+So, now it'll try to adjust the weight. It'll try to find the latest weights you did for the same reps in history, and use that weight. If it couldn't - it'll try to find the closest and infer from it. If it couldn't - it'll infer the weights from 1RM.
+
+And for warmups - it'll check if you have specific warmup config in your current program for that exercise, and will use that if it's there. Otherwise - just fallback to the default warmups.
+
+---
+date: 2026-08-11
+title: Swapping an exercise now adjusts the weights to match
+---
+
+When you swapped an exercise mid-workout, only the exercise changed - the weights stayed exactly as they were. That's fine if your program uses percentages of 1RM, but if it uses absolute weights, you'd swap Leg Press for a Lateral Raise and end up staring at a 500lb lateral raise.
+
+Now the weights come along with the swap. For each set, the app looks at your history for the exercise you're swapping **to**, finds the set closest in reps to what you're about to do, and converts that weight to your target reps and RPE. If the reps and RPE match, you just get the weight you actually lifted last time. Sets with different reps each get their own weight, so a 12/10/8 pyramid comes back as a pyramid.
+
+If you've never done the new exercise before, it falls back to your 1RM for it, or the exercise's default starting weight if you haven't set one - which is what percentage-based sets have always done on a swap. Either way, correcting it once is enough: your correction becomes history, so the next swap picks it up.
+
+Warmups get rebuilt for the new exercise too - from the warmups your program defines for it if it has any, and from that exercise's defaults otherwise.
+
+---
+date: 2026-08-10
+title: Text size now scales the whole app, and follows your device setting
+---
+
+When you had the Aa (for font-size) slider moved to the right, and also increased font-size in your device settings,
+it used to multiply the values, completely breaking the app layout (because the font size became huuuge).
+
+Fixed that, now the font size slider is the only thing that controls the app's text size. It also uses the device's font size as the starting point, so if you have a larger system font, the app will start out larger too.
+
+Also the icons, exercise thumbnails, etc also scale with the text now. Everything scales together!
+
+---
+date: 2026-08-09
+title: Embrace Liftoscript, part 1: Redesign of the "Edit Program Exercise" screen
+---
+
+One of the main sources of confusion and frustration in Liftosaur are the "Program" and "Edit Program Exercise" screens. They provide the UI to edit the program, but the problem is that the UI maps pretty poorly to Liftoscript.
+And Liftoscript is still source of truth. Also, when you edit UI - you have little idea what Liftoscript it'd result to. Users get weird errors they have no idea how to resolve - because errors come from Liftoscript syntax, not UI.
+
+Historically, I tried to hide the complexity of Liftoscript, trying to lower the learning curve. But IMHO it doesn't work - I just need to be honest and upfront that knowing at least some Liftoscript basics is required to use Liftosaur effectively. So, I'm pivoting to the new approach - embracing Liftoscript!
+
+As a first step - now "Edit Program Exercise" is not a screen anymore, it's a bottom sheet, where you can edit Liftoscript. For that, I created a new native code editor from ground up. Typing code generally is not convenient on a phone, so it solves that by having 'structured' editing mode, where you can tap values, elements, and use the action pills to do actions with them. So, kinda a mix of UI and code. You can swipe between elements, and you can double-tap on text to switch to freeform editing. Each element also shows a hint what it means, so hopefully it helps to learn Liftoscript basics easier.
+
+For now, it's only "Edit Program Exercise" screen, but I will work on replacing all the editors in the app with this new native editor.
+
+I understand it's a quite controversial change, so please let me know your thoughts in Discord, r/liftosaur subreddit, or by email at **info@liftosaur.com**.
+
+---
+date: 2026-07-19
+title: Added Sleep & Nutrition tracking
+---
+
+Liftosaur can now import your sleep duration, dietary calories, and protein from Apple Health or Google Health Connect. To turn it on, go to the Me screen, then scroll to "Apple Health" (or "Google Health Connect" on Android), and there enable "Sync Sleep & Nutrition".
+
+There's a new "Sleep & Nutrition" screen you can enter from the Me tab, with a trend graph and history for each metric. The import is read-only and happens on app open, daily aggregated. You can also soft-delete (hide) it from the list, and unhide if necessary.
+
+The data also syncs to your account like the rest of your measurements, so it's available through the [REST API](internal:/docs/api) and the [MCP server](internal:/docs/mcp) as a new `health` measurements category. So you can e.g. ask an AI assistant to correlate your sleep or protein intake with your training performance.
+
+You need an iOS/Android native app update (from App Store / Google Play) to get this feature.
+
+---
+date: 2026-07-17
+title: Tap a crossed-out weight to see why it was rounded
+---
+
+When a set's target shows a crossed-out weight next to another one - that's the app rounding the program's exact weight to what you can actually load with your equipment. It's been a common source of confusion: why is my working weight different from the target? Why is it suddenly 0?
+
+Now the rounded weight is underlined, and you can tap it to get the full explanation: how the target was calculated (e.g. as a percentage of your 1RM), how it was converted between kg and lb, and how it was matched to your equipment - the bar weight, the plates per side, or the closest fixed dumbbell.
+
+If the equipment is marked as "Is Assisting" (like an assisted pull-up machine, where added weight makes the exercise easier), the explanation will call that out too - accidentally enabling it is the usual reason weights unexpectedly drop to 0.
+
+Hopefully that'll help to understand why it crosses out the weights!
+
+---
+date: 2026-07-13
+title: More accurate volume for two-dumbbell exercises
+---
+
+Volume and total weight now count both dumbbells for exercises you load with a pair - like dumbbell shoulder press, bench press, rows, lunges, and split squats. The weight you enter for these is per-dumbbell, so previously we only counted one and undercounted the volume by half. Now it's doubled to reflect the real load moved.
+
+This changes how numbers look in your volume graphs - your dumbbell volume will double compared to before. So, it's somewhat a breaking change.
+
+If a particular exercise doesn't fit (say you do a single-dumbbell variation), you can turn this off per-exercise: go to Exercise Stats, and toggle "Two weights (count both)".
+
+---
+date: 2026-07-10
+title: Added exercise variations (progression ladders)
+---
+
+A single program exercise can now hold multiple movements, and you can switch between them - either automatically as you progress, or by hand. Great for calisthenics progressions, where you graduate from an easier movement to a harder one once you can do enough reps.
+
+List the movements separated by `|` in the exercise name. The current one is marked with `!` (the first is current by default):
+
+```liftoscript
+Split Squat | ! Bulgarian Split Squat | Pistol Squat / 3x8 0lb
+```
+
+To advance automatically, use the new `exerciseVariationIndex` variable in a progress script - it moves to the next movement when your condition is met:
+
+```liftoscript
+Squat | Pistol Squat | Front Squat / 3x8 0lb / progress: custom() {~
+  if (completedReps >= reps) {
+    exerciseVariationIndex += 1
+  }
+~}
+```
+
+You can also add, remove, reorder, and switch variations right from the Edit Program Exercise screen - enable "Exercise Variations" from the 3-dot menu. The sets, reps, and progress logic are shared across all movements; only the movement itself changes.
+
+Note that if you had a custom exercise with `|` or `!` in the name, it will be replaced to `-` character. If you program used `!` or `|` in the exercise names - you may need to tweak it, there's a migration that tries to fix it automatically, but it may miss some cases.
 
 ---
 date: 2026-07-01

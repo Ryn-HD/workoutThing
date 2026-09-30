@@ -1,4 +1,5 @@
 import { VersionTracker } from "../../src/models/versionTracker";
+import { VersionTrackerUtils_UNIDENTIFIED_DEVICE_ID } from "../../src/models/versionTracker/utils";
 import { STORAGE_VERSION_TYPES, IStorage, IPartialStorage } from "../../src/types";
 import { Storage_fillVersions, Storage_get, Storage_getDefault } from "../../src/models/storage";
 import { IStorageUpdate2 } from "../../src/utils/sync";
@@ -14,8 +15,9 @@ export type ISyncResult =
 export function Sync_apply(
   serverStorage: IStorage | undefined,
   storageUpdate: IStorageUpdate2,
-  deviceId?: string
+  rawDeviceId?: string
 ): ISyncResult {
+  const deviceId = rawDeviceId || VersionTrackerUtils_UNIDENTIFIED_DEVICE_ID;
   const base: IStorage = serverStorage ?? Storage_getDefault();
   const baseResult = Storage_get(base as unknown as Record<string, unknown>);
   if (!baseResult.success) {
@@ -36,7 +38,7 @@ export function Sync_apply(
     serverStorage != null && storageUpdate.originalId != null && migratedBase.originalId === storageUpdate.originalId;
 
   const { _versions, ...baseStorageNoVersions } = migratedBase;
-  const versionTracker = new VersionTracker(STORAGE_VERSION_TYPES, deviceId ? { deviceId } : undefined);
+  const versionTracker = new VersionTracker(STORAGE_VERSION_TYPES, { deviceId });
   const originalId = Date.now();
   const serverVersions = _versions || {};
   const newVersions = versionTracker.mergeVersions(serverVersions, storageUpdate.versions || {});

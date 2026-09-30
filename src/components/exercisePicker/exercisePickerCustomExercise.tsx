@@ -1,5 +1,5 @@
-import { JSX, useState } from "react";
-import { View, Pressable, ScrollView } from "react-native";
+import { JSX, useRef, useState } from "react";
+import { View, Pressable, ScrollView, Platform } from "react-native";
 import { Text } from "../primitives/text";
 import { ISettings, ICustomExercise, IExercisePickerScreen } from "../../types";
 import { Button } from "../button";
@@ -8,8 +8,9 @@ import { IconBack } from "../icons/iconBack";
 import { IconClose2 } from "../icons/iconClose2";
 import { ObjectUtils_isEqual } from "../../utils/object";
 import { ExercisePickerCustomExerciseContent } from "./exercisePickerCustomExerciseContent";
-import { Exercise_getNotes } from "../../models/exercise";
+import { Exercise_getNotes, Exercise_nameError } from "../../models/exercise";
 import { SheetDragHandle } from "../../navigation/TransparentModal";
+import { SystemKeyboardSpacer } from "../systemKeyboardSpacer";
 
 interface IExercisePickerCustomExercise2Props {
   settings: ISettings;
@@ -27,10 +28,11 @@ interface IExercisePickerCustomExercise2Props {
 
 export function ExercisePickerCustomExercise(props: IExercisePickerCustomExercise2Props): JSX.Element {
   const isEdited = !props.originalExercise || !ObjectUtils_isEqual(props.exercise, props.originalExercise);
-  const isValid = props.exercise.name.trim().length ?? 0 > 0;
+  const isValid = Exercise_nameError(props.exercise.name) == null;
   const [notes, setNotes] = useState<string | undefined>(
     props.exercise ? Exercise_getNotes(props.exercise, props.settings) : undefined
   );
+  const scrollRef = useRef<ScrollView>(null);
 
   return (
     <View className="flex-1" style={{ marginTop: -12 }}>
@@ -70,6 +72,7 @@ export function ExercisePickerCustomExercise(props: IExercisePickerCustomExercis
         </View>
       </SheetDragHandle>
       <ScrollView
+        ref={scrollRef}
         className="flex-1 pb-4"
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
@@ -96,6 +99,7 @@ export function ExercisePickerCustomExercise(props: IExercisePickerCustomExercis
             }}
           />
         </View>
+        {Platform.OS === "android" ? <SystemKeyboardSpacer scrollRef={scrollRef} /> : null}
       </ScrollView>
     </View>
   );

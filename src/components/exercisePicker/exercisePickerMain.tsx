@@ -1,5 +1,8 @@
 import { JSX, Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Pressable, Platform, TextInput } from "react-native";
+import { useRemScale } from "../../utils/useRem";
+import { FitText_fontSize } from "../../utils/fitText";
+import { View, Pressable, Platform } from "react-native";
+import { TextInput } from "../primitives/textInput";
 import Animated, {
   useSharedValue,
   useAnimatedScrollHandler,
@@ -36,10 +39,13 @@ import {
   Exercise_filterAndRankByQuery,
   Exercise_filterAndRankCustomByQuery,
   Exercise_matchesQuery,
+  Exercise_fromKey,
+  Exercise_find,
   IExercise,
 } from "../../models/exercise";
 import {
   ExercisePickerUtils_getProgramExercisefullName,
+  ExercisePickerUtils_getAllFilters,
   ExercisePickerUtils_getAllFilterNames,
   ExercisePickerUtils_filterCustomExercises,
   ExercisePickerUtils_sortCustomExercises,
@@ -51,7 +57,7 @@ import {
 } from "./exercisePickerUtils";
 import { CollectionUtils_compact } from "../../utils/collection";
 import { ObjectUtils_values, ObjectUtils_clone, ObjectUtils_keys } from "../../utils/object";
-import { StringUtils_dashcase } from "../../utils/string";
+import { StringUtils_dashcase, StringUtils_pluralize } from "../../utils/string";
 import { ExercisePickerCurrentExercise } from "./exercisePickerCurrentExercise";
 import { ExercisePickerTemplate } from "./exercisePickerTemplate";
 import { ExercisePickerExerciseItem } from "./exercisePickerExerciseItem";
@@ -98,6 +104,7 @@ type IListItem =
   | { kind: "weekTabs" }
   | { kind: "searchFilter" }
   | { kind: "stickyChrome"; showTabs: boolean; sub: "search" | "program" | null; showWeeks: boolean }
+  | { kind: "recentHeader" }
   | { kind: "customHeader" }
   | { kind: "customExercise"; raw: ICustomExercise; exercise: IExercise; key: string }
   | { kind: "builtinHeader" }
@@ -106,14 +113,29 @@ type IListItem =
   | { kind: "programEmpty"; message: string }
   | { kind: "templateForm" };
 
+type IRecentListItem = Extract<IListItem, { kind: "customExercise" | "builtinExercise" }>;
+
 interface ITabDef {
   label: string;
   index: number;
 }
 
 export function ExercisePickerMain(props: IProps): JSX.Element {
+  const remScale = useRemScale();
   const { evaluatedProgram, state, dispatch, settings, onStar, onChoose, usedExerciseTypes } = props;
-  const { mode, search, filters, sort, showMuscles, exerciseType, selectedExercises, label, templateName } = state;
+  const {
+    mode,
+    search,
+    filters,
+    sort,
+    showMuscles,
+    exerciseType,
+    selectedExercises,
+    label,
+    templateName,
+    hideLabel,
+    hideTemplate,
+  } = state;
   const isStarred = !!filters.isStarred;
 
   const title =
@@ -133,11 +155,12 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
       }
       return result;
     }
-    return [
-      { label: "Exercise", index: 0 },
-      { label: "Template", index: 1 },
-    ];
-  }, [mode, evaluatedProgram]);
+    const result: ITabDef[] = [{ label: "Exercise", index: 0 }];
+    if (!hideTemplate) {
+      result.push({ label: "Template", index: 1 });
+    }
+    return result;
+  }, [mode, evaluatedProgram, hideTemplate]);
 
   const selectedTab = Math.min(state.selectedTab ?? 0, tabs.length - 1);
 
@@ -149,6 +172,7 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
     }
   }, [weeks.length, currentWeekIndex]);
 
+  const [isRecentCollapsed, setIsRecentCollapsed] = useState(false);
   const [isCustomCollapsed, setIsCustomCollapsed] = useState(false);
   const [isBuiltinCollapsed, setIsBuiltinCollapsed] = useState(false);
 
@@ -200,6 +224,36 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
       exercise: Exercise_get({ id: raw.id }, settings.exercises),
     }));
   }, [settings, search, useRankOrdering, filters, sort, exerciseType]);
+
+  // Only when swapping, and only unnarrowed: with a query the ranked results are the answer, and with a
+  // filter on, recents that ignore it would contradict the narrowing the user just asked for.
+  const recentExercises = useMemo(() => {
+    const isNarrowed = !!search || ExercisePickerUtils_getAllFilters(filters).length > 0 || !!filters.isStarred;
+    if (mode !== "workout" || exerciseType == null || isNarrowed) {
+      return [];
+    }
+    const keys = settings.recentExercises?.[Exercise_toKey(exerciseType)] ?? [];
+    // Emitted as the same list items the sections below use, so a recent custom exercise still renders
+    // through CustomExerciseRow and keeps its edit affordance.
+    return CollectionUtils_compact(
+      keys.map((key): IRecentListItem | undefined => {
+        const type = Exercise_fromKey(key);
+        const raw = settings.exercises[type.id];
+        if (raw?.isDeleted) {
+          return undefined;
+        }
+        const exercise = Exercise_find(type, settings.exercises);
+        if (exercise == null) {
+          return undefined;
+        }
+        return raw != null
+          ? { kind: "customExercise", raw, exercise, key }
+          : { kind: "builtinExercise", exercise, key };
+      })
+    );
+  }, [mode, exerciseType, search, filters, settings]);
+
+  const recentKeys = useMemo(() => new Set(recentExercises.map((r) => r.key)), [recentExercises]);
 
   const currentWeek: IEvaluatedProgramWeek | undefined = weeks[currentWeekIndex] ?? weeks[0];
   const programGroups = useMemo<IProgramGroup[]>(() => {
@@ -371,7 +425,7 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
 
   const items = useMemo<IListItem[]>(() => {
     const result: IListItem[] = [{ kind: "title" }];
-    if (mode === "program") {
+    if (mode === "program" && !hideLabel) {
       result.push({ kind: "labelInput" });
     }
     if (exerciseType) {
@@ -410,22 +464,40 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
     } else if (isTemplateTab) {
       result.push({ kind: "templateForm" });
     } else if (isAdhocTab) {
+      if (recentExercises.length > 0) {
+        result.push({ kind: "recentHeader" });
+        if (!isRecentCollapsed) {
+          result.push(...recentExercises);
+        }
+      }
+      // Whatever Recent actually shows is dropped from the lists below, so every exercise stays exactly
+      // one row. Two rows would both light up when selected, and `getByTestId` is strict, so a duplicated
+      // `menu-item-*` would break the Playwright swap specs. Collapsed, Recent shows nothing and excludes
+      // nothing — otherwise folding the section away would remove those exercises from the picker
+      // entirely, since Recent is a second home for them rather than their only one.
+      const shownRecentKeys = isRecentCollapsed ? new Set<string>() : recentKeys;
       result.push({ kind: "customHeader" });
       if (!isCustomCollapsed) {
         for (const c of customExercises) {
-          result.push({ kind: "customExercise", raw: c.raw, exercise: c.exercise, key: c.key });
+          if (!shownRecentKeys.has(c.key)) {
+            result.push({ kind: "customExercise", raw: c.raw, exercise: c.exercise, key: c.key });
+          }
         }
       }
       result.push({ kind: "builtinHeader" });
       if (!isBuiltinCollapsed) {
         for (const e of builtinExercises) {
-          result.push({ kind: "builtinExercise", exercise: e, key: Exercise_toKey(e) });
+          const key = Exercise_toKey(e);
+          if (!shownRecentKeys.has(key)) {
+            result.push({ kind: "builtinExercise", exercise: e, key });
+          }
         }
       }
     }
     return result;
   }, [
     mode,
+    hideLabel,
     exerciseType,
     tabs.length,
     selectedTab,
@@ -434,6 +506,9 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
     programGroups,
     customExercises,
     builtinExercises,
+    recentExercises,
+    recentKeys,
+    isRecentCollapsed,
     isCustomCollapsed,
     isBuiltinCollapsed,
   ]);
@@ -469,6 +544,8 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
         return "searchFilter";
       case "stickyChrome":
         return "stickyChrome";
+      case "recentHeader":
+        return "recentHeader";
       case "customHeader":
         return "customHeader";
       case "customExercise":
@@ -488,39 +565,45 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
 
   const getItemType = useCallback((item: IListItem) => item.kind, []);
 
-  const getEstimatedItemSize = useCallback((_index: number, item: IListItem) => {
-    switch (item.kind) {
-      case "title":
-        return 44;
-      case "labelInput":
-        return 64;
-      case "currentExercise":
-        return 100;
-      case "tabs":
-        return 44;
-      case "weekTabs":
-        return 48;
-      case "searchFilter":
-        return 92;
-      case "stickyChrome": {
-        const tabsHeight = item.showTabs ? 44 : 0;
-        const subHeight = item.sub === "search" ? 92 : item.sub === "program" ? 48 + (item.showWeeks ? 48 : 0) : 0;
-        return tabsHeight + subHeight || 44;
+  // Every row here is sized by text that grows with the text size setting, so these estimates have
+  // to grow with it too - a virtualized list that under-estimates by 50% scrolls to blank regions.
+  const getEstimatedItemSize = useCallback(
+    (_index: number, item: IListItem) => {
+      switch (item.kind) {
+        case "title":
+          return 44 * remScale;
+        case "labelInput":
+          return 64 * remScale;
+        case "currentExercise":
+          return 100 * remScale;
+        case "tabs":
+          return 44 * remScale;
+        case "weekTabs":
+          return 48 * remScale;
+        case "searchFilter":
+          return 92 * remScale;
+        case "stickyChrome": {
+          const tabsHeight = item.showTabs ? 44 : 0;
+          const subHeight = item.sub === "search" ? 92 : item.sub === "program" ? 48 + (item.showWeeks ? 48 : 0) : 0;
+          return (tabsHeight + subHeight || 44) * remScale;
+        }
+        case "recentHeader":
+        case "customHeader":
+        case "builtinHeader":
+          return 44 * remScale;
+        case "customExercise":
+        case "builtinExercise":
+          return 72 * remScale;
+        case "programGroup":
+          return 140 * remScale;
+        case "programEmpty":
+          return 60 * remScale;
+        case "templateForm":
+          return 220 * remScale;
       }
-      case "customHeader":
-      case "builtinHeader":
-        return 44;
-      case "customExercise":
-      case "builtinExercise":
-        return 72;
-      case "programGroup":
-        return 140;
-      case "programEmpty":
-        return 60;
-      case "templateForm":
-        return 220;
-    }
-  }, []);
+    },
+    [remScale]
+  );
 
   const scrollY = useSharedValue(0);
   const titleHeight = useSharedValue(0);
@@ -577,14 +660,12 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
         case "title":
           return (
             <SheetDragHandle>
-              <View className="relative py-1" onLayout={onTitleLayout}>
-                <Text className="px-4 py-2 font-bold text-center">{title}</Text>
-                <View className="absolute flex-row top-3 left-4">
-                  <Pressable className="px-2" onPress={onSettingsPress}>
-                    <IconFilter />
-                  </Pressable>
-                </View>
-                <View className="absolute flex-row items-center top-3 right-4">
+              <View className="flex-row items-center gap-2 px-2 py-1" onLayout={onTitleLayout}>
+                <Pressable className="px-2" onPress={onSettingsPress}>
+                  <IconFilter />
+                </Pressable>
+                <Text className="flex-1 py-2 font-bold text-center">{title}</Text>
+                <View className="flex-row items-center gap-1">
                   <Pressable className="px-2" onPress={onToggleMuscles}>
                     <IconMuscles2 color={Tailwind_semantic().icon.purple} isSelected={showMuscles} />
                   </Pressable>
@@ -699,6 +780,18 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
                 </>
               )}
             </Animated.View>
+          );
+        case "recentHeader":
+          return (
+            <View className="py-2">
+              <GroupHeader
+                isExpanded={!isRecentCollapsed}
+                onToggle={() => setIsRecentCollapsed((v) => !v)}
+                leftExpandIcon={true}
+                name="Recent"
+                headerClassName="mx-4"
+              />
+            </View>
           );
         case "customHeader":
           return (
@@ -845,6 +938,7 @@ export function ExercisePickerMain(props: IProps): JSX.Element {
       onLabelLayout,
       onCurrentExLayout,
       onTabsLayout,
+      isRecentCollapsed,
       isCustomCollapsed,
       isBuiltinCollapsed,
     ]
@@ -907,8 +1001,23 @@ interface ITabsRowProps {
 const TabsRow = memo(function TabsRow(props: ITabsRowProps): JSX.Element {
   const { tabs, selectedTab, onTabChange } = props;
   const activeColor = Tailwind_semantic().button.secondarystroke;
+  const remScale = useRemScale();
+  const [rowWidth, setRowWidth] = useState(0);
+  // Tabs split the row evenly, so the longest label decides one font size for all of them - labels
+  // at different sizes next to each other read as a mistake.
+  const fontSize = useMemo(() => {
+    const baseFontSize = 16 * remScale;
+    if (rowWidth <= 0 || tabs.length === 0) {
+      return baseFontSize;
+    }
+    const availableWidth = rowWidth / tabs.length - 16;
+    return tabs.reduce(
+      (min, tab) => Math.min(min, FitText_fontSize(tab.label, availableWidth, baseFontSize)),
+      baseFontSize
+    );
+  }, [rowWidth, tabs, remScale]);
   return (
-    <View className="flex-row bg-background-default">
+    <View className="flex-row bg-background-default" onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}>
       {tabs.map((tab) => {
         const isSelected = selectedTab === tab.index;
         const nameClass = `tab-${StringUtils_dashcase(tab.label.toLowerCase())}`;
@@ -916,16 +1025,20 @@ const TabsRow = memo(function TabsRow(props: ITabsRowProps): JSX.Element {
           <View
             key={tab.label}
             className="items-center border-b border-border-neutral"
-            style={{ flexGrow: 1, flexShrink: 0, flexBasis: "auto" }}
+            style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0 }}
           >
             <Pressable
-              className="px-4 pt-2 pb-1"
+              className="px-2 pt-2 pb-1"
               style={isSelected ? { borderBottomWidth: 2, borderBottomColor: activeColor } : undefined}
               data-testid={nameClass}
               testID={nameClass}
               onPress={() => onTabChange(tab.index)}
             >
-              <Text numberOfLines={1} className={`text-base ${isSelected ? "text-text-purple" : ""}`}>
+              <Text
+                numberOfLines={1}
+                className={`text-base ${isSelected ? "text-text-purple" : ""}`}
+                style={{ fontSize }}
+              >
                 {tab.label}
               </Text>
             </Pressable>
@@ -1184,7 +1297,7 @@ const ProgramExerciseGroupCard = memo(function ProgramExerciseGroupCard(props: I
     >
       <View className="pl-1">
         <View className="p-1 rounded-lg bg-background-image">
-          <ExerciseImage settings={settings} exerciseType={group.exerciseType} size="small" className="w-10" />
+          <ExerciseImage settings={settings} exerciseType={group.exerciseType} size="small" className="w-scaled-10" />
         </View>
       </View>
       <View className="flex-1 pt-1">
@@ -1338,7 +1451,13 @@ function BottomButton(props: IBottomButtonProps): JSX.Element {
           : state.exerciseType || state.templateName
             ? `Save ${state.selectedTab === 1 ? "Template" : "Exercise"}`
             : selectedExercises.length > 0
-              ? `Add ${state.selectedTab === 1 ? "Template" : "Exercise"}`
+              ? state.selectedTab === 1
+                ? "Add Template"
+                : // Counted, because adding to a program is multi-select too now and the button is
+                  // the only place that says how many are about to land in the day.
+                  `Add ${StringUtils_pluralize("Exercise", selectedExercises.length)}${
+                    selectedExercises.length > 1 ? ` (${selectedExercises.length})` : ""
+                  }`
               : "Close"}
       </Button>
       {!(state.mode === "program" && state.selectedTab === 1) && selectedExercises.length > 0 && (

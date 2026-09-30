@@ -273,22 +273,26 @@ export function Weight_platesWeight(plates: IPlate[]): IWeight {
   );
 }
 
-export function Weight_formatOneSide(settings: ISettings, platesArr: IPlate[], exerciseType: IExerciseType): string {
+export function Weight_oneSidePlates(settings: ISettings, platesArr: IPlate[], exerciseType: IExerciseType): IWeight[] {
   const equipmentSettings = Equipment_getEquipmentDataForExerciseType(settings, exerciseType);
   const plates: IPlate[] = JSON.parse(JSON.stringify(platesArr));
   plates.sort((a, b) => Weight_compareReverse(a.weight, b.weight));
-  const arr: number[] = [];
+  const arr: IWeight[] = [];
   const multiplier = equipmentSettings?.multiplier ?? 1;
   while (true) {
     const plate = plates.find((p) => p.num >= multiplier);
     if (plate != null) {
-      arr.push(plate.weight.value);
+      arr.push(plate.weight);
       plate.num -= multiplier;
     } else {
       break;
     }
   }
+  return arr;
+}
 
+export function Weight_formatOneSide(settings: ISettings, platesArr: IPlate[], exerciseType: IExerciseType): string {
+  const arr = Weight_oneSidePlates(settings, platesArr, exerciseType).map((w) => w.value);
   return CollectionUtils_compressArray(arr, 3).join("/");
 }
 
@@ -313,15 +317,17 @@ export function Weight_calculatePlates(
     return { plates: [], platesWeight: allWeight, totalWeight: allWeight };
   }
 
-  const absAllWeight = Weight_abs(allWeight);
-  const inverted = allWeight.value < 0;
+  const originalUnit = allWeight.unit;
+  const weightInUnits = Weight_convertTo(allWeight, units);
+  const absAllWeight = Weight_abs(weightInUnits);
+  const inverted = weightInUnits.value < 0;
   if (equipmentData.isFixed) {
     const fixed = CollectionUtils_sort(
       equipmentData.fixed.filter((w) => w.unit === (equipmentData.unit ?? units)),
       (a, b) => b.value - a.value
     );
     const weight = fixed.find((w) => Weight_lte(w, absAllWeight)) || fixed[fixed.length - 1] || absAllWeight;
-    let roundedWeight = Weight_roundTo005(weight);
+    let roundedWeight = Weight_roundTo005(Weight_convertTo(weight, originalUnit));
     roundedWeight = inverted ? Weight_invert(roundedWeight) : roundedWeight;
     return { plates: [], platesWeight: roundedWeight, totalWeight: roundedWeight };
   }
@@ -341,12 +347,13 @@ export function Weight_calculatePlates(
       const weightToAdd = Weight_multiply(plate.weight, plate.num);
       return isAssisting ? Weight_subtract(memo, weightToAdd) : Weight_add(memo, weightToAdd);
     },
-    Weight_build(0, allWeight.unit)
+    Weight_build(0, units)
   );
+  const totalInUnits = Weight_add(total, barWeight);
   const totalWeight = Weight_roundTo000005(
-    inverted ? Weight_invert(Weight_add(total, barWeight)) : Weight_add(total, barWeight)
+    Weight_convertTo(inverted ? Weight_invert(totalInUnits) : totalInUnits, originalUnit)
   );
-  const thePlatesWeight = inverted ? Weight_invert(total) : total;
+  const thePlatesWeight = Weight_convertTo(inverted ? Weight_invert(total) : total, originalUnit);
   return { plates, platesWeight: thePlatesWeight, totalWeight };
 }
 

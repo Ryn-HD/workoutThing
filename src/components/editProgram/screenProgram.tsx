@@ -1,5 +1,5 @@
 import { JSX, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { View, ScrollView } from "react-native";
+import { View, ScrollView, Platform } from "react-native";
 import { Pressable } from "../primitives/pressable";
 import { Text } from "../primitives/text";
 import { IDispatch } from "../../ducks/types";
@@ -22,7 +22,7 @@ import { StringUtils_dashcase, StringUtils_pluralize } from "../../utils/string"
 import { IconCalendarSmall } from "../icons/iconCalendarSmall";
 import { TimeUtils_formatHOrMin } from "../../utils/time";
 import { IconTimerSmall } from "../icons/iconTimerSmall";
-import { EditProgram_setName } from "../../models/editProgram";
+import { EditProgram_setName, EditProgram_tabLabels, EditProgram_mode } from "../../models/editProgram";
 import { EditProgramNavbar, EditProgramView } from "./editProgram";
 import { ProgramPreviewPlayground } from "../preview/programPreviewPlayground";
 import { Thunk_pushScreen, Thunk_log } from "../../ducks/thunks";
@@ -35,10 +35,15 @@ import { IconKebab } from "../icons/iconKebab";
 import { UidFactory_generateUid } from "../../utils/generator";
 import { useIsFocused } from "@react-navigation/native";
 import { navigateToModal, getCurrentRouteName } from "../../navigation/navigationService";
-import { ProgramPreview_buildWeeks, ProgramPreviewWeekContent } from "../preview/programPreviewTab";
+import { ProgramPreviewWeekContent } from "../preview/programPreviewTab";
+import { ProgramPreviewWeeks_build } from "../preview/programPreviewWeeks";
 import { Nux } from "../nux";
 import { programTourConfig } from "../tour/programTourConfig";
 import { NavScreenContent } from "../../navigation/NavScreenContent";
+import { LiftoEditorFocusProvider } from "../liftoEditorFocus";
+import { LiftoEditorDock } from "../liftoEditorDock";
+import { GridSelectionProvider } from "./editProgramGrid/gridSelectionContext";
+import { GridActionDock } from "./editProgramGrid/gridActionDock";
 import { Tailwind_semantic } from "../../utils/tailwindConfig";
 import { useTimedMemo } from "../../utils/useTimedMemo";
 import { usePerfRenderCount } from "../../utils/usePerfRenderCount";
@@ -46,6 +51,7 @@ import { usePerfRenderTrace } from "../../utils/usePerfRenderTrace";
 import { PerfTracker_recordEvent, PerfTracker_getSessionId } from "../../utils/perfTracker";
 import { PerfEnabled_tier2 } from "../../utils/perfEnabled";
 import { PerfProfiler } from "../../utils/perfProfiler";
+import { HermesProfile_captureOnce } from "../../utils/hermesProfile";
 
 function onProfile(
   id: string,
@@ -70,7 +76,8 @@ function onProfile(
   });
 }
 
-const TAB_LABELS = ["Preview", "Edit", "Playground"] as const;
+const TAB_LABELS = EditProgram_tabLabels;
+const EDIT_TAB_INDEX = TAB_LABELS.indexOf("Edit");
 const EMPTY_EVAL: ReturnType<typeof PlannerProgram_evaluate> = { evaluatedWeeks: [], exerciseFullNames: [] };
 const TAB_LABELS_RO: readonly string[] = TAB_LABELS;
 const PLAYGROUND_TABS_PROPS = {
@@ -138,6 +145,7 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
     [program, props.settings]
   );
   const ui = plannerState.ui;
+  const mode = EditProgram_mode(ui);
 
   useLayoutEffect(() => {
     for (const week of planner.weeks) {
@@ -208,8 +216,33 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
   );
   useNavOptions(navOptions);
 
-  const tabIndex = plannerState.ui.tabIndex ?? 0;
+  // Preview and Playground both render the evaluated program, so a program that failed to
+  // evaluate shows up there as a week of empty days with no hint of why. Pin the screen to
+  // Edit, the only tab that surfaces the syntax errors.
+  const hasEvalErrors = evaluatedProgram.errors.length > 0;
+  const tabIndex = hasEvalErrors ? EDIT_TAB_INDEX : (plannerState.ui.tabIndex ?? 0);
   const activeTabLabel = TAB_LABELS[tabIndex] ?? "Preview";
+
+  // Also write the redirect through, so fixing the program leaves the user in the editor
+  // instead of yanking them back to Preview - the text they're typing passes through valid
+  // states on the way to the one they mean.
+  useEffect(() => {
+    if (!hasEvalErrors) {
+      return;
+    }
+    const recordings = [];
+    if ((ui.tabIndex ?? 0) !== EDIT_TAB_INDEX) {
+      recordings.push(lb<IPlannerState>().p("ui").p("tabIndex").record(EDIT_TAB_INDEX));
+    }
+    // The grid has nowhere to render an error, and the navbar already refuses to enter it while
+    // the program is broken.
+    if (mode === "grid") {
+      recordings.push(lb<IPlannerState>().p("ui").p("mode").record("ui"));
+    }
+    if (recordings.length > 0) {
+      plannerDispatch(recordings, "Fall through to editing an invalid program");
+    }
+  }, [hasEvalErrors, ui.tabIndex, mode, plannerDispatch]);
 
   const plannerEval = useTimedMemo(
     "editProgram.plannerEval",
@@ -223,6 +256,7 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
       const tabLabel = TAB_LABELS[newTabIndex];
       if (tabLabel) {
         dispatch(Thunk_log(`ls-program-tab-${tabLabel.toLowerCase()}`));
+        HermesProfile_captureOnce(`program-tab-${tabLabel.toLowerCase()}`, 3000);
       }
       plannerDispatch(lb<IPlannerState>().p("ui").p("tabIndex").record(newTabIndex), "Change tab");
     },
@@ -231,7 +265,7 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
 
   const [previewWeekIndex, setPreviewWeekIndex] = useState(0);
   const [playgroundWeekIndex, setPlaygroundWeekIndex] = useState(0);
-  const editWeekIndex = ui.weekIndex ?? 0;
+  const editWeekIndex = Math.min(ui.weekIndex ?? 0, Math.max(0, planner.weeks.length - 1));
   const setEditWeekIndex = useCallback(
     (newIndex: number): void => {
       plannerDispatch(lb<IPlannerState>().p("ui").p("weekIndex").record(newIndex), `Change week index to ${newIndex}`);
@@ -239,20 +273,26 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
     [plannerDispatch]
   );
 
-  const previewWeeks = useTimedMemo(
-    "editProgram.previewWeeks",
-    () =>
-      activeTabLabel === "Preview" ? ProgramPreview_buildWeeks(program, props.settings, props.navCommon.stats) : [],
-    [activeTabLabel, program, props.settings, props.navCommon.stats]
+  const previewWeekLabels = useMemo(
+    () => (activeTabLabel === "Preview" ? evaluatedProgram.weeks.map((w) => w.name) : []),
+    [activeTabLabel, evaluatedProgram]
   );
-  const safePreviewWeekIndex = Math.min(previewWeekIndex, Math.max(0, previewWeeks.length - 1));
+  const safePreviewWeekIndex = Math.min(previewWeekIndex, Math.max(0, previewWeekLabels.length - 1));
+  const previewWeek = useTimedMemo(
+    "editProgram.previewWeek",
+    () =>
+      activeTabLabel === "Preview"
+        ? ProgramPreviewWeeks_build(program, props.settings, props.navCommon.stats, safePreviewWeekIndex)
+        : undefined,
+    [activeTabLabel, program, props.settings, props.navCommon.stats, safePreviewWeekIndex]
+  );
   const playgroundWeekNames = useMemo(
     () => (activeTabLabel === "Playground" ? evaluatedProgram.weeks.map((w) => w.name) : []),
     [activeTabLabel, evaluatedProgram]
   );
   const safePlaygroundWeekIndex = Math.min(playgroundWeekIndex, Math.max(0, playgroundWeekNames.length - 1));
   const showEditWeekTabBar =
-    activeTabLabel === "Edit" && (ui.mode === "ui" || ui.mode === "perday") && planner.weeks.length > 1;
+    activeTabLabel === "Edit" && (mode === "ui" || mode === "perday") && planner.weeks.length > 1;
 
   const onChangeProgram = useCallback(() => {
     dispatch(Thunk_pushScreen("programs"));
@@ -276,12 +316,11 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
 
   let tabContent: JSX.Element;
   if (activeTabLabel === "Preview") {
-    const currentWeek = previewWeeks[safePreviewWeekIndex];
-    tabContent = currentWeek ? (
+    tabContent = previewWeek ? (
       <PerfProfiler id="tab.Preview" onRender={onProfile}>
         <ProgramPreviewWeekContent
           key="preview"
-          week={currentWeek}
+          week={previewWeek}
           weekIndex={safePreviewWeekIndex}
           program={program}
           programId={programId}
@@ -290,7 +329,7 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
           stats={props.navCommon.stats}
           dispatch={dispatch}
           plannerDispatch={plannerDispatch}
-          totalWeeks={previewWeeks.length}
+          totalWeeks={previewWeekLabels.length}
         />
       </PerfProfiler>
     ) : (
@@ -345,7 +384,6 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
     () => planner.weeks.map((_, i) => evaluatedWeeks[i]?.some((day) => !day.success) ?? false),
     [planner.weeks, evaluatedWeeks]
   );
-  const previewWeekLabels = useMemo(() => previewWeeks.map((w) => w.name), [previewWeeks]);
 
   let perTabStickyHeader: JSX.Element;
   if (activeTabLabel === "Edit") {
@@ -369,7 +407,7 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
         )}
       </View>
     );
-  } else if (activeTabLabel === "Preview" && previewWeeks.length > 1) {
+  } else if (activeTabLabel === "Preview" && previewWeekLabels.length > 1) {
     perTabStickyHeader = (
       <View className="bg-background-default">
         <WeekTabBar labels={previewWeekLabels} activeIndex={safePreviewWeekIndex} onChange={setPreviewWeekIndex} />
@@ -389,24 +427,45 @@ export const ScreenProgram = memo(function ScreenProgram(props: IProps): JSX.Ele
     perTabStickyHeader = <View className="bg-background-default" />;
   }
 
+  const showEditorDock = activeTabLabel === "Edit" && (mode === "perday" || mode === "full");
+  const showGridDock = activeTabLabel === "Edit" && mode === "grid";
+
   return (
     <PerfProfiler id="ScreenProgram.shell" onRender={onProfile}>
-      <NavScreenContent stickyHeaderIndices={STICKY_INDICES}>
-        <PerfProfiler id="ScreenProgram.header" onRender={onProfile}>
-          <EditProgramHeader
-            evaluatedProgram={evaluatedProgram}
-            settings={props.settings}
-            onChangeProgram={onChangeProgram}
-            onChangeDay={onChangeDay}
-            onChangeName={onChangeName}
-          />
-        </PerfProfiler>
-        <OuterTabBar labels={TAB_LABELS_RO} activeIndex={tabIndex} onChange={onChangeTab} />
-        <PerfProfiler id="ScreenProgram.stickyHeader" onRender={onProfile}>
-          {perTabStickyHeader}
-        </PerfProfiler>
-        {tabContent}
-      </NavScreenContent>
+      <LiftoEditorFocusProvider>
+        <GridSelectionProvider>
+          <NavScreenContent
+            stickyHeaderIndices={STICKY_INDICES}
+            footer={showEditorDock ? <LiftoEditorDock /> : showGridDock ? <GridActionDock /> : undefined}
+            // Freeform editing hides the dock, so dragging is how the keyboard goes away on
+            // iOS; Android also has the back button.
+            keyboardDismissMode={showEditorDock ? (Platform.OS === "ios" ? "interactive" : "on-drag") : undefined}
+            // Freeform raises the system keyboard over a day editor that can sit at the very
+            // bottom of the list, and the reveal can only scroll as far as the content allows.
+            avoidSystemKeyboard={showEditorDock}
+          >
+            <PerfProfiler id="ScreenProgram.header" onRender={onProfile}>
+              <EditProgramHeader
+                evaluatedProgram={evaluatedProgram}
+                settings={props.settings}
+                onChangeProgram={onChangeProgram}
+                onChangeDay={onChangeDay}
+                onChangeName={onChangeName}
+              />
+            </PerfProfiler>
+            <OuterTabBar
+              labels={TAB_LABELS_RO}
+              activeIndex={tabIndex}
+              pinnedIndex={hasEvalErrors ? EDIT_TAB_INDEX : undefined}
+              onChange={onChangeTab}
+            />
+            <PerfProfiler id="ScreenProgram.stickyHeader" onRender={onProfile}>
+              {perTabStickyHeader}
+            </PerfProfiler>
+            {tabContent}
+          </NavScreenContent>
+        </GridSelectionProvider>
+      </LiftoEditorFocusProvider>
     </PerfProfiler>
   );
 });
@@ -423,7 +482,7 @@ interface IWeekTabBarProps {
 const WeekTabBar = memo(function WeekTabBar(props: IWeekTabBarProps): JSX.Element {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} className="bg-background-default">
-      <View className="flex-row gap-2 px-4 py-2">
+      <View className="flex-row gap-2 px-gutter py-2">
         {props.labels.map((label, index) => {
           const isSelected = props.activeIndex === index;
           const isInvalid = props.invalidIndices?.[index] ?? false;
@@ -454,6 +513,9 @@ const WeekTabBar = memo(function WeekTabBar(props: IWeekTabBarProps): JSX.Elemen
 interface IOuterTabBarProps {
   labels: readonly string[];
   activeIndex: number;
+  // Set while the program can't be evaluated: this tab is flagged as the one holding the
+  // errors, and the rest - which would render an empty program - are dimmed and inert.
+  pinnedIndex?: number;
   onChange: (index: number) => void;
 }
 
@@ -463,6 +525,8 @@ const OuterTabBar = memo(function OuterTabBar(props: IOuterTabBarProps): JSX.Ele
     <View className="flex-row justify-between pt-4 px-4 bg-background-default border-b border-border-neutral">
       {props.labels.map((label, index) => {
         const isSelected = props.activeIndex === index;
+        const isPinned = props.pinnedIndex === index;
+        const isDisabled = props.pinnedIndex != null && !isPinned;
         const nameClass = `tab-${StringUtils_dashcase(label.toLowerCase())}`;
         return (
           <Pressable
@@ -470,10 +534,20 @@ const OuterTabBar = memo(function OuterTabBar(props: IOuterTabBarProps): JSX.Ele
             className="px-2 pb-1"
             data-testid={nameClass}
             testID={nameClass}
-            style={isSelected ? { borderBottomWidth: 2, borderBottomColor: activeColor } : undefined}
-            onPress={() => props.onChange(index)}
+            style={{
+              opacity: isDisabled ? 0.4 : 1,
+              ...(isSelected ? { borderBottomWidth: 2, borderBottomColor: activeColor } : {}),
+            }}
+            onPress={() => {
+              if (!isDisabled) {
+                props.onChange(index);
+              }
+            }}
           >
-            <Text className={`text-base ${isSelected ? "text-text-purple" : ""}`}>{label}</Text>
+            <Text className={`text-base ${isSelected ? "text-text-purple" : ""}`}>
+              {isPinned ? "⚠️ " : ""}
+              {label}
+            </Text>
           </Pressable>
         );
       })}
@@ -494,7 +568,7 @@ const EditProgramHeader = memo(function EditProgramHeader(props: IEditProgramHea
   const time = Program_dayAverageTimeMs(evaluatedProgram, props.settings);
   const duration = TimeUtils_formatHOrMin(time);
   return (
-    <View className="px-4">
+    <View className="px-gutter">
       <View className="flex-row items-center gap-2">
         <View className="flex-1">
           <ContentGrowingTextarea

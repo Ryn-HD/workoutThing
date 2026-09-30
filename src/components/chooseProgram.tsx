@@ -1,5 +1,6 @@
 import { JSX, useState } from "react";
-import { View, Pressable, TextInput } from "react-native";
+import { View, Pressable } from "react-native";
+import { TextInput } from "./primitives/textInput";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "./primitives/text";
 import { IDispatch } from "../ducks/types";
@@ -11,6 +12,7 @@ import { CustomProgramsList } from "./customProgramsList";
 import { emptyProgramId, IProgramIndexEntry, Program_selectProgramAndGoHome } from "../models/program";
 import { IconMagnifyingGlass } from "./icons/iconMagnifyingGlass";
 import { Tailwind_semantic } from "../utils/tailwindConfig";
+import { useRemScale } from "../utils/useRem";
 import { LinkButton } from "./linkButton";
 import { navigateToModal } from "../navigation/navigationService";
 
@@ -30,6 +32,7 @@ export function ChooseProgramView(props: IProps): JSX.Element {
   const [search, setSearch] = useState("");
   const [selectedTab, setSelectedTab] = useState(0);
   const hasCustomPrograms = props.customPrograms.length > 0;
+  const remScale = useRemScale();
 
   useNavOptions({
     navTitle: "Choose a program",
@@ -53,8 +56,8 @@ export function ChooseProgramView(props: IProps): JSX.Element {
             <IconMagnifyingGlass color={Tailwind_semantic().icon.neutralsubtle} size={16} />
           </View>
           <TextInput
-            className="w-full py-2 pr-4 text-sm border rounded-lg pl-9 border-border-neutral bg-background-default text-text-primary"
-            style={{ fontSize: 15 }}
+            className="w-full py-2 pr-4 border rounded-lg pl-9 border-border-neutral bg-background-default text-text-primary"
+            style={{ fontSize: 15 * remScale }}
             placeholder="Search by name"
             placeholderTextColor={Tailwind_semantic().text.secondarysubtle}
             defaultValue=""
@@ -135,8 +138,13 @@ interface IFooterProps {
   hasBottomNav?: boolean;
 }
 
+// At the top of the text size range the two-line labels already fill this footer, and the subtitle
+// pushes it into the tab bar - it only explains the button above it, so it's the part to drop.
+const FOOTER_SUBTITLE_MAX_SCALE = 1.25;
+
 function Footer(props: IFooterProps): JSX.Element {
   const insets = useSafeAreaInsets();
+  const remScale = useRemScale();
   return (
     <View
       className="flex-row items-stretch justify-around gap-2 px-2 pt-4 border-t border-border-neutral bg-background-default"
@@ -158,7 +166,9 @@ function Footer(props: IFooterProps): JSX.Element {
         onPress={props.onEmpty}
       >
         <Text className="text-sm font-semibold text-text-link">Go Without Program</Text>
-        <Text className="text-xs text-gray-500">and build your program along the way</Text>
+        {remScale <= FOOTER_SUBTITLE_MAX_SCALE && (
+          <Text className="text-xs text-gray-500">and build your program along the way</Text>
+        )}
       </Pressable>
     </View>
   );

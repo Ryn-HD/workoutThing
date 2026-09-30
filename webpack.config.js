@@ -1,10 +1,8 @@
 const {
   main: localdomain,
   api: localapidomain,
-  streamingapi: localstreamingapidomain,
   port: localport = 8080,
   apiPort: localapiport = 3000,
-  streamingApiPort: localstreamingapiport = 3001,
 } = require("./localdomain");
 
 const path = require("path");
@@ -100,6 +98,7 @@ function apiHostExpression() {
 }
 
 const watchConfig = {
+  name: "watch",
   entry: "./src/watch/index.ts",
   target: "node",
   output: {
@@ -175,11 +174,16 @@ const mainConfig = {
   entry: {
     main: ["./src/main.tsx", "./src/index.css"],
     login: ["./src/login.tsx", "./src/index.css"],
+    resetpassword: ["./src/resetPassword.tsx", "./src/index.css"],
+    verifyemail: ["./src/verifyEmail.tsx", "./src/index.css"],
+    oauthconsent: ["./src/index.css"],
     exercise: ["./src/exercise.tsx", "./src/index.css"],
     repmax: ["./src/repmax.tsx", "./src/index.css"],
     allexercises: ["./src/allExercises.tsx", "./src/index.css"],
     alldocs: ["./src/allDocs.tsx", "./src/index.css"],
     docdetails: ["./src/docDetails.tsx", "./src/programDetails.css", "./src/index.css"],
+    allfeatures: ["./src/allFeatures.tsx", "./src/features.css", "./src/index.css"],
+    featuredetails: ["./src/featureDetails.tsx", "./src/features.css", "./src/programDetails.css", "./src/index.css"],
     allprograms: ["./src/allPrograms.tsx", "./src/index.css"],
     app: ["./src/index.tsx", "./src/index.css"],
     admin: ["./src/admin.tsx", "./src/admin.css"],
@@ -194,7 +198,6 @@ const mainConfig = {
     affiliatedashboard: ["./src/affiliatedashboard.tsx", "./src/affiliatedashboard.css", "./src/index.css"],
     affiliates: ["./src/affiliates.tsx", "./src/page.css", "./src/index.css"],
     useraffiliates: ["./src/useraffiliates.tsx", "./src/page.css", "./src/index.css"],
-    ai: ["./src/ai.tsx", "./src/page.css", "./src/index.css"],
     aiPrompt: ["./src/aiPrompt.tsx", "./src/page.css", "./src/index.css"],
     userdashboard: ["./src/userdashboard.tsx", "./src/page.css", "./src/index.css"],
     usersdashboard: ["./src/usersdashboard.tsx", "./src/page.css", "./src/index.css"],
@@ -275,13 +278,6 @@ const mainConfig = {
       __COMMIT_HASH__: JSON.stringify(commitHash),
       __FULL_COMMIT_HASH__: JSON.stringify(fullCommitHash),
       __API_HOST__: apiHostExpression(),
-      __STREAMING_API_HOST__: JSON.stringify(
-        process.env.NODE_ENV === "production"
-          ? process.env.STAGE
-            ? "https://streaming-api-dev.liftosaur.com"
-            : "https://streaming-api.liftosaur.com"
-          : `https://${localstreamingapidomain}.liftosaur.com:${localstreamingapiport}`
-      ),
       __ENV__: JSON.stringify(process.env.NODE_ENV === "production" ? "production" : "development"),
       __HOST__:
         process.env.NODE_ENV === "production"
@@ -346,6 +342,10 @@ const mainConfig = {
         to: `terms.html`,
       },
       {
+        from: `src/support.html`,
+        to: `support.html`,
+      },
+      {
         from: `src/licenses.html`,
         to: `licenses.html`,
       },
@@ -360,6 +360,10 @@ const mainConfig = {
       {
         from: `src/set-timer-end.m4r`,
         to: `set-timer-end.m4r`,
+      },
+      {
+        from: `src/get-ready-end.m4r`,
+        to: `get-ready-end.m4r`,
       },
       {
         from: "icons",
@@ -389,6 +393,11 @@ const mainConfig = {
         from: "apple-app-site-association",
         to: ".well-known",
       },
+      {
+        from: "openai-apps-challenge",
+        to: ".well-known/openai-apps-challenge",
+        toType: "file",
+      },
     ]),
   ],
   mode: process.env.NODE_ENV === "production" ? "production" : "development",
@@ -396,6 +405,7 @@ const mainConfig = {
     ignored: [
       path.join(__dirname, "worktrees", "**"),
       path.join(__dirname, ".claude", "worktrees", "**"),
+      path.join(__dirname, "perfdata", "**"),
       "**/node_modules/**",
     ],
   },
@@ -448,7 +458,17 @@ const mainConfig = {
         target: localapi,
         secure: false,
       },
+      // OTA clients build their manifest URL from the web host, not the API host, so the manifest
+      // endpoint has to be reachable on this port for local update testing to work at all.
+      "/api/updates/manifest": {
+        target: localapi,
+        secure: false,
+      },
       "/p/*": {
+        target: localapi,
+        secure: false,
+      },
+      "/ai/*": {
         target: localapi,
         secure: false,
       },
@@ -457,6 +477,14 @@ const mainConfig = {
         secure: false,
       },
       "/doc/*": {
+        target: localapi,
+        secure: false,
+      },
+      "/features": {
+        target: localapi,
+        secure: false,
+      },
+      "/features/*": {
         target: localapi,
         secure: false,
       },
@@ -553,6 +581,14 @@ const mainConfig = {
         target: localapi,
         secure: false,
       },
+      "/verifyemail": {
+        target: localapi,
+        secure: false,
+      },
+      "/resetpassword": {
+        target: localapi,
+        secure: false,
+      },
       "/exercises": {
         target: localapi,
         secure: false,
@@ -606,10 +642,6 @@ const mainConfig = {
         secure: false,
       },
       "/affiliates": {
-        target: localapi,
-        secure: false,
-      },
-      "/ai": {
         target: localapi,
         secure: false,
       },
@@ -743,13 +775,6 @@ const editorWebviewConfig = {
             ? "https://api3-dev.liftosaur.com"
             : "https://api3.liftosaur.com"
           : `https://${localapidomain}.liftosaur.com:${localapiport}`
-      ),
-      __STREAMING_API_HOST__: JSON.stringify(
-        process.env.NODE_ENV === "production"
-          ? process.env.STAGE
-            ? "https://streaming-api-dev.liftosaur.com"
-            : "https://streaming-api.liftosaur.com"
-          : `https://${localstreamingapidomain}.liftosaur.com:${localstreamingapiport}`
       ),
       __BUNDLE_VERSION_IOS__: bundleVersionIos,
       __BUNDLE_VERSION_ANDROID__: bundleVersionAndroid,

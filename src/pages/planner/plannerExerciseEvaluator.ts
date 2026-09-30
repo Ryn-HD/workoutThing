@@ -1,6 +1,6 @@
 // import util from "util";
 import { SyntaxNode } from "@lezer/common";
-import { Exercise_findByNameAndEquipment } from "../../models/exercise";
+import { Exercise_findByNameAndEquipment, Exercise_buildName } from "../../models/exercise";
 import { CollectionUtils_compact } from "../../utils/collection";
 import { parser as plannerExerciseParser } from "./plannerExerciseParser";
 import { IEither } from "../../utils/types";
@@ -9,6 +9,7 @@ import {
   IPlannerProgramExerciseRepRange,
   IPlannerProgramExerciseSet,
   IPlannerProgramExerciseSetVariation,
+  IPlannerProgramExerciseVariation,
   IPlannerProgramProperty,
   IPlannerProgramReuse,
   IPlannerProgramExerciseWarmupSet,
@@ -34,9 +35,10 @@ import { PlannerNodeName } from "./plannerExerciseStyles";
 import { ScriptRunner } from "../../parser";
 import { Progress_createEmptyScriptBindings, Progress_createScriptFunctions } from "../../models/progress";
 import { LiftoscriptSyntaxError, LiftoscriptEvaluator } from "../../liftoscriptEvaluator";
+import { IPlannerErrorDetails } from "../../syntaxErrorTypes";
 import { Weight_print, Weight_smartConvert } from "../../models/weight";
 import { PlannerStateVars_fromArgs } from "./models/plannerStateVars";
-import { PlannerKey_fromFullName } from "./plannerKey";
+import { PlannerKey_fromFullName, PlannerKey_fromExerciseVariations } from "./plannerKey";
 import { UidFactory_generateUid } from "../../utils/generator";
 import { ObjectUtils_pick, ObjectUtils_isEqual } from "../../utils/object";
 import {
@@ -55,6 +57,7 @@ export interface IPlannerTopLineItem {
   fullName?: string;
   repeat?: number[];
   repeatRanges?: string[];
+  isRepeat?: boolean;
   descriptions?: string[];
   sections?: string;
   sectionsToReuse?: string;
@@ -68,27 +71,34 @@ export class PlannerSyntaxError extends SyntaxError {
   public readonly offset: number;
   public readonly from: number;
   public readonly to: number;
+  public readonly details: IPlannerErrorDetails;
 
   public static fromPoint(
     fullName: string | undefined,
     message: string,
-    point: IPlannerSyntaxPointer
+    point: IPlannerSyntaxPointer,
+    details: IPlannerErrorDetails
   ): PlannerSyntaxError {
+    // The subject goes into `details` as well as into the message. Every caller that knows which
+    // exercise threw passes it here, so this one line puts it on all of them - and a consumer that
+    // needs it can read a field instead of parsing it back out of the sentence.
     return new PlannerSyntaxError(
       `${fullName ? `${fullName}: ` : ""}${message} (${point.line}:${point.offset})`,
       point.line,
       point.offset,
       point.from,
-      point.to
+      point.to,
+      fullName != null ? { ...details, subject: fullName } : details
     );
   }
 
-  constructor(message: string, line: number, offset: number, from: number, to: number) {
+  constructor(message: string, line: number, offset: number, from: number, to: number, details: IPlannerErrorDetails) {
     super(message);
     this.line = line;
     this.offset = offset;
     this.from = from;
     this.to = to;
+    this.details = details;
   }
 
   public toString(): string {
@@ -112,7 +122,10 @@ function getChildren(node: SyntaxNode): SyntaxNode[] {
 }
 
 function assert(name: string): never {
-  throw new PlannerSyntaxError(`Missing required nodes for ${name}, this should never happen`, 0, 0, 0, 1);
+  throw new PlannerSyntaxError(`Missing required nodes for ${name}, this should never happen`, 0, 0, 0, 1, {
+    type: "internal",
+    data: { node: name },
+  });
 }
 
 export interface IPlannerExerciseEvaluatorWeek {
@@ -185,9 +198,9 @@ export class PlannerExerciseEvaluator {
     return { line, offset, from: node.from, to: node.to };
   }
 
-  private error(message: string, node: SyntaxNode): never {
+  private error(message: string, node: SyntaxNode, details: IPlannerErrorDetails): never {
     const point = this.getPoint(node);
-    throw PlannerSyntaxError.fromPoint(undefined, message, point);
+    throw PlannerSyntaxError.fromPoint(undefined, message, point, details);
   }
 
   public static getLineAndOffset(script: string, node: SyntaxNode): [number, number] {
@@ -211,7 +224,7 @@ export class PlannerExerciseEvaluator {
     const cursor = expr.cursor();
     do {
       if (cursor.node.type.isError) {
-        this.error("Syntax error", cursor.node);
+        this.error("Syntax error", cursor.node, { type: "parse" });
       }
     } while (cursor.next());
   }
@@ -268,7 +281,7 @@ export class PlannerExerciseEvaluator {
     if ((setTypes as readonly string[]).includes(setType)) {
       return setType as ISetType;
     }
-    this.error(`Invalid set type '${setType}'`, value!);
+    this.error(`Invalid set type '${setType}'`, value!, { type: "invalidSetType", data: { value: setType } });
   }
 
   private getWeight(expr?: SyntaxNode | null): IWeight | undefined {
@@ -313,7 +326,7 @@ export class PlannerExerciseEvaluator {
 
   public static fnArgsToStateVars(
     fnArgs: string[],
-    onError?: (message: string) => void
+    onError?: (message: string, value: string) => void
   ): {
     state: IProgramState;
     stateMetadata: IProgramStateMetadata;
@@ -365,7 +378,7 @@ export class PlannerExerciseEvaluator {
             .join(" ")
         : undefined;
       if (labelNode && label && label.length > 8) {
-        this.error("Label length should be 8 chars max", labelNode);
+        this.error("Label length should be 8 chars max", labelNode, { type: "labelTooLong", data: { max: 8 } });
       }
       if (repRange != null && explicitSetType != null) {
         repRange.setType = explicitSetType;
@@ -394,7 +407,10 @@ export class PlannerExerciseEvaluator {
     if (expr.type.name === PlannerNodeName.ExerciseProperty) {
       const valueNode = expr.getChild(PlannerNodeName.FunctionExpression);
       if (valueNode == null) {
-        throw this.error(`Missing value for the property 'id'`, expr);
+        throw this.error(`Missing value for the property 'id'`, expr, {
+          type: "missingPropertyValue",
+          data: { property: "id" },
+        });
       }
       const fnNameNode = valueNode.getChild(PlannerNodeName.FunctionName);
       if (fnNameNode == null) {
@@ -402,12 +418,15 @@ export class PlannerExerciseEvaluator {
       }
       const fnName = this.getValue(fnNameNode);
       if (["tags"].indexOf(fnName) === -1) {
-        this.error(`There's no such id type - '${fnName}'`, fnNameNode);
+        this.error(`There's no such id type - '${fnName}'`, fnNameNode, {
+          type: "unknownIdType",
+          data: { name: fnName },
+        });
       }
       const fnArgs = valueNode.getChildren(PlannerNodeName.FunctionArgument).map((argNode) => this.getValue(argNode));
       if (fnName === "tags") {
         if (fnArgs.length === 0) {
-          this.error(`You should provide the list of numbers in "tags"`, fnNameNode);
+          this.error(`You should provide the list of numbers in "tags"`, fnNameNode, { type: "invalidTags" });
         }
       }
       return fnArgs.map((t) => parseInt(t, 10)).filter((t) => !isNaN(t));
@@ -420,7 +439,10 @@ export class PlannerExerciseEvaluator {
     if (expr.type.name === PlannerNodeName.ExerciseProperty) {
       const valueNode = expr.getChild(PlannerNodeName.FunctionExpression);
       if (valueNode == null) {
-        throw this.error(`Missing value for the property 'update'`, expr);
+        throw this.error(`Missing value for the property 'update'`, expr, {
+          type: "missingPropertyValue",
+          data: { property: "update" },
+        });
       }
       const fnNameNode = valueNode.getChild(PlannerNodeName.FunctionName);
       if (fnNameNode == null) {
@@ -436,7 +458,9 @@ export class PlannerExerciseEvaluator {
         liftoscriptNode = valueNode.getChild(PlannerNodeName.Liftoscript) || undefined;
         script = liftoscriptNode ? this.getValueTrim(liftoscriptNode) : undefined;
         if (fnArgs.length > 0) {
-          this.error(`State variables for the update script are taken from "progress" block`, fnNameNode);
+          this.error(`State variables for the update script are taken from "progress" block`, fnNameNode, {
+            type: "updateStateFromProgress",
+          });
         }
         const reuseLiftoscriptNode = valueNode
           .getChild(PlannerNodeName.ReuseLiftoscript)
@@ -460,7 +484,8 @@ export class PlannerExerciseEvaluator {
         if (!script && !body) {
           this.error(
             `'custom' update requires either to specify Liftoscript block or specify which one to reuse`,
-            valueNode
+            valueNode,
+            { type: "customWithoutScript", data: { section: "update" } }
           );
         }
         return {
@@ -471,7 +496,10 @@ export class PlannerExerciseEvaluator {
           reuse: body ? { fullName: body, source: "specific" } : undefined,
         };
       } else {
-        this.error(`There's no such update progression exists - '${fnName}'`, fnNameNode);
+        this.error(`There's no such update progression exists - '${fnName}'`, fnNameNode, {
+          type: "unknownUpdate",
+          data: { name: fnName },
+        });
       }
     } else {
       assert(PlannerNodeName.ExerciseProperty);
@@ -480,22 +508,33 @@ export class PlannerExerciseEvaluator {
 
   private validateProgress(fnName: string, fnArgs: string[], fnNameNode: SyntaxNode, valueNode: SyntaxNode): void {
     if (["lp", "sum", "dp", "custom", "none"].indexOf(fnName) === -1) {
-      this.error(`There's no such progression exists - '${fnName}'`, fnNameNode);
+      this.error(`There's no such progression exists - '${fnName}'`, fnNameNode, {
+        type: "unknownProgression",
+        data: { name: fnName },
+      });
     }
     if (fnName === "lp") {
       if (fnArgs.length > 6) {
-        this.error(`Linear Progression 'lp' only has 6 arguments max`, valueNode);
+        this.error(`Linear Progression 'lp' only has 6 arguments max`, valueNode, {
+          type: "progressionArity",
+          data: { fn: "lp", max: 6 },
+        });
       } else if (fnArgs[0] && !fnArgs[0].endsWith("lb") && !fnArgs[0].endsWith("kg") && !fnArgs[0].endsWith("%")) {
         this.error(
           `1st argument of 'lp' should be weight (ending with 'lb' or 'kg') or percentage (ending with '%'). For example '10lb' or '30%'.`,
-          valueNode
+          valueNode,
+          { type: "progressionArgument", data: { fn: "lp", index: 0, expected: "weightOrPercentage" } }
         );
       } else if (fnArgs[1] != null && isNaN(parseInt(fnArgs[1], 10))) {
-        this.error(`2nd argument of 'lp' should be a number of attempts - i.e. a number`, valueNode);
+        this.error(`2nd argument of 'lp' should be a number of attempts - i.e. a number`, valueNode, {
+          type: "progressionArgument",
+          data: { fn: "lp", index: 1, expected: "number" },
+        });
       } else if (fnArgs[2] != null && isNaN(parseInt(fnArgs[2], 10))) {
         this.error(
           `3rd argument of 'lp' should be a current number of successful attempts up to date - i.e. a number`,
-          valueNode
+          valueNode,
+          { type: "progressionArgument", data: { fn: "lp", index: 2, expected: "number" } }
         );
       } else if (
         fnArgs[3] != null &&
@@ -505,45 +544,67 @@ export class PlannerExerciseEvaluator {
       ) {
         this.error(
           `4th argument of 'lp' should be weight (ending with 'lb' or 'kg') or percentage (ending with '%'). For example '10lb' or '30%'.`,
-          valueNode
+          valueNode,
+          { type: "progressionArgument", data: { fn: "lp", index: 3, expected: "weightOrPercentage" } }
         );
       } else if (fnArgs[4] != null && isNaN(parseInt(fnArgs[4], 10))) {
-        this.error(`5th argument of 'lp' should be a number of failed attempts - i.e. a number`, valueNode);
+        this.error(`5th argument of 'lp' should be a number of failed attempts - i.e. a number`, valueNode, {
+          type: "progressionArgument",
+          data: { fn: "lp", index: 4, expected: "number" },
+        });
       } else if (fnArgs[5] != null && isNaN(parseInt(fnArgs[5], 10))) {
         this.error(
           `6th argument of 'lp' should be a current number of failed attempts up to date - i.e. a number`,
-          valueNode
+          valueNode,
+          { type: "progressionArgument", data: { fn: "lp", index: 5, expected: "number" } }
         );
       }
     } else if (fnName === "sum") {
       if (fnArgs.length > 2) {
-        this.error(`Reps Sum Progression 'sum' only has 2 arguments max`, valueNode);
+        this.error(`Reps Sum Progression 'sum' only has 2 arguments max`, valueNode, {
+          type: "progressionArity",
+          data: { fn: "sum", max: 2 },
+        });
       } else if (fnArgs[0] == null || isNaN(parseInt(fnArgs[0], 10))) {
-        this.error(`1st argument of 'sum' should be a number of reps - i.e. a number`, valueNode);
+        this.error(`1st argument of 'sum' should be a number of reps - i.e. a number`, valueNode, {
+          type: "progressionArgument",
+          data: { fn: "sum", index: 0, expected: "number" },
+        });
       } else if (
         fnArgs[1] == null ||
         (!fnArgs[1].endsWith("lb") && !fnArgs[1].endsWith("kg") && !fnArgs[1].endsWith("%"))
       ) {
         this.error(
           `2nd argument of 'sum' should be weight (ending with 'lb' or 'kg') or percentage (ending with '%'). For example '10lb' or '30%'.`,
-          valueNode
+          valueNode,
+          { type: "progressionArgument", data: { fn: "sum", index: 1, expected: "weightOrPercentage" } }
         );
       }
     } else if (fnName === "dp") {
       if (fnArgs.length !== 3) {
-        this.error(`Double Progression 'dp' should have 3 arguments`, valueNode);
+        this.error(`Double Progression 'dp' should have 3 arguments`, valueNode, {
+          type: "progressionArity",
+          data: { fn: "dp", max: 3 },
+        });
       } else if (
         fnArgs[0] == null ||
         (!fnArgs[0].endsWith("lb") && !fnArgs[0].endsWith("kg") && !fnArgs[0].endsWith("%"))
       ) {
         this.error(
           `1st argument of 'dp' should be weight (ending with 'lb' or 'kg') or percentage (ending with '%'). For example '10lb' or '30%'.`,
-          valueNode
+          valueNode,
+          { type: "progressionArgument", data: { fn: "dp", index: 0, expected: "weightOrPercentage" } }
         );
       } else if (fnArgs[1] == null || isNaN(parseInt(fnArgs[1], 10))) {
-        this.error(`2nd argument of 'dp' should be min reps in the range - i.e. a number, like 8`, valueNode);
+        this.error(`2nd argument of 'dp' should be min reps in the range - i.e. a number, like 8`, valueNode, {
+          type: "progressionArgument",
+          data: { fn: "dp", index: 1, expected: "number" },
+        });
       } else if (fnArgs[2] == null || isNaN(parseInt(fnArgs[2], 10))) {
-        this.error(`3rd argument of 'dp' should be max reps in the range - i.e. a number, like 12`, valueNode);
+        this.error(`3rd argument of 'dp' should be max reps in the range - i.e. a number, like 12`, valueNode, {
+          type: "progressionArgument",
+          data: { fn: "dp", index: 2, expected: "number" },
+        });
       }
     } else if (fnName === "custom") {
       const liftoscriptNode = valueNode.getChild(PlannerNodeName.Liftoscript);
@@ -556,7 +617,8 @@ export class PlannerExerciseEvaluator {
       if (!script && !body) {
         this.error(
           `'custom' progression requires either to specify Liftoscript block or specify which one to reuse`,
-          valueNode
+          valueNode,
+          { type: "customWithoutScript", data: { section: "progress" } }
         );
       }
     }
@@ -567,14 +629,14 @@ export class PlannerExerciseEvaluator {
     if (result.success) {
       return result.data;
     } else {
-      throw this.error(result.error, expr);
+      throw this.error(result.error.message, expr, result.error.details);
     }
   }
 
   private evaluateProgressImpl(
     expr: SyntaxNode,
     exerciseType?: IExerciseType
-  ): IEither<IProgramExerciseProgress, string> {
+  ): IEither<IProgramExerciseProgress, { message: string; details: IPlannerErrorDetails }> {
     if (expr.type.name === PlannerNodeName.ExerciseProperty) {
       const valueNode = expr.getChild(PlannerNodeName.FunctionExpression);
       if (valueNode == null) {
@@ -582,7 +644,10 @@ export class PlannerExerciseEvaluator {
         if (none != null) {
           return PlannerProgramExercise_buildProgress("none", []);
         } else {
-          throw this.error(`Missing value for the property 'progress'`, expr);
+          throw this.error(`Missing value for the property 'progress'`, expr, {
+            type: "missingPropertyValue",
+            data: { property: "progress" },
+          });
         }
       }
       const fnNameNode = valueNode.getChild(PlannerNodeName.FunctionName);
@@ -597,8 +662,8 @@ export class PlannerExerciseEvaluator {
       if (type === "custom") {
         const liftoscriptNode = valueNode.getChild(PlannerNodeName.Liftoscript);
         const script = liftoscriptNode ? this.getValueTrim(liftoscriptNode) : undefined;
-        const { state } = PlannerExerciseEvaluator.fnArgsToStateVars(fnArgs, (message) =>
-          this.error(message, fnNameNode)
+        const { state } = PlannerExerciseEvaluator.fnArgsToStateVars(fnArgs, (message, value) =>
+          this.error(message, fnNameNode, { type: "invalidStateVariable", data: { value } })
         );
         if (script) {
           const liftoscriptEvaluator = new ScriptRunner(
@@ -621,7 +686,8 @@ export class PlannerExerciseEvaluator {
                 line + e.line,
                 e.offset,
                 liftoscriptNode.from + e.from,
-                liftoscriptNode.from + e.to
+                liftoscriptNode.from + e.to,
+                e.details
               );
             } else {
               throw e;
@@ -707,7 +773,10 @@ export class PlannerExerciseEvaluator {
       } else if (name === "used") {
         return { type: "used", data: "" };
       } else {
-        this.error(`There's no such property exists - '${name}'`, nameNode);
+        this.error(`There's no such property exists - '${name}'`, nameNode, {
+          type: "unknownProperty",
+          data: { name },
+        });
       }
     } else {
       assert(PlannerNodeName.ExerciseProperty);
@@ -916,7 +985,8 @@ export class PlannerExerciseEvaluator {
       if (this.mode === "perday") {
         this.error(
           `You cannot specify weeks in the per-day exercise lists. Switch to the full program mode for that.`,
-          expr
+          expr,
+          { type: "weeksNotAllowedInDayMode" }
         );
       }
       const weekName = this.getValueTrim(expr).replace(/^#+/, "").trim();
@@ -927,11 +997,12 @@ export class PlannerExerciseEvaluator {
       if (this.mode === "perday") {
         this.error(
           `You cannot specify days in the per-day exercise lists. Switch to the full program mode for that.`,
-          expr
+          expr,
+          { type: "daysNotAllowedInDayMode" }
         );
       }
       if (this.weeks.length === 0) {
-        this.error(`You need to specify a week before a day`, expr);
+        this.error(`You need to specify a week before a day`, expr, { type: "dayWithoutWeek" });
       }
       const dayName = this.getValueTrim(expr).replace(/^#+/, "").trim();
       const [line] = this.getLineAndOffset(expr);
@@ -948,21 +1019,50 @@ export class PlannerExerciseEvaluator {
       return undefined;
     } else if (expr.type.name === PlannerNodeName.ExerciseExpression) {
       if (this.mode === "full" && (this.weeks.length === 0 || this.weeks[this.weeks.length - 1].days.length === 0)) {
-        this.error(`You should first define a week and a day before listing exercises.`, expr);
+        this.error(`You should first define a week and a day before listing exercises.`, expr, {
+          type: "exerciseWithoutDay",
+        });
       } else if (this.weeks.length === 0) {
         this.weeks.push({ name: "Week 1", line: 1, days: [{ name: "Day 1", line: 1, exercises: [] }] });
       }
-      const nameNode = expr.getChild(PlannerNodeName.ExerciseName);
-      if (nameNode == null) {
-        assert("ExerciseName");
+      const variationsNode = expr.getChild(PlannerNodeName.ExerciseVariations);
+      if (variationsNode == null) {
+        assert(PlannerNodeName.ExerciseVariations);
       }
+      const nameNode = variationsNode;
 
-      const fullName = this.getValue(nameNode);
-      // eslint-disable-next-line prefer-const
-      let { label, name, equipment } = PlannerExerciseEvaluator.extractNameParts(fullName, this.settings.exercises);
-      const key = PlannerKey_fromFullName(fullName, this.settings.exercises);
-      const shortName = PlannerProgramExercise_shortNameFromFullName(fullName, this.settings);
-      const exercise = Exercise_findByNameAndEquipment(shortName, this.settings.exercises);
+      const fullName = this.getValue(variationsNode);
+      const variationNodes = variationsNode.getChildren(PlannerNodeName.ExerciseVariation);
+      const exerciseVariations: IPlannerProgramExerciseVariation[] = [];
+      let label: string | undefined;
+      for (let i = 0; i < variationNodes.length; i += 1) {
+        const variationNode = variationNodes[i];
+        const isCurrent = variationNode.getChild(PlannerNodeName.CurrentVariation) != null;
+        const variationNameNode = variationNode.getChild(PlannerNodeName.ExerciseName);
+        if (variationNameNode == null) {
+          assert(PlannerNodeName.ExerciseName);
+        }
+        const variationFullName = this.getValue(variationNameNode);
+        const parts = PlannerExerciseEvaluator.extractNameParts(variationFullName, this.settings.exercises);
+        if (i === 0) {
+          label = parts.label;
+        }
+        const variationShortName = PlannerProgramExercise_shortNameFromFullName(variationFullName, this.settings);
+        const variationExerciseType = Exercise_findByNameAndEquipment(variationShortName, this.settings.exercises);
+        exerciseVariations.push({
+          exerciseType: variationExerciseType,
+          name: parts.name,
+          isCurrent,
+        });
+      }
+      const currentVariationIndex = exerciseVariations.findIndex((v) => v.isCurrent);
+      const activeVariationIndex = currentVariationIndex === -1 ? 0 : currentVariationIndex;
+      const activeVariation = exerciseVariations[activeVariationIndex];
+      const name = activeVariation?.name ?? "";
+      const exercise = activeVariation?.exerciseType;
+      const equipment = exercise?.equipment;
+      const key = PlannerKey_fromExerciseVariations(exerciseVariations, label);
+      const shortName = Exercise_buildName(name, this.settings, undefined, equipment);
       let notused = this.getIsNotUsed(expr);
       const sectionNodes = expr.getChildren(PlannerNodeName.ExerciseSection);
       const setVariations: IPlannerProgramExerciseSetVariation[] = [];
@@ -1063,9 +1163,14 @@ export class PlannerExerciseEvaluator {
         .filter((n) => n)[0];
       const idPoint = idNode ? this.getPoint(idNode) : undefined;
 
+      // On the property name rather than on WarmupExerciseSets, so that `warmup: none` - which
+      // parses to a None node and no sets - still records where it was written.
       const warmupNode = expr
         .getChildren(PlannerNodeName.ExerciseSection)
-        .map((n) => n.getChild(PlannerNodeName.ExerciseProperty)?.getChild(PlannerNodeName.WarmupExerciseSets))
+        .map((n) => {
+          const node = n.getChild(PlannerNodeName.ExerciseProperty)?.getChild(PlannerNodeName.ExercisePropertyName);
+          return node != null && this.getValueTrim(node) === "warmup" ? node : undefined;
+        })
         .flat(2)
         .filter((n) => n)[0];
       const warmupPoint = warmupNode ? this.getPoint(warmupNode) : undefined;
@@ -1097,6 +1202,7 @@ export class PlannerExerciseEvaluator {
         notused: notused,
         evaluatedSetVariations: [],
         setVariations,
+        exerciseVariations,
         descriptions: {
           values: descriptions,
         },
@@ -1132,7 +1238,10 @@ export class PlannerExerciseEvaluator {
         this.exerciseIndex += 1;
       }
     } else {
-      this.error(`Unexpected node type ${expr.node.type.name}`, expr);
+      this.error(`Unexpected node type ${expr.node.type.name}`, expr, {
+        type: "unexpectedNode",
+        data: { node: expr.node.type.name },
+      });
     }
   }
 
@@ -1145,7 +1254,10 @@ export class PlannerExerciseEvaluator {
       }
       return this.weeks;
     } else {
-      this.error(`Unexpected node type ${expr.node.type.name}`, expr);
+      this.error(`Unexpected node type ${expr.node.type.name}`, expr, {
+        type: "unexpectedNode",
+        data: { node: expr.node.type.name },
+      });
     }
   }
 
@@ -1252,7 +1364,10 @@ export class PlannerExerciseEvaluator {
 
   public topLineMap(programNode: SyntaxNode): IPlannerTopLineItem[] {
     if (programNode.type.name !== PlannerNodeName.Program) {
-      this.error(`Unexpected node type ${programNode.type.name} - should be Program`, programNode);
+      this.error(`Unexpected node type ${programNode.type.name} - should be Program`, programNode, {
+        type: "unexpectedNode",
+        data: { node: programNode.type.name },
+      });
     }
     const children = getChildren(programNode);
     const result: IPlannerTopLineItem[] = [];
@@ -1262,7 +1377,7 @@ export class PlannerExerciseEvaluator {
     for (const child of children) {
       if (child.type.name === PlannerNodeName.ExerciseExpression) {
         ongoingDescriptions = false;
-        const nameNode = child.getChild(PlannerNodeName.ExerciseName)!;
+        const nameNode = child.getChild(PlannerNodeName.ExerciseVariations)!;
         const fullName = this.getValue(nameNode);
         const key = PlannerKey_fromFullName(fullName, this.settings.exercises);
         const repeat = this.getRepeat(child);
@@ -1322,7 +1437,8 @@ export class PlannerExerciseEvaluator {
       } else {
         this.error(
           `Unexpected node type ${child.type.name}, should be only exercise, comment, description or empty line`,
-          child
+          child,
+          { type: "unexpectedNode", data: { node: child.type.name } }
         );
       }
     }

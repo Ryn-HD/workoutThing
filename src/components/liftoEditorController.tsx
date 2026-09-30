@@ -1,0 +1,79 @@
+import { ILiftoEditorContext } from "./primitives/liftoEditorBrain";
+import {
+  ILiftoEditorAcrossField,
+  ILiftoEditorPill,
+  ILiftoEditorReuseSelection,
+  ILiftoEditorStateVarsTarget,
+} from "./primitives/liftoEditorActions";
+import { ILiftoEditorBaseProps } from "./primitives/liftoEditor";
+import { ICompletionOption, ICompletionResult } from "../pages/planner/plannerCompletions";
+import { IExercisePickerSelectedExercise, IExerciseType } from "../types";
+
+export type ILiftoEditorMode = "structured" | "freeform";
+export type ILiftoEditorScope = "exercise" | "day" | "preview";
+
+export interface ILiftoEditorController {
+  mode: ILiftoEditorMode;
+  text: string;
+  context: ILiftoEditorContext | undefined;
+  activeLevelIndex: number;
+  canRemove: boolean;
+  isKeypadActive: boolean;
+  pills: ILiftoEditorPill[];
+  // What the freeform suggestion strip offers at the caret; undefined outside freeform.
+  completions: ICompletionResult | undefined;
+  applyCompletion: (option: ICompletionOption) => void;
+  // Puts the system keyboard away without leaving freeform.
+  hideKeyboard: () => void;
+  editorProps: ILiftoEditorBaseProps;
+  walkFocus: (direction: 1 | -1) => void;
+  selectLevel: (index: number) => void;
+  pressPill: (pill: ILiftoEditorPill) => void;
+  removeFocused: () => void;
+  switchToStructured: () => void;
+  // Drops the focus stack, closing the keypad with it — an explicit dismissal.
+  blur: () => void;
+  // Hands the screen to another editor: same state change as blur (plus leaving freeform, so
+  // the native view resigns the system keyboard) but no effects. The incoming editor has
+  // already set the shared keypad for its own token, and closing it here would undo that.
+  evict: () => void;
+}
+
+export interface ILiftoEditorControllerActions {
+  pickExercise?: (
+    current: string,
+    exerciseFullName: string | undefined,
+    onSelect: (selected: IExercisePickerSelectedExercise) => void
+  ) => void;
+  promptRename?: (current: string, kind: "label" | "stateVar", onSubmit: (value: string) => void) => void;
+  editReuse?: (targetName: string) => void;
+  editAcrossProgram?: (field: ILiftoEditorAcrossField, exerciseFullName: string | undefined) => void;
+  pickReuse?: (
+    kind: "sets" | "progress" | "update",
+    exerciseFullName: string | undefined,
+    onSelect: (selection: ILiftoEditorReuseSelection) => void
+  ) => void;
+  editStateVars?: (
+    target: ILiftoEditorStateVarsTarget,
+    exerciseFullName: string | undefined,
+    onApply: (newArgs: string) => void
+  ) => void;
+}
+
+export interface ILiftoEditorControllerOptions {
+  scope?: ILiftoEditorScope;
+  exerciseType?: IExerciseType;
+  exerciseTypeFor?: (exerciseFullName: string) => IExerciseType | undefined;
+  actions?: ILiftoEditorControllerActions;
+  mapPills?: (pills: ILiftoEditorPill[]) => ILiftoEditorPill[];
+  exerciseFullNames?: string[];
+  onSelectionChange?: (start: number, end: number) => void;
+}
+
+// Native-only (drives the native LiftoEditor + custom keyboard); web keeps CodeMirror.
+export function useLiftoEditorController(
+  _initialText: string,
+  _options?: ILiftoEditorControllerOptions
+): ILiftoEditorController {
+  throw new Error("useLiftoEditorController is native-only");
+}

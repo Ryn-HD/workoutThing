@@ -1,4 +1,4 @@
-import { JSX, memo, ReactNode } from "react";
+import { JSX, memo } from "react";
 import { View, Pressable } from "react-native";
 import { PerfTracker_recordEvent, PerfTracker_getSessionId } from "../../utils/perfTracker";
 import { PerfEnabled_tier2 } from "../../utils/perfEnabled";
@@ -10,12 +10,11 @@ import { useRem } from "../../utils/useRem";
 import { IPlannerProgramExercise, IPlannerState } from "../../pages/planner/models/types";
 import { ILensDispatch } from "../../utils/useLensReducer";
 import { ISettings } from "../../types";
-import { IconHandle } from "../icons/iconHandle";
 import { SetNumber } from "./editProgramSets";
 import { IconArrowRight } from "../icons/iconArrowRight";
 import { IconArrowDown2 } from "../icons/iconArrowDown2";
 import { ExerciseImage } from "../exerciseImage";
-import { equipmentName, IExercise, Exercise_findByName } from "../../models/exercise";
+import { equipmentName, IExercise, Exercise_findByName, Exercise_get, Exercise_fullName } from "../../models/exercise";
 import { IconEdit2 } from "../icons/iconEdit2";
 import { lb } from "lens-shmens";
 import {
@@ -23,6 +22,7 @@ import {
   PlannerProgramExercise_warmups,
   PlannerProgramExercise_defaultWarmups,
   PlannerProgramExercise_warmupSetsToDisplaySets,
+  PlannerProgramExercise_currentExerciseVariationIndex,
 } from "../../pages/planner/models/plannerProgramExercise";
 import { HistoryRecordSet } from "../historyRecordSets";
 import { IconDuplicate2 } from "../icons/iconDuplicate2";
@@ -78,7 +78,7 @@ interface IEditProgramUiExerciseViewProps {
   programId: string;
   dispatch: IDispatch;
   plannerDispatch: ILensDispatch<IPlannerState>;
-  dragHandle?: (children: ReactNode) => JSX.Element;
+  showNumber?: boolean;
 }
 
 export const EditProgramUiExerciseView = memo(function EditProgramUiExerciseView(
@@ -99,26 +99,19 @@ export const EditProgramUiExerciseView = memo(function EditProgramUiExerciseView
         className="my-1 overflow-hidden border bg-background-cardpurple rounded-xl border-border-cardpurple"
       >
         <View className="flex-row items-center">
-          {props.dragHandle ? (
-            <>
-              {props.dragHandle(
-                <View className="p-2">
-                  <IconHandle />
-                </View>
-              )}
-              <View className="mr-2">
-                <SetNumber size="sm" setIndex={props.exerciseIndex} />
-              </View>
-            </>
+          {props.showNumber ? (
+            <View className="mx-2">
+              <SetNumber size="sm" setIndex={props.exerciseIndex} />
+            </View>
           ) : (
-            <View className="w-16" />
+            <View className="w-scaled-9" />
           )}
           <View
             className="flex-row items-center flex-1"
             data-testid="planner-ui-exercise-name"
             testID="planner-ui-exercise-name"
           >
-            <View className="flex-1">
+            <View className="flex-1 leading-tight">
               <ExerciseNameLine
                 label={props.plannerExercise.label}
                 name={props.plannerExercise.name}
@@ -130,6 +123,7 @@ export const EditProgramUiExerciseView = memo(function EditProgramUiExerciseView
                 }
                 orderAndRepeat={orderAndRepeat || undefined}
               />
+              <ExerciseVariationsLine plannerExercise={props.plannerExercise} settings={props.settings} />
             </View>
             {props.plannerExercise.notused && (
               <View className="px-1 ml-3 rounded bg-background-darkgray">
@@ -200,7 +194,7 @@ export const EditProgramUiExerciseView = memo(function EditProgramUiExerciseView
           </View>
           <View className="py-4 border-l bg-background-default border-border-cardpurple">
             <Pressable
-              className="items-center w-10 px-2 nm-edit-exercise-expand-collapse"
+              className="items-center w-scaled-10 px-2 nm-edit-exercise-expand-collapse"
               onPress={() => {
                 props.plannerDispatch(
                   lb<IPlannerState>()
@@ -287,7 +281,12 @@ export const EditProgramUiExerciseContentView = memo(function EditProgramUiExerc
             {exerciseType ? (
               <View className="p-1">
                 <View className="p-1 m-1 rounded-lg bg-background-image">
-                  <ExerciseImage settings={props.settings} className="w-10" exerciseType={exerciseType} size="small" />
+                  <ExerciseImage
+                    settings={props.settings}
+                    className="w-scaled-10"
+                    exerciseType={exerciseType}
+                    size="small"
+                  />
                 </View>
               </View>
             ) : (
@@ -347,16 +346,6 @@ export const EditProgramUiExerciseContentView = memo(function EditProgramUiExerc
               data-testid="edit-exercise"
               testID="edit-exercise"
               onPress={() => {
-                props.plannerDispatch(
-                  lb<IPlannerState>()
-                    .p("ui")
-                    .p("focusedDay")
-                    .record({
-                      ...props.plannerExercise.dayData,
-                      key: props.plannerExercise.key,
-                    }),
-                  "Focus on exercise day"
-                );
                 props.dispatch(
                   Thunk_pushToEditProgramExercise(props.plannerExercise.key, props.plannerExercise.dayData)
                 );
@@ -434,6 +423,41 @@ function ExerciseNameLine(props: {
   }
   const built = builder.build();
   return <FastText text={built.text} fragments={built.fragments} {...cls("text-base font-bold text-text-primary")} />;
+}
+
+function ExerciseVariationsLine(props: {
+  plannerExercise: IPlannerProgramExercise;
+  settings: ISettings;
+}): JSX.Element | null {
+  const variations = props.plannerExercise.exerciseVariations ?? [];
+  const cls = StyledText_cls(useRem());
+  if (variations.length <= 1) {
+    return null;
+  }
+  const currentIndex = PlannerProgramExercise_currentExerciseVariationIndex(props.plannerExercise);
+  const otherNames = variations
+    .filter((_, i) => i !== currentIndex)
+    .map((v) =>
+      v.exerciseType
+        ? Exercise_fullName(Exercise_get(v.exerciseType, props.settings.exercises), props.settings)
+        : v.name
+    );
+  const builder = new StyledText();
+  builder.add("Variations: ");
+  otherNames.forEach((name, i) => {
+    builder.add(i > 0 ? ", " : "");
+    builder.add(name, cls("font-semibold"));
+  });
+  const built = builder.build();
+  return (
+    <FastText
+      data-testid="exercise-variations-summary"
+      testID="exercise-variations-summary"
+      text={built.text}
+      fragments={built.fragments}
+      {...cls("text-xs text-text-secondary")}
+    />
+  );
 }
 
 function SupersetLine(props: { group: string; exerciseNames: string[] }): JSX.Element {

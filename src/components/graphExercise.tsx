@@ -1,11 +1,19 @@
-import { JSX, memo, useMemo, useState } from "react";
+import { JSX, memo, useCallback, useMemo, useState } from "react";
+import { usePerfWhyRender } from "../utils/usePerfWhyRender";
 import { View, Pressable } from "react-native";
 import { Text } from "./primitives/text";
 import { Select } from "./primitives/select";
 import { CollectionUtils_sort, CollectionUtils_inGroupsOf } from "../utils/collection";
 import { DateUtils_format } from "../utils/date";
-import { equipmentName, Exercise_eq, Exercise_get } from "../models/exercise";
-import { Weight_convertTo, Weight_build, Weight_getOneRepMax, Weight_isOrPct, Weight_display } from "../models/weight";
+import { equipmentName, Exercise_eq, Exercise_get, Exercise_getVolumeMultiplier } from "../models/exercise";
+import {
+  Weight_convertTo,
+  Weight_build,
+  Weight_getOneRepMax,
+  Weight_isOrPct,
+  Weight_display,
+  Weight_multiply,
+} from "../models/weight";
 import { IHistoryRecord, IExerciseType, ISettings, IExerciseSelectedType } from "../types";
 import { IDispatch } from "../ducks/types";
 import { Reps_volume } from "../models/set";
@@ -32,6 +40,7 @@ interface IGraphProps {
   initialType?: IExerciseSelectedType;
   dispatch?: IDispatch;
   isInteractive?: boolean;
+  onInteract?: (reason: "manipulate" | "type") => void;
 }
 
 interface IGraphData {
@@ -61,7 +70,10 @@ function getData(
     if (entry != null) {
       const maxSet = History_getMaxWeightSetFromEntry(entry);
       const maxe1RMSet = History_getMax1RMSetFromEntry(entry);
-      const volume = Reps_volume(entry.sets, settings.units);
+      const volume = Weight_multiply(
+        Reps_volume(entry.sets, settings.units),
+        Exercise_getVolumeMultiplier(entry.exercise, settings)
+      );
       if (maxSet != null) {
         const convertedWeight = Weight_convertTo(
           maxSet.completedWeight ?? maxSet.weight ?? Weight_build(0, settings.units),
@@ -126,6 +138,7 @@ function getData(
 }
 
 function GraphExerciseInner(props: IGraphProps): JSX.Element {
+  usePerfWhyRender("graph", props as unknown as Record<string, unknown>);
   const [selectedType, setSelectedType] = useState<IExerciseSelectedType>(props.initialType || "weight");
   const eqName = equipmentName(props.exercise.equipment);
   const units = props.settings.units;
@@ -178,6 +191,9 @@ function GraphExerciseInner(props: IGraphProps): JSX.Element {
 
   const { cursorIdx, chartRef, handleCursorChange, onCloseOverlay, overlayVisible } = useGraphActiveCursor(props.id);
 
+  const propsOnInteract = props.onInteract;
+  const onChartInteract = useCallback(() => propsOnInteract?.("manipulate"), [propsOnInteract]);
+
   const timestamps = result.data[0];
   const cursorTimestamp = cursorIdx != null ? timestamps[cursorIdx] : null;
   const cursorRecord = cursorTimestamp != null ? result.historyRecords[cursorTimestamp] : undefined;
@@ -188,16 +204,21 @@ function GraphExerciseInner(props: IGraphProps): JSX.Element {
         <View className="flex-row items-center mb-1">
           <View className="flex-1">
             <View>
-              <Text className="text-lg font-semibold leading-6 text-left u-title">{props.title || exercise.name}</Text>
+              <Text className="text-lg font-semibold leading-scaled-6 text-left u-title">
+                {props.title || exercise.name}
+              </Text>
             </View>
             <View>
-              <Text className="text-xs leading-4 text-left text-text-secondary">{props.subtitle || eqName}</Text>
+              <Text className="text-xs leading-scaled-4 text-left text-text-secondary">{props.subtitle || eqName}</Text>
             </View>
           </View>
           <View>
             <Select
               value={selectedType}
-              onChange={(v) => setSelectedType(v as IExerciseSelectedType)}
+              onChange={(v) => {
+                props.onInteract?.("type");
+                setSelectedType(v as IExerciseSelectedType);
+              }}
               options={[
                 { value: "weight", label: "Max Weight" },
                 { value: "volume", label: "Volume" },
@@ -216,6 +237,7 @@ function GraphExerciseInner(props: IGraphProps): JSX.Element {
             xMax={xMax}
             programLines={props.isWithProgramLines ? result.changeProgramTimes : undefined}
             onCursorChange={handleCursorChange}
+            onInteract={onChartInteract}
             yAxisFormatter={(v) => `${Math.round(v)}`}
             isInteractive={props.isInteractive}
           />

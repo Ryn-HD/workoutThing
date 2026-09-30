@@ -1,6 +1,19 @@
 import { JSX, ReactNode, createContext, useContext, useReducer, useEffect, useRef, useCallback } from "react";
-import type { IMuscle, IExerciseKind } from "../types";
+import type {
+  IMuscle,
+  IExerciseKind,
+  IExerciseType,
+  IExercisePickerSelectedExercise,
+  IDayData,
+  IPlannerProgram,
+  IProgramState,
+  IProgramStateMetadata,
+} from "../types";
+import type { IEvaluatedProgram } from "../models/program";
 import { getNavigationRef } from "./navUtils";
+import { UidFactory_generateUid } from "../utils/generator";
+import type { IStateVariableType } from "../components/editProgramExercise/progressions/modalCreateStateVariable";
+import type { ILiftoEditorAcrossField, ILiftoEditorStateVarEntry } from "../components/primitives/liftoEditorActions";
 
 export interface IInputSelectModalData {
   name?: string;
@@ -17,6 +30,27 @@ export interface ITextInputModalData {
   placeholder: string;
   submitLabel: string;
   dataCyPrefix: string;
+  maxLength?: number;
+  pattern?: string;
+  patternMessage?: string;
+}
+
+// Editing what something is called and what it says about itself — a week today, a day next. The
+// modal owns neither: it takes the current pair and hands back the edited one.
+export interface IEditDetailsModalData {
+  title: string;
+  nameLabel: string;
+  namePlaceholder: string;
+  descriptionPlaceholder: string;
+  submitLabel: string;
+  dataCyPrefix: string;
+  name: string;
+  description?: string;
+}
+
+export interface IEditDetailsModalResult {
+  name: string;
+  description?: string;
 }
 
 export interface IRepMaxCalculatorModalData {
@@ -46,9 +80,58 @@ export interface IExerciseCloneLibraryResult {
   types: IExerciseKind[];
 }
 
+export interface ILiftoEditorExercisePickerModalData {
+  exerciseType?: IExerciseType;
+  label?: string;
+  templateName?: string;
+  // Handed over rather than looked up by id: while the program editor is open the program
+  // that matters is the unsaved draft, and only the opener knows which one that is.
+  evaluatedProgram?: IEvaluatedProgram;
+  dayData?: Required<IDayData>;
+  // Exercises on that day that must not count as "already used", because they *are* the slot
+  // being edited — the one the program still has there and the one the unsaved text now names.
+  // Without this the picker disables the exercise you are replacing, so a swap can't be undone.
+  excludeUsedExerciseTypes?: IExerciseType[];
+}
+
+export interface IStateVarsModalData {
+  // What custom()'s parens hold, as the syntax tree read it; the result is the same list,
+  // rewritten.
+  entries: ILiftoEditorStateVarEntry[];
+  hasUnparsed: boolean;
+  defaults?: IProgramState;
+  defaultsMetadata?: IProgramStateMetadata;
+  sourceName?: string;
+  progressScript?: string;
+  updateScript?: string;
+  exerciseType?: IExerciseType;
+}
+
+export interface ICreateStateVarModalResult {
+  name: string;
+  type: IStateVariableType;
+  isUserPrompted: boolean;
+}
+
+// Retuning one exercise's sets across every week that shares a value. Planner in, planner out —
+// nothing about the program around it is read. Handed over rather than looked up by id because
+// the opener may be holding edits that aren't in app state yet, and the grouping has to be of
+// what the user can actually see.
+export interface IAcrossProgramModalData {
+  planner: IPlannerProgram;
+  exerciseKey: string;
+  exerciseFullName: string;
+  field: ILiftoEditorAcrossField;
+}
+
 export interface IModalDataMap {
   inputSelectModal: IInputSelectModalData;
+  acrossProgramModal: IAcrossProgramModalData;
+  stateVarsModal: IStateVarsModalData;
+  createStateVarModal: { existingNames?: string[] };
+  liftoEditorExercisePickerModal: ILiftoEditorExercisePickerModalData;
   textInputModal: ITextInputModalData;
+  editDetailsModal: IEditDetailsModalData;
   repMaxCalculatorModal: IRepMaxCalculatorModalData;
   exerciseTypesPickerModal: IExerciseTypesPickerModalData;
   exerciseMusclesPickerModal: IExerciseMusclesPickerModalData;
@@ -60,7 +143,14 @@ export interface IModalDataMap {
 
 export interface IModalResultMap {
   inputSelectModal: string;
+  // The rewritten program. The opener decides where it goes — pending in a sheet, or straight
+  // into a lens — so this modal never writes to app state itself.
+  acrossProgramModal: IPlannerProgram;
+  stateVarsModal: string;
+  createStateVarModal: ICreateStateVarModalResult;
+  liftoEditorExercisePickerModal: IExercisePickerSelectedExercise;
   textInputModal: string;
+  editDetailsModal: IEditDetailsModalResult;
   repMaxCalculatorModal: number;
   exerciseTypesPickerModal: IExerciseKind[];
   exerciseMusclesPickerModal: IMuscle[];
@@ -73,10 +163,14 @@ export interface IModalResultMap {
 export interface IModalState {
   modals: Partial<IModalDataMap>;
   results: Partial<IModalResultMap>;
+  // Who opened each modal last. Several components can hold a useModal hook for the same
+  // key (one per mounted day editor), and a result is delivered to the one that asked for
+  // it — a canceled opener would otherwise stay armed and take the next opener's result.
+  owners: Partial<Record<keyof IModalDataMap, string>>;
 }
 
 type IModalAction =
-  | { type: "open"; key: string; data: unknown }
+  | { type: "open"; key: string; data: unknown; owner?: string }
   | { type: "clear"; key: string }
   | { type: "setResult"; key: string; value: unknown }
   | { type: "clearResult"; key: string };
@@ -84,7 +178,11 @@ type IModalAction =
 function modalReducer(state: IModalState, action: IModalAction): IModalState {
   switch (action.type) {
     case "open":
-      return { ...state, modals: { ...state.modals, [action.key]: action.data } };
+      return {
+        ...state,
+        modals: { ...state.modals, [action.key]: action.data },
+        owners: { ...state.owners, [action.key]: action.owner },
+      };
     case "clear": {
       const { [action.key]: _, ...rest } = state.modals as Record<string, unknown>;
       return { ...state, modals: rest as Partial<IModalDataMap> };
@@ -100,7 +198,7 @@ function modalReducer(state: IModalState, action: IModalAction): IModalState {
   }
 }
 
-const initialModalState: IModalState = { modals: {}, results: {} };
+const initialModalState: IModalState = { modals: {}, results: {}, owners: {} };
 
 export type IModalDispatch = (action: IModalAction) => void;
 
@@ -138,9 +236,10 @@ export function useModalData<K extends keyof IModalDataMap>(key: K): IModalDataM
 export function Modal_open<K extends keyof IModalDataMap>(
   dispatch: IModalDispatch,
   key: K,
-  data: IModalDataMap[K]
+  data: IModalDataMap[K],
+  owner?: string
 ): void {
-  dispatch({ type: "open", key, data });
+  dispatch({ type: "open", key, data, owner });
 }
 
 export function Modal_setResult<K extends keyof IModalResultMap>(
@@ -182,19 +281,27 @@ export function useModal<K extends keyof IModalDataMap & keyof IModalResultMap>(
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
   const isOpenRef = useRef(false);
+  const idRef = useRef<string | undefined>(undefined);
+  if (idRef.current == null) {
+    idRef.current = UidFactory_generateUid(8);
+  }
+  // Closing without a result leaves this hook armed — nothing tells it the modal went away.
+  // Ownership is what retires it: the next opener takes the key, and only the owner is
+  // allowed to consume a result.
+  const isOwner = state.owners[key] === idRef.current;
 
   useEffect(() => {
-    if (result != null && isOpenRef.current) {
+    if (result != null && isOpenRef.current && isOwner) {
       isOpenRef.current = false;
       dispatch({ type: "clearResult", key });
       callbackRef.current(result as IModalResultMap[K]);
     }
-  }, [result, dispatch, key]);
+  }, [result, dispatch, key, isOwner]);
 
   return useCallback(
     (data: IModalDataMap[K]) => {
       isOpenRef.current = true;
-      Modal_open(dispatch, key, data);
+      Modal_open(dispatch, key, data, idRef.current);
       getNavigationRef().then(({ navigationRef: ref }) => ref.navigate(key as never));
     },
     [dispatch, key]

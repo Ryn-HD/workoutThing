@@ -36,6 +36,7 @@ import {
   Exercise_synergistMusclesGroups,
   Exercise_targetMuscles,
   Exercise_synergistMuscles,
+  Exercise_nameError,
 } from "../models/exercise";
 import { LinkButton } from "./linkButton";
 import { IconTrash } from "./icons/iconTrash";
@@ -145,8 +146,8 @@ const ExercisePickerContainer = forwardRef((props: IExercisePickerContainerProps
           defaultValue={props.label}
           changeType={"oninput"}
           inputSize="sm"
-          pattern="^[^\/\{\}\(\)\t\n\r#\[\]]+$"
-          patternMessage="Label cannot contain special characters: '/{}()#[]'"
+          pattern="^[^\/\{\}\(\)\t\n\r#\[\]\|!]+$"
+          patternMessage="Label cannot contain special characters: '/{}()#[]|!'"
           labelSize="xs"
           changeHandler={(e: IEither<string, Set<IValidationError>>) => {
             if (e.success && props.onLabelChange) {
@@ -295,7 +296,7 @@ const ExercisesList = forwardRef((props: IExercisesListProps, _ref): JSX.Element
                   }}
                 >
                   <section className="flex items-center">
-                    <div className="w-12 pr-2" style={{ minHeight: "2.5rem" }}>
+                    <div className="w-scaled-12 pr-2" style={{ minHeight: "2.5rem" }}>
                       <ExerciseImage settings={props.settings} className="w-full" exerciseType={e} size="small" />
                     </div>
                     <div className="flex-1 py-2 text-left">
@@ -393,7 +394,7 @@ export function ExerciseItem(props: IExerciseItemProps): JSX.Element {
 
   return (
     <section className="flex items-center">
-      <div className="w-12 pr-2" style={{ minHeight: "2.5rem" }}>
+      <div className="w-scaled-12 pr-2" style={{ minHeight: "2.5rem" }}>
         <ExerciseImage settings={props.settings} className="w-full" exerciseType={exerciseType} size="small" />
       </div>
       <div className="flex-1 py-2 text-sm text-left">
@@ -487,6 +488,7 @@ function CustomExerciseForm(props: IEditCustomExerciseProps): JSX.Element {
           <Button
             name="custom-exercise-create"
             kind="purple"
+            disabled={Exercise_nameError(state.name) != null}
             data-testid="custom-exercise-create"
             testID="custom-exercise-create"
             onClick={() => {
@@ -673,13 +675,7 @@ function ExerciseTemplate(props: IExerciseTemplateProps): JSX.Element {
         onInput={(e) => {
           const value = e.currentTarget.value?.trim() || "";
           setName(value);
-          if (!value) {
-            setNameError("Name cannot be empty");
-          } else if (/[/{}()\t\n\r#\[\]]+/.test(value)) {
-            setNameError("Name cannot contain special characters: '/{}()#[]'");
-          } else {
-            setNameError(undefined);
-          }
+          setNameError(Exercise_nameError(value));
         }}
       />
       <div className="my-2 text-sm">

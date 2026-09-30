@@ -14,6 +14,12 @@ import { View, Animated, StyleSheet, Platform, BackHandler } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NativeCustomKeyboard } from "../components/nativeCustomKeyboard.native";
 import { IPercentageUnit, IUnit } from "../types";
+import {
+  KeyboardActiveId_get,
+  KeyboardActiveId_set,
+  KeyboardActiveId_setHeight,
+  KeyboardActiveId_subscribe,
+} from "./keyboardActiveId";
 
 export interface IKeyboardConfig {
   id: string;
@@ -60,6 +66,10 @@ export function CustomKeyboardProvider(props: {
   children: ReactNode;
   applySafeAreaBottom?: boolean;
   inline?: boolean;
+  // Auto-height host (fit-content sheets): children keep their natural height and the
+  // keyboard adds inline space below them instead of overlaying (the flex:1 wrapper of the
+  // default layout collapses inside auto-height parents).
+  fitContent?: boolean;
   noShadow?: boolean;
 }): JSX.Element {
   const [height, setHeight] = useState(0);
@@ -70,7 +80,7 @@ export function CustomKeyboardProvider(props: {
   const [shouldMount, setShouldMount] = useState(false);
   const slideY = useRef(new Animated.Value(400)).current;
   const prevActiveRef = useRef<IKeyboardConfig | null>(null);
-  const touchStartRef = useRef<{ x: number; y: number; openGen: number } | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number; openGen: number; activeId: string | null } | null>(null);
   const openGenRef = useRef(0);
   const insets = useSafeAreaInsets();
   const bottomOverflow = props.applySafeAreaBottom === false ? insets.bottom : 0;
@@ -112,6 +122,7 @@ export function CustomKeyboardProvider(props: {
   const openKeyboard = useCallback((config: IKeyboardConfig) => {
     openGenRef.current += 1;
     setActiveConfig(config);
+    KeyboardActiveId_set(config.id);
     if (measuredHeightRef.current > 0) {
       setHeight(measuredHeightRef.current);
     }
@@ -119,6 +130,7 @@ export function CustomKeyboardProvider(props: {
 
   const closeKeyboard = useCallback(() => {
     setActiveConfig(null);
+    KeyboardActiveId_set(null);
     setHeight(0);
   }, []);
 
@@ -134,6 +146,20 @@ export function CustomKeyboardProvider(props: {
     return () => subscription.remove();
   }, [isKeyboardOpen, closeKeyboard]);
 
+  useEffect(() => {
+    KeyboardActiveId_setHeight(height);
+  }, [height]);
+
+  // A focused field that unmounts clears the store. Following it here keeps the keypad from outliving it.
+  useEffect(() => {
+    return KeyboardActiveId_subscribe(() => {
+      if (KeyboardActiveId_get() == null) {
+        setActiveConfig(null);
+        setHeight(0);
+      }
+    });
+  }, []);
+
   const activeId = activeConfig?.id ?? null;
   const value = useMemo(
     () => ({
@@ -148,7 +174,7 @@ export function CustomKeyboardProvider(props: {
     [height, animatedHeight, activeId, openKeyboard, closeKeyboard]
   );
 
-  const inlineOnAndroid = props.inline && Platform.OS === "android";
+  const inlineLayout = (props.inline && Platform.OS === "android") || props.fitContent;
 
   const keyboardNode = renderedConfig && (
     <NativeCustomKeyboard
@@ -174,7 +200,10 @@ export function CustomKeyboardProvider(props: {
   return (
     <CustomKeyboardContext.Provider value={value}>
       <View
-        style={inlineOnAndroid ? undefined : { flex: 1 }}
+        // flexShrink so a host that caps its own height can shrink what is above the keyboard:
+        // this wrapper sits between the two, and a child that cannot shrink pins the whole chain.
+        // Inert unless the host constrains the height, since nothing else here shrinks.
+        style={inlineLayout ? { flexShrink: 1 } : { flex: 1 }}
         onTouchStart={(e) => {
           if (activeConfig == null) {
             return;
@@ -183,7 +212,12 @@ export function CustomKeyboardProvider(props: {
           if (!t) {
             return;
           }
-          touchStartRef.current = { x: t.pageX, y: t.pageY, openGen: openGenRef.current };
+          touchStartRef.current = {
+            x: t.pageX,
+            y: t.pageY,
+            openGen: openGenRef.current,
+            activeId: KeyboardActiveId_get(),
+          };
         }}
         onTouchEnd={(e) => {
           const start = touchStartRef.current;
@@ -191,7 +225,7 @@ export function CustomKeyboardProvider(props: {
           if (!start || activeConfig == null) {
             return;
           }
-          if (openGenRef.current !== start.openGen) {
+          if (openGenRef.current !== start.openGen || KeyboardActiveId_get() !== start.activeId) {
             return;
           }
           const t = e.nativeEvent.changedTouches[0];
@@ -211,7 +245,7 @@ export function CustomKeyboardProvider(props: {
         {props.children}
       </View>
       {shouldMount &&
-        (inlineOnAndroid ? (
+        (inlineLayout ? (
           <View>
             <Animated.View style={{ height: animatedHeight }} />
             <View style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>

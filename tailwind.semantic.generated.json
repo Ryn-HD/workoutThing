@@ -33,6 +33,16 @@
       "yellow": "#DD8E02",
       "purple": "#8356F6"
     },
+    "plate": {
+      "red": "#D7322E",
+      "blue": "#1F55C4",
+      "yellow": "#F0C419",
+      "green": "#2E9C4B",
+      "white": "#FFFFFF",
+      "whiteoutline": "#607284",
+      "iron": "#364756",
+      "bar": "#778999"
+    },
     "graph": {
       "blue": "#2A97B0",
       "red": "#FF543E",
@@ -49,12 +59,24 @@
       "subtle": "#F4F6F7",
       "neutral": "#E3E8EA",
       "editoractiveline": "#cceeff44",
+      "editorfocus": "#E3E8EA",
+      "editoractive": "#CCC1F9",
+      "editorselection": "#8356F633",
       "subtlecardpurple": "#FAF8FF",
       "cardpurple": "#EFEAFF",
       "purpledark": "#E2D9F5",
       "cardyellow": "#FFF8EC",
       "yellowdark": "#DD8E02",
       "cardpurpleselected": "#CCC1F9",
+      "gridexercise": "#EFEAFF",
+      "gridexercisereached": "#CCC1F9",
+      "gridexerciseactive": "#783AED",
+      "gridnotused": "#CEFCE5",
+      "gridnotusedreached": "#A3F7D0",
+      "gridnotusedactive": "#009F6C",
+      "gridoverride": "#FFE6B4",
+      "gridoverridereached": "#FFD820",
+      "gridoverrideactive": "#B76506",
       "error": "#FF543E",
       "lighterror": "#FFF3F1",
       "success": "#EBFEF5",
@@ -69,7 +91,11 @@
       "neutral": "#E3E8EA",
       "prominent": "#C9D1D8",
       "cardyellow": "#FFE6B4",
-      "cardpurple": "#E2D9F5"
+      "cardpurple": "#E2D9F5",
+      "gridnotused": "#67EEB8",
+      "gridexercise": "#CCC1F9",
+      "current": "#F97316",
+      "currentoutline": "transparent"
     },
     "text": {
       "primary": "#000000",
@@ -81,7 +107,9 @@
       "success": "#009F6C",
       "error": "#ED2E15",
       "purple": "#8356F6",
-      "alwayswhite": "#FFFFFF"
+      "alwayswhite": "#FFFFFF",
+      "cardyellow": "#7A3F0D",
+      "cardyellowsubtle": "#954D0B"
     },
     "button": {
       "primarybackground": "#8356F6",
@@ -115,6 +143,26 @@
       "attributeValue": "#45B3CB",
       "annotation": "#FFB544",
       "docComment": "#007F5A"
+    },
+    "editorpill": {
+      "weightfg": "#016448",
+      "weightbd": "#A3F7D0",
+      "weightbg": "#EBFEF5",
+      "timerfg": "#5721B6",
+      "timerbd": "#DAD0F5",
+      "timerbg": "#FAF8FF",
+      "logicfg": "#234656",
+      "logicbd": "#B4E5ED",
+      "logicbg": "#EFFAFC",
+      "setsfg": "#954D0B",
+      "setsbd": "#FFE6B4",
+      "setsbg": "#FFF8EC",
+      "progressfg": "#6928D9",
+      "progressbd": "#DAD0F5",
+      "progressbg": "#FAF8FF",
+      "neutralfg": "#332D42",
+      "neutralbd": "#A4B0BC",
+      "neutralbg": "#F4F6F7"
     }
   },
   "dark": {
@@ -151,6 +199,16 @@
       "yellow": "#FFD820",
       "purple": "#A48BFA"
     },
+    "plate": {
+      "red": "#E04440",
+      "blue": "#3B6FDB",
+      "yellow": "#F5CC2E",
+      "green": "#3DB05C",
+      "white": "#E3E8EA",
+      "whiteoutline": "#778999",
+      "iron": "#C9D1D8",
+      "bar": "#4F5C6B"
+    },
     "graph": {
       "blue": "#45B3CB",
       "red": "#FF8066",
@@ -167,12 +225,24 @@
       "subtle": "#0C0819",
       "neutral": "#252034",
       "editoractiveline": "#34495444",
+      "editorfocus": "#363A43",
+      "editoractive": "#5721B6",
+      "editorselection": "#A48BFA4D",
       "subtlecardpurple": "#0C0819",
       "cardpurple": "#252034",
       "purpledark": "#393248",
       "cardyellow": "#25241E",
       "yellowdark": "#453D58",
       "cardpurpleselected": "#453D58",
+      "gridexercise": "#332D42",
+      "gridexercisereached": "#453D58",
+      "gridexerciseactive": "#CCC1F9",
+      "gridnotused": "#1D2931",
+      "gridnotusedreached": "#3C695B",
+      "gridnotusedactive": "#67EEB8",
+      "gridoverride": "#2E2C24",
+      "gridoverridereached": "#595334",
+      "gridoverrideactive": "#FFDD7E",
       "error": "#824344",
       "lighterror": "#281925",
       "success": "#3C695B",
@@ -187,7 +257,11 @@
       "neutral": "#364756",
       "prominent": "#3C5063",
       "cardyellow": "#474431",
-      "cardpurple": "#332D42"
+      "cardpurple": "#332D42",
+      "gridnotused": "#3F7961",
+      "gridexercise": "#453D58",
+      "current": "#FB923C",
+      "currentoutline": "#FFEDD5"
     },
     "text": {
       "primary": "#FFFFFF",
@@ -199,7 +273,9 @@
       "success": "#2BDC9B",
       "error": "#FF8066",
       "purple": "#A48BFA",
-      "alwayswhite": "#FFFFFF"
+      "alwayswhite": "#FFFFFF",
+      "cardyellow": "#FFDD7E",
+      "cardyellowsubtle": "#FFD820"
     },
     "button": {
       "primarybackground": "#8356F6",
@@ -233,6 +309,26 @@
       "attributeValue": "#28839F",
       "annotation": "#FFD820",
       "docComment": "#67EEB8"
+    },
+    "editorpill": {
+      "weightfg": "#2BDC9B",
+      "weightbd": "#3C695B",
+      "weightbg": "#1D2931",
+      "timerfg": "#CCC1F9",
+      "timerbd": "#332D42",
+      "timerbg": "#0C0819",
+      "logicfg": "#45B3CB",
+      "logicbd": "#332D42",
+      "logicbg": "#0C0819",
+      "setsfg": "#FFB544",
+      "setsbd": "#474431",
+      "setsbg": "#25241E",
+      "progressfg": "#CCC1F9",
+      "progressbd": "#332D42",
+      "progressbg": "#0C0819",
+      "neutralfg": "#A4B0BC",
+      "neutralbd": "#364756",
+      "neutralbg": "#252034"
     }
   }
 }

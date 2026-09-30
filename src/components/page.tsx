@@ -1,6 +1,7 @@
 import React, { JSX } from "react";
 import { IPageWrapperProps, PageWrapper } from "./pageWrapper";
 import { Tailwind_markPageContext, TAILWIND_PAGE_MARKER_CLASS } from "../utils/tailwindConfig";
+import { PAGE_THEME_STORAGE_KEY, PageTheme_backgroundColor } from "../utils/pageTheme";
 
 Tailwind_markPageContext();
 
@@ -185,6 +186,7 @@ interface IProps<T> extends IPageWrapperProps {
   description?: string;
   ogDescription?: string;
   ogUrl?: string;
+  ogType?: "website" | "article";
   ogImage?: string;
   jsonLd?: IJsonLd[];
   data: T;
@@ -222,7 +224,7 @@ export function Page<T>(props: IProps<T>): JSX.Element {
         <link rel="shortcut icon" type="image/x-icon" href="/icons/favicon.ico" />
         <link rel="canonical" href={props.canonical} />
         <link rel="apple-touch-icon" href="/icons/icon512.png" />
-        <meta name="theme-color" content="#ffffff" />
+        <meta name="theme-color" content={PageTheme_backgroundColor("light")} />
         <meta name="description" content={props.description} />
         <script
           async
@@ -252,7 +254,7 @@ export function Page<T>(props: IProps<T>): JSX.Element {
         <meta property="og:description" content={props.ogDescription || props.description} />
         <meta property="fb:app_id" content="3448767138535273" />
         {props.ogUrl && <meta property="og:url" content={props.ogUrl} />}
-        <meta property="og:type" content="website" />
+        <meta property="og:type" content={props.ogType || "website"} />
         {props.ogImage && <meta property="og:image" content={props.ogImage} />}
         <meta property="twitter:card" content="summary_large_image" />
         <script dangerouslySetInnerHTML={{ __html: applyThemeBeforePaint() }} />
@@ -345,8 +347,14 @@ function applyThemeBeforePaint(): string {
   return `
     (function() {
       try {
+        var stored = null;
+        try {
+          stored = window.localStorage.getItem("${PAGE_THEME_STORAGE_KEY}");
+        } catch (e) {}
         var theme;
-        if (typeof window.lftSystemDarkMode === "boolean") {
+        if (stored === "dark" || stored === "light") {
+          theme = stored;
+        } else if (typeof window.lftSystemDarkMode === "boolean") {
           theme = window.lftSystemDarkMode ? "dark" : "light";
         } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
           theme = "dark";
@@ -356,6 +364,10 @@ function applyThemeBeforePaint(): string {
         var root = document.documentElement;
         root.classList.add(theme);
         root.classList.remove(theme === "dark" ? "light" : "dark");
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) {
+          meta.setAttribute("content", theme === "dark" ? "${PageTheme_backgroundColor("dark")}" : "${PageTheme_backgroundColor("light")}");
+        }
       } catch (e) {}
     })();
   `;

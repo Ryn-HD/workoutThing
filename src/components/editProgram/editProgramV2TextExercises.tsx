@@ -7,7 +7,8 @@ import { PlannerEditorView } from "../../pages/planner/components/plannerEditorV
 import { PlannerStatsUtils_dayApproxTimeMs } from "../../pages/planner/models/plannerStatsUtils";
 import { IPlannerUi, IPlannerState, IPlannerProgramExercise } from "../../pages/planner/models/types";
 import { IPlannerEvalResult } from "../../pages/planner/plannerExerciseEvaluator";
-import { IPlannerProgram, IPlannerProgramDay, ISettings } from "../../types";
+import { IDayData, IPlannerProgram, IPlannerProgramDay, ISettings } from "../../types";
+import { IEvaluatedProgram } from "../../models/program";
 import { Settings_getTheme } from "../../models/settings";
 import { CollectionUtils_findIndexReverse } from "../../utils/collection";
 import { TimeUtils_formatHHMM } from "../../utils/time";
@@ -25,6 +26,10 @@ interface IEditProgramV2TextExercisesProps {
   plannerDispatch: ILensDispatch<IPlannerState>;
   weekIndex: number;
   lbProgram: LensBuilder<IPlannerState, IPlannerProgram, {}, undefined>;
+  // Only the native structured editor uses these — they drive its exercise picker and
+  // reuse pickers, which the web CodeMirror body doesn't have.
+  evaluatedProgram: IEvaluatedProgram;
+  dayData: Required<IDayData>;
 }
 
 export function EditProgramV2TextExercises(props: IEditProgramV2TextExercisesProps): JSX.Element {
@@ -35,7 +40,11 @@ export function EditProgramV2TextExercises(props: IEditProgramV2TextExercisesPro
   let approxDayTime: string | undefined;
   if (evaluatedDay.success) {
     approxDayTime = TimeUtils_formatHHMM(
-      PlannerStatsUtils_dayApproxTimeMs(evaluatedDay.data, props.settings.timers.workout || 0)
+      PlannerStatsUtils_dayApproxTimeMs(
+        evaluatedDay.data,
+        props.settings.timers.workout || 0,
+        props.settings.timers.superset
+      )
     );
   }
   return (
@@ -55,6 +64,7 @@ export function EditProgramV2TextExercises(props: IEditProgramV2TextExercisesPro
             dayData={{ week: weekIndex + 1, dayInWeek: dayIndex + 1 }}
             dispatch={props.plannerDispatch}
             err={err}
+            isInvertedColors={true}
           />
         )}
         onChange={(e) => {

@@ -2,7 +2,8 @@ import { JSX, ReactNode } from "react";
 import { View, Pressable, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "./primitives/text";
-import { Svg, Path } from "./primitives/svg";
+import { Path } from "./primitives/svg";
+import { IconSvg } from "./icons/iconSvg";
 import { IDispatch } from "../ducks/types";
 import { ISettings } from "../types";
 import { useNavOptions } from "../navigation/useNavOptions";
@@ -71,7 +72,7 @@ export function ScreenProgramSelect(props: IScreenProgramSelectProps): JSX.Eleme
       className="flex flex-col flex-1 bg-background-default"
       style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
     >
-      <View className="flex-1 px-4 pt-8 pb-4">
+      <View className="flex-1 px-gutter pt-8 pb-4">
         <View className="items-center p-4">
           <Image
             source={{ uri: ImagePreloader_uri("/images/dinoprogramselect.png") }}
@@ -103,7 +104,7 @@ export function ScreenProgramSelect(props: IScreenProgramSelectProps): JSX.Eleme
                   <Text className="text-xs text-text-secondary">{opt.description}</Text>
                 </View>
                 <View>
-                  <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+                  <IconSvg width={16} height={16} viewBox="0 0 16 16" fill="none">
                     <Path
                       d="M6 4l4 4-4 4"
                       stroke={Tailwind_semantic().icon.neutral}
@@ -111,7 +112,7 @@ export function ScreenProgramSelect(props: IScreenProgramSelectProps): JSX.Eleme
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
-                  </Svg>
+                  </IconSvg>
                 </View>
               </Pressable>
             ))}

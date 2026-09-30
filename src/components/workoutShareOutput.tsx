@@ -16,6 +16,7 @@ import { ObjectUtils_keys } from "../utils/object";
 import { StringUtils_pluralize } from "../utils/string";
 import { HistoryRecordSetsView } from "./historyRecordSets";
 import { HostConfig_resolveUrl } from "../utils/hostConfig";
+import { n } from "../utils/math";
 
 interface IWorkoutShareOutputProps {
   record?: IHistoryRecord;
@@ -33,14 +34,17 @@ export function WorkoutShareOutput(props: IWorkoutShareOutputProps): JSX.Element
   const numberOfRecordPrs = ObjectUtils_keys(recordPrs).length;
   const entries = record.entries.filter((e) => e.sets.filter((s) => (s.completedReps ?? 0) > 0).length > 0);
   const time = TimeUtils_formatHHMM(History_workoutTime(record));
-  const totalWeight = History_totalRecordWeight(record, props.settings.units);
+  const totalWeight = History_totalRecordWeight(record, props.settings);
   const totalReps = History_totalRecordReps(record);
   const totalSets = History_totalRecordSets(record);
   return (
     <View>
       <View className="flex-row items-end">
         <View className="flex-row items-start gap-2 mx-2">
-          <Image source={{ uri: HostConfig_resolveUrl("/images/icon512.png") }} className="w-6 h-6 rounded-md" />
+          <Image
+            source={{ uri: HostConfig_resolveUrl("/images/icon512.png") }}
+            className="w-scaled-6 h-scaled-6 rounded-md"
+          />
           <Text className="text-lg font-bold text-white">Liftosaur</Text>
         </View>
         {numberOfRecordPrs > 0 && (
@@ -57,7 +61,7 @@ export function WorkoutShareOutput(props: IWorkoutShareOutputProps): JSX.Element
         <Text className="text-base">{record.dayName}</Text>
         <View className="flex-row justify-between mt-1">
           <Property name="Time" value={time} />
-          <Property name="Volume" value={totalWeight.value} unit={totalWeight.unit} />
+          <Property name="Volume" value={n(totalWeight.value)} unit={totalWeight.unit} />
           <Property name="Sets" value={totalSets} />
           <Property name="Reps" value={totalReps} />
         </View>
@@ -69,7 +73,7 @@ export function WorkoutShareOutput(props: IWorkoutShareOutputProps): JSX.Element
           const exercise = Exercise_get(entry.exercise, settings.exercises);
           return (
             <View key={Exercise_toKey(entry.exercise)} className="flex-row items-center gap-4">
-              <View className="w-12 h-12">
+              <View className="w-scaled-12 h-scaled-12">
                 <ExerciseImage
                   size="small"
                   className="w-full h-full"

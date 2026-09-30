@@ -1,5 +1,6 @@
 import { JSX, useEffect, useMemo, useState, useCallback } from "react";
-import { View, TextInput, Image } from "react-native";
+import { View, Image } from "react-native";
+import { TextInput } from "../primitives/textInput";
 import { LegendList } from "@legendapp/list";
 import { Text } from "../primitives/text";
 import { ISettings } from "../../types";
@@ -86,8 +87,8 @@ export function ExerciseImageLibraryContent(props: IExerciseImageLibraryContentP
           props.onSelect(smallImageUrl, largeImageUrl);
         }}
       >
-        <View className="flex-row items-center h-16 gap-4">
-          <View className="w-10">
+        <View className="flex-row items-center h-scaled-16 gap-4">
+          <View className="w-scaled-10">
             <ExerciseImage settings={props.settings} exerciseType={exercise} size="small" className="w-full" />
           </View>
           <Text className="flex-1">{Exercise_fullName(exercise, props.settings)}</Text>
@@ -120,9 +121,9 @@ export function ExerciseImageLibraryContent(props: IExerciseImageLibraryContentP
                     props.onSelect(img);
                   }}
                 >
-                  <View className="flex-row items-center h-16 gap-4">
-                    <View className="w-10">
-                      <Image source={{ uri: img }} style={{ width: 40, height: 40 }} resizeMode="contain" />
+                  <View className="flex-row items-center h-scaled-16 gap-4">
+                    <View className="w-scaled-10">
+                      <Image source={{ uri: img }} className="w-scaled-10 h-scaled-10" resizeMode="contain" />
                     </View>
                     {customExercise && (
                       <Text className="flex-1">{Exercise_fullName(customExercise, props.settings)}</Text>
@@ -140,7 +141,7 @@ export function ExerciseImageLibraryContent(props: IExerciseImageLibraryContentP
 
   const header = (
     <SheetDragHandle>
-      <View collapsable={false} className="px-4 pb-2">
+      <View collapsable={false} className="px-gutter pb-2">
         <Text className="pt-1 pb-3 text-base font-semibold text-center">Pick Exercise Image</Text>
         <View className="flex-row items-center gap-2 p-2 rounded-lg bg-background-neutral">
           <IconMagnifyingGlass size={18} color={Tailwind_colors().lightgray[600]} />

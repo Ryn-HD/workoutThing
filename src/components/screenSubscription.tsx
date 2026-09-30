@@ -48,6 +48,7 @@ import { IIapActiveSubscription } from "../utils/iapAdapter";
 import { SubscriptionPlan_derive, ISubscriptionPlanKind, IDerivedSubscriptionPlan } from "../utils/subscriptionPlan";
 import { DateUtils_format } from "../utils/date";
 import { IconFire } from "./icons/iconFire";
+import { StoreRuntime_isIos, StoreRuntime_isNative, StoreRuntime_storeName } from "../utils/storeRuntime";
 
 interface IProps {
   prices?: Partial<Record<string, string>>;
@@ -61,14 +62,6 @@ interface IProps {
   history: IHistoryRecord[];
   dispatch: IDispatch;
   navCommon: INavCommon;
-}
-
-function isNativeSubscriptionRuntime(): boolean {
-  return SendMessage_isIos() || SendMessage_isAndroid() || Platform.OS === "ios" || Platform.OS === "android";
-}
-
-function isIosRuntime(): boolean {
-  return SendMessage_isIos() || Platform.OS === "ios";
 }
 
 interface IFeatureDef {
@@ -135,8 +128,8 @@ function planLabel(plan?: ISubscriptionPlanKind): string {
 
 export function ScreenSubscription(props: IProps): JSX.Element {
   const insets = useSafeAreaInsets();
-  const isIos = isIosRuntime();
-  const isNative = isNativeSubscriptionRuntime();
+  const isIos = StoreRuntime_isIos();
+  const isNative = StoreRuntime_isNative();
 
   useEffect(() => {
     for (const path of SubscriptionInfoImages_allPaths()) {
@@ -202,7 +195,7 @@ export function ScreenSubscription(props: IProps): JSX.Element {
     return (
       <NavScreenContent>
         <SubscriptionHero />
-        <View className="flex-1 items-center justify-center px-4" style={{ paddingBottom: insets.bottom + 16 }}>
+        <View className="flex-1 items-center justify-center px-gutter" style={{ paddingBottom: insets.bottom + 16 }}>
           <IconSpinner width={24} height={24} />
           <Text className="mt-3 text-sm text-text-secondary">Checking your subscription…</Text>
         </View>
@@ -218,7 +211,7 @@ export function ScreenSubscription(props: IProps): JSX.Element {
   return (
     <NavScreenContent>
       <SubscriptionHero />
-      <View className="flex-1 px-4" style={{ paddingBottom: insets.bottom + 16 }}>
+      <View className="flex-1 px-gutter" style={{ paddingBottom: insets.bottom + 16 }}>
         {isPitch || isUnclaimed ? <PitchHeader /> : <StatusHeader plan={plan} />}
         <FeatureList isIos={isIos} />
         <View>
@@ -301,7 +294,7 @@ export function ScreenSubscription(props: IProps): JSX.Element {
               access to those features without recurring charges in the future.
             </Text>
             <Text className="mb-4 text-xs text-text-secondary">
-              You can cancel subscriptions any time via Google Play or App Store subscriptions management.
+              You can cancel subscriptions any time via {StoreRuntime_storeName()} subscriptions management.
             </Text>
           </>
         )}
@@ -381,7 +374,9 @@ function StatusHeader(props: { plan: IDerivedSubscriptionPlan }): JSX.Element {
     subtitle =
       plan.managedOn === "apple"
         ? "You bought this subscription on the App Store. Manage or cancel it from an Apple device."
-        : "You bought this subscription on Google Play. Manage or cancel it from an Android device.";
+        : StoreRuntime_isIos()
+          ? "You bought this subscription on another device. Manage or cancel it from that device."
+          : "You bought this subscription on Google Play. Manage or cancel it from an Android device.";
   } else {
     title = "✓ Premium";
     subtitle = "Manage your subscription from the mobile app.";
@@ -469,7 +464,7 @@ function PurchaseCards(props: IPurchaseCardsProps): JSX.Element {
         badge="Save 33%"
         loading={!!props.subscriptionLoading?.yearly}
         onPress={() => {
-          if (isNativeSubscriptionRuntime()) {
+          if (StoreRuntime_isNative()) {
             lg("start-subscription-yearly");
             props.dispatch(
               Thunk_subscribeYearly({ applePromo: props.appleOffer?.yearly, googlePromo: props.googleOffer?.yearly })
@@ -488,7 +483,7 @@ function PurchaseCards(props: IPurchaseCardsProps): JSX.Element {
         period="/month"
         loading={!!props.subscriptionLoading?.monthly}
         onPress={() => {
-          if (isNativeSubscriptionRuntime()) {
+          if (StoreRuntime_isNative()) {
             lg("start-subscription-monthly");
             props.dispatch(
               Thunk_subscribeMonthly({ applePromo: props.appleOffer?.monthly, googlePromo: props.googleOffer?.monthly })
@@ -506,7 +501,7 @@ function PurchaseCards(props: IPurchaseCardsProps): JSX.Element {
           price={props.lifetimePrice}
           loading={!!props.subscriptionLoading?.lifetime}
           onPress={() => {
-            if (isNativeSubscriptionRuntime()) {
+            if (StoreRuntime_isNative()) {
               lg("start-subscription-lifetime");
               props.dispatch(Thunk_buyLifetime());
             } else {
@@ -533,13 +528,13 @@ interface IManagementActionsProps {
 
 function ManagementActions(props: IManagementActionsProps): JSX.Element {
   const { plan } = props;
-  const isAndroid = isNativeSubscriptionRuntime() && !isIosRuntime();
+  const isAndroid = StoreRuntime_isNative() && !StoreRuntime_isIos();
 
   if (plan.state === "premium") {
     return (
       <View>
         <Text className="text-xs text-center text-text-secondary">
-          Manage your subscription from the Liftosaur mobile app, or your App Store / Play Store account.
+          Manage your subscription from the Liftosaur mobile app, or your {StoreRuntime_storeName()} account.
         </Text>
       </View>
     );
@@ -567,7 +562,7 @@ function ManagementActions(props: IManagementActionsProps): JSX.Element {
     <View>
       {plan.state === "subscriber" && plan.pendingPlan ? (
         <View
-          className="justify-center px-4 py-2 mb-2 border min-h-16 rounded-xl bg-background-cardpurple border-border-cardpurple"
+          className="justify-center px-4 py-2 mb-2 border min-h-scaled-16 rounded-xl bg-background-cardpurple border-border-cardpurple"
           style={{ borderRadius: 16 }}
           data-testid="subscription-pending-switch"
         >
@@ -680,7 +675,7 @@ function PlanCard(props: IPlanCardProps): JSX.Element {
   const subColor = props.highlighted ? "text-text-alwayswhite" : "text-text-secondary";
   return (
     <Pressable
-      className={`flex-row items-center min-h-16 px-4 py-2 mb-2 rounded-xl ${bg} ${borderColor} ${props.disabled ? "opacity-50" : ""}`}
+      className={`flex-row items-center min-h-scaled-16 px-4 py-2 mb-2 rounded-xl ${bg} ${borderColor} ${props.disabled ? "opacity-50" : ""}`}
       style={{ borderRadius: 16 }}
       data-testid={props.testID}
       testID={props.testID}
@@ -731,7 +726,7 @@ interface IFeatureProps {
 function Feature(props: IFeatureProps): JSX.Element {
   return (
     <Pressable className="flex-row mb-6" onPress={props.onPress}>
-      <View className="items-center w-6 pt-1 mr-3">{props.icon}</View>
+      <View className="items-center w-scaled-6 pt-1 mr-3">{props.icon}</View>
       <View className="flex-1">
         <Text className="text-base">
           <Text className={props.onPress ? "font-bold underline text-text-link" : "font-bold"}>{props.title}</Text>

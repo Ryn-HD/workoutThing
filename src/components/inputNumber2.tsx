@@ -10,6 +10,8 @@ import { useModal } from "../navigation/ModalStateContext";
 import { IconBackspace } from "./icons/iconBackspace";
 import { lg } from "../utils/posthog";
 import { FocusedInputFlush_register, FocusedInputFlush_unregister } from "../utils/focusedInputFlush";
+import { useRem } from "../utils/useRem";
+import { FitText_fontSize } from "../utils/fitText";
 
 export type IInputCommitMode = "live" | "debounced" | "blur";
 
@@ -19,10 +21,13 @@ interface IInputNumber2Props {
   value?: number;
   width?: number;
   autowidth?: boolean;
+  size?: "md" | "lg";
+  fill?: boolean;
   step?: number;
   min?: number;
   max?: number;
   tabIndex?: number;
+  tabStop?: boolean;
   initialValue?: number;
   onNext?: (value: number | undefined) => number;
   onPrev?: (value: number | undefined) => number;
@@ -59,6 +64,7 @@ let nextPadOwnerId = 1;
 let activePadOwnerId: number | null = null;
 
 function InputNumber2Inner(props: IInputNumber2Props): JSX.Element {
+  const remValue = useRem();
   const initialValue = props.value != null ? n(props.value) : "";
   const [value, setValue] = useState(initialValue);
   const [isFocused, setIsFocused] = useState(false);
@@ -501,7 +507,8 @@ function InputNumber2Inner(props: IInputNumber2Props): JSX.Element {
       blur("maybeBlur-switch");
       switchRef.current = true;
       const nextInput = foundOtherInput.querySelector(".input-number-child") as HTMLElement | null;
-      if (nextInput) {
+      const isFocusFree = document.activeElement == null || document.activeElement === document.body;
+      if (nextInput && isFocusFree) {
         nextInput.focus();
       }
       return true;
@@ -576,17 +583,29 @@ function InputNumber2Inner(props: IInputNumber2Props): JSX.Element {
     };
   }, [isTargetOutside, maybeBlur]);
 
+  const isLarge = props.size === "lg";
+  const baseFontSize = ((isLarge ? 32 : 14) * remValue) / 16;
+  const availableTextWidth = props.autowidth || props.fill ? 0 : (props.width ?? 4) * remValue - 6;
+  const valueFontSize = FitText_fontSize(value ?? "", availableTextWidth, baseFontSize);
+  const placeholderFontSize = FitText_fontSize(props.placeholder ?? "", availableTextWidth, baseFontSize);
+
   return (
-    <div ref={containerRef} className="input-number">
+    <div ref={containerRef} className={`input-number ${props.fill ? "flex-1 min-w-0" : ""}`}>
       <div
-        className="flex items-center justify-center h-6 border rounded bg-background-default border-border-prominent input-number-child"
+        className={`flex items-center justify-center ${isLarge ? "h-scaled-12 rounded-lg" : "h-scaled-6 rounded"} border bg-background-default border-border-prominent input-number-child`}
         style={
-          props.autowidth ? { paddingLeft: "0.5rem", paddingRight: "0.5rem" } : { width: `${props.width ?? 4}rem` }
+          props.autowidth
+            ? { paddingLeft: "0.5rem", paddingRight: "0.5rem" }
+            : props.fill
+              ? { width: "100%" }
+              : { width: `${props.width ?? 4}rem` }
         }
         tabIndex={props.tabIndex ?? 0}
+        data-tab-stop={props.tabStop ? "1" : undefined}
         onFocus={() => {
           debugSessionRef.current = Date.now();
           lg("kbd-focus", { sid: debugSessionRef.current });
+          lg(`focus-nm-${props.name}`);
           setIsFocused(true);
         }}
         onBlur={(event) => {
@@ -610,20 +629,26 @@ function InputNumber2Inner(props: IInputNumber2Props): JSX.Element {
       >
         <div ref={inputRef} className="leading-none">
           {!value && !isFocused && props.placeholder ? (
-            <span className="text-sm text-text-secondarysubtle text-ellipsis whitespace-nowrap">
+            <span
+              className={`${isLarge ? "text-3xl" : "text-sm"} text-text-secondarysubtle text-ellipsis whitespace-nowrap`}
+              style={{ fontSize: `${placeholderFontSize}px` }}
+            >
               {props.placeholder}
             </span>
           ) : (
             <span
-              className={`text-sm inline-block ${isFocused && !isTypingRef.current ? "bg-background-cardpurpleselected" : ""}`}
-              style={{ padding: value ? "1px" : "0" }}
+              className={`${isLarge ? "text-3xl" : "text-sm"} inline-block whitespace-nowrap ${isFocused && !isTypingRef.current ? "bg-background-cardpurpleselected" : ""}`}
+              style={{ padding: value ? "1px" : "0", fontSize: `${valueFontSize}px` }}
             >
               {value}
             </span>
           )}
         </div>
         {isFocused && (
-          <div className="inline-block h-3 leading-none blinking bg-background-darkgray" style={{ width: "1px" }} />
+          <div
+            className="inline-block h-scaled-3 leading-none blinking bg-background-darkgray"
+            style={{ width: "1px" }}
+          />
         )}
         {props.showUnitInside && props.selectedUnit && props.value != null && (
           <div className="text-xs text-text-secondary"> {props.selectedUnit}</div>
@@ -715,7 +740,7 @@ const CustomKeyboardInner = forwardRef((props: ICustomKeyboardProps, ref: React.
             <div className="py-2">
               <button
                 data-testid="keyboard-rm-calculator"
-                className="flex items-center justify-center w-24 px-2 py-1 border rounded keyboard-close border-border-cardpurple bg-background-cardpurple"
+                className="flex items-center justify-center w-scaled-24 px-2 py-1 border rounded keyboard-close border-border-cardpurple bg-background-cardpurple"
                 onClick={props.onShowCalculator}
               >
                 <span className="mr-2">RM</span>
@@ -732,7 +757,7 @@ const CustomKeyboardInner = forwardRef((props: ICustomKeyboardProps, ref: React.
               key ? <KeyboardButton key={key} label={key} onPress={props.onInput} /> : <div key={`empty-${i}`} />
             )}
           </div>
-          <div className="w-24 mt-2">
+          <div className="w-scaled-24 mt-2">
             <div className="mb-4">
               <button
                 className="flex items-center justify-center w-full pt-2 pb-1 border rounded touch-manipulation keyboard-close border-border-cardpurple bg-background-cardpurple"
@@ -763,7 +788,7 @@ const CustomKeyboardInner = forwardRef((props: ICustomKeyboardProps, ref: React.
               </div>
             </div>
             {props.enableUnits && props.selectedUnit ? (
-              <div className="flex items-center h-10 gap-2 mt-4">
+              <div className="flex items-center h-scaled-10 gap-2 mt-4">
                 {props.enableUnits.map((unit) => (
                   <button
                     key={unit}
@@ -780,11 +805,11 @@ const CustomKeyboardInner = forwardRef((props: ICustomKeyboardProps, ref: React.
                 ))}
               </div>
             ) : (
-              <div className="h-10 mt-4"></div>
+              <div className="h-scaled-10 mt-4"></div>
             )}
             <div className="mt-4">
               <button
-                className="flex items-center justify-center w-full h-10 border rounded touch-manipulation border-border-cardpurple bg-background-cardpurple"
+                className="flex items-center justify-center w-full h-scaled-10 border rounded touch-manipulation border-border-cardpurple bg-background-cardpurple"
                 data-testid={`keyboard-backspace`}
                 onClick={handleBackspace}
               >

@@ -7,6 +7,10 @@ import { ObjectUtils_entriesNonnull } from "../utils/object";
 import { Button } from "./button";
 import { Exercise_get, Exercise_fullName } from "../models/exercise";
 import { StringUtils_dashcase } from "../utils/string";
+import {
+  PlannerNames_supersetNameMessage,
+  PlannerNames_supersetNamePattern,
+} from "../pages/planner/models/plannerNames";
 import { useModal } from "../navigation/ModalStateContext";
 
 export interface IBottomSheetWorkoutSupersetContentProps {
@@ -75,7 +79,7 @@ export function BottomSheetWorkoutSupersetContent(props: IBottomSheetWorkoutSupe
           );
         })}
       </View>
-      <View className="w-full px-4 pt-2 pb-2">
+      <View className="w-full px-gutter pt-2 pb-2">
         <Button
           className="w-full"
           name="superset-create-group"
@@ -88,6 +92,8 @@ export function BottomSheetWorkoutSupersetContent(props: IBottomSheetWorkoutSupe
               placeholder: "My Group Name",
               submitLabel: "Add",
               dataCyPrefix: "modal-new-superset",
+              pattern: PlannerNames_supersetNamePattern,
+              patternMessage: PlannerNames_supersetNameMessage,
             });
           }}
           data-testid="superset-create-group"

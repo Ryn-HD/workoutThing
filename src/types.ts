@@ -278,6 +278,7 @@ export const statsLengthDef = [
   "calfRight",
 ] as const;
 export const statsPercentageDef = ["bodyfat"] as const;
+export const statsHealthDef = ["sleep", "calories", "protein"] as const;
 
 export const VUnit = v.picklist(units);
 export type IUnit = v.InferOutput<typeof VUnit>;
@@ -317,6 +318,14 @@ export type ITargetType = v.InferOutput<typeof VTargetType>;
 
 export const VProgressMode = v.picklist(["warmup", "workout"] as const);
 export type IProgressMode = v.InferOutput<typeof VProgressMode>;
+
+export const VTimedSetSide = v.picklist(["left", "right", "bilateral"] as const);
+export type ITimedSetSide = v.InferOutput<typeof VTimedSetSide>;
+
+// Liftoscript runtime failures are shown to the user as an alert and the offending change is dropped. Callers
+// with no UI (the public API in lambda) pass this instead, so a failed script can be surfaced as an error
+// response rather than silently no-opping.
+export type IScriptErrorHandler = (message: string) => void;
 
 export const VProgramTag = v.picklist([
   "first-starter",
@@ -485,6 +494,7 @@ export interface ISet {
   completedWeight?: IWeight;
   completedRpe?: number;
   completedSetTimer?: number;
+  completedSetTimerLeft?: number;
   programSetIndex?: number;
 }
 const _VSet = v.object({
@@ -513,6 +523,7 @@ const _VSet = v.object({
   completedWeight: v.optional(VWeight),
   completedRpe: v.optional(v.number()),
   completedSetTimer: v.optional(v.number()),
+  completedSetTimerLeft: v.optional(v.number()),
   programSetIndex: v.optional(v.number()),
 });
 const _VSetMatches: IEquals<v.InferOutput<typeof _VSet>, ISet> = true;
@@ -821,6 +832,8 @@ export interface IExercisePickerState {
   search?: string;
   exerciseType?: IExerciseType;
   entryIndex?: number;
+  hideLabel?: boolean;
+  hideTemplate?: boolean;
 }
 const _VExercisePickerState = v.object({
   screenStack: v.array(VExercisePickerScreen),
@@ -837,6 +850,8 @@ const _VExercisePickerState = v.object({
   search: v.optional(v.string()),
   exerciseType: v.optional(VExerciseType),
   entryIndex: v.optional(v.number()),
+  hideLabel: v.optional(v.boolean()),
+  hideTemplate: v.optional(v.boolean()),
 });
 const _VExercisePickerStateMatches: IEquals<v.InferOutput<typeof _VExercisePickerState>, IExercisePickerState> = true;
 void _VExercisePickerStateMatches;
@@ -871,6 +886,10 @@ export interface IProgressUi {
     setIndex?: number;
   };
   setTimerEditModal?: {
+    entryIndex: number;
+    setIndex: number;
+  };
+  roundingModal?: {
     entryIndex: number;
     setIndex: number;
   };
@@ -929,6 +948,12 @@ const _VProgressUi = v.object({
       setIndex: v.number(),
     })
   ),
+  roundingModal: v.optional(
+    v.object({
+      entryIndex: v.number(),
+      setIndex: v.number(),
+    })
+  ),
   exerciseBottomSheet: v.optional(
     v.object({
       entryIndex: v.number(),
@@ -976,9 +1001,24 @@ export interface IHistoryRecord {
   setTimer?: {
     entryIndex: number;
     setIndex: number;
+    setId: string;
+    id: string;
+    side: ITimedSetSide;
     startedAt: number;
     nonce?: number;
     keepTiming?: boolean;
+  };
+  // Must stay a sibling of setTimer, never a phase inside it: the watch, the iOS widget and the Android
+  // live update all read setTimer's presence as "the work clock is live".
+  setTimerGetReady?: {
+    entryIndex: number;
+    setIndex: number;
+    setId: string;
+    id: string;
+    side: ITimedSetSide;
+    startedAt: number;
+    getReady: number;
+    nonce?: number;
   };
   // Lives on the record (not under `ui`) so it's version-tracked and syncs across devices like setTimer — an
   // AMRAP prompt opened on the watch shows in the app and vice versa, and resolving it on either device
@@ -997,6 +1037,9 @@ export interface IHistoryRecord {
   currentEntryIndex?: number;
   notes?: string;
   updatedAt?: number;
+  // Which client wrote this workout, from the X-Liftosaur-Client header on the public API. Absent for
+  // anything logged in our own apps. Provenance can't be reconstructed later, so it's recorded at write time.
+  source?: string;
 }
 const _VHistoryRecord = v.object({
   vtype: v.union([v.literal("history_record"), v.literal("progress")]),
@@ -1025,9 +1068,24 @@ const _VHistoryRecord = v.object({
     v.object({
       entryIndex: v.number(),
       setIndex: v.number(),
+      setId: v.string(),
+      id: v.string(),
+      side: VTimedSetSide,
       startedAt: v.number(),
       nonce: v.optional(v.number()),
       keepTiming: v.optional(v.boolean()),
+    })
+  ),
+  setTimerGetReady: v.optional(
+    v.object({
+      entryIndex: v.number(),
+      setIndex: v.number(),
+      setId: v.string(),
+      id: v.string(),
+      side: VTimedSetSide,
+      startedAt: v.number(),
+      getReady: v.number(),
+      nonce: v.optional(v.number()),
     })
   ),
   amrapModal: v.optional(
@@ -1044,6 +1102,7 @@ const _VHistoryRecord = v.object({
   currentEntryIndex: v.optional(v.number()),
   notes: v.optional(v.string()),
   updatedAt: v.optional(v.number()),
+  source: v.optional(v.string()),
 });
 const _VHistoryRecordMatches: IEquals<v.InferOutput<typeof _VHistoryRecord>, IHistoryRecord> = true;
 void _VHistoryRecordMatches;
@@ -1152,9 +1211,6 @@ export interface IProgram {
   weeks: IProgramWeek[];
   isMultiweek: boolean;
   tags: IProgramTag[];
-  deletedDays?: string[];
-  deletedWeeks?: string[];
-  deletedExercises?: string[];
   clonedAt?: number;
   shortDescription?: string;
   planner?: IPlannerProgram;
@@ -1175,9 +1231,6 @@ const _VProgram = v.object({
   weeks: v.array(VProgramWeek),
   isMultiweek: v.boolean(),
   tags: v.array(VProgramTag),
-  deletedDays: v.optional(v.array(v.string())),
-  deletedWeeks: v.optional(v.array(v.string())),
-  deletedExercises: v.optional(v.array(v.string())),
   clonedAt: v.optional(v.number()),
   shortDescription: v.optional(v.string()),
   planner: v.optional(VPlannerProgram),
@@ -1195,6 +1248,7 @@ export interface IStatsWeightValue {
   timestamp: number;
   updatedAt?: number;
   appleUuid?: string;
+  googleUuid?: string;
 }
 const _VStatsWeightValue = v.object({
   vtype: v.literal("stat"),
@@ -1202,6 +1256,7 @@ const _VStatsWeightValue = v.object({
   timestamp: v.number(),
   updatedAt: v.optional(v.number()),
   appleUuid: v.optional(v.string()),
+  googleUuid: v.optional(v.string()),
 });
 const _VStatsWeightValueMatches: IEquals<v.InferOutput<typeof _VStatsWeightValue>, IStatsWeightValue> = true;
 void _VStatsWeightValueMatches;
@@ -1218,6 +1273,7 @@ export interface IStatsLengthValue {
   timestamp: number;
   updatedAt?: number;
   appleUuid?: string;
+  googleUuid?: string;
 }
 const _VStatsLengthValue = v.object({
   vtype: v.literal("stat"),
@@ -1225,6 +1281,7 @@ const _VStatsLengthValue = v.object({
   timestamp: v.number(),
   updatedAt: v.optional(v.number()),
   appleUuid: v.optional(v.string()),
+  googleUuid: v.optional(v.string()),
 });
 const _VStatsLengthValueMatches: IEquals<v.InferOutput<typeof _VStatsLengthValue>, IStatsLengthValue> = true;
 void _VStatsLengthValueMatches;
@@ -1244,6 +1301,7 @@ export interface IStatsPercentageValue {
   timestamp: number;
   updatedAt?: number;
   appleUuid?: string;
+  googleUuid?: string;
 }
 const _VStatsPercentageValue = v.object({
   vtype: v.literal("stat"),
@@ -1251,6 +1309,7 @@ const _VStatsPercentageValue = v.object({
   timestamp: v.number(),
   updatedAt: v.optional(v.number()),
   appleUuid: v.optional(v.string()),
+  googleUuid: v.optional(v.string()),
 });
 const _VStatsPercentageValueMatches: IEquals<
   v.InferOutput<typeof _VStatsPercentageValue>,
@@ -1263,6 +1322,43 @@ export const VStatsPercentage = v.object({
   bodyfat: v.optional(v.array(VStatsPercentageValue)),
 });
 export type IStatsPercentage = v.InferOutput<typeof VStatsPercentage>;
+
+// Read-only daily metrics imported from Apple Health / Health Connect (sleep minutes, dietary
+// calories, protein grams). Unlike body measurements these are daily aggregates, keyed by the
+// local-midnight timestamp of the day they belong to; the value is a plain number whose unit is
+// implied by the key.
+export interface IStatsHealthValue {
+  vtype: "stat";
+  value: number;
+  timestamp: number;
+  updatedAt?: number;
+  appleUuid?: string;
+  googleUuid?: string;
+  // Read-only imported records can't be truly deleted (they'd just re-sync), so the user hides them
+  // instead; the record stays in storage and re-syncs normally, it's just filtered out of the UI.
+  hidden?: boolean;
+}
+const _VStatsHealthValue = v.object({
+  vtype: v.literal("stat"),
+  value: v.number(),
+  timestamp: v.number(),
+  updatedAt: v.optional(v.number()),
+  appleUuid: v.optional(v.string()),
+  googleUuid: v.optional(v.string()),
+  hidden: v.optional(v.boolean()),
+});
+const _VStatsHealthValueMatches: IEquals<v.InferOutput<typeof _VStatsHealthValue>, IStatsHealthValue> = true;
+void _VStatsHealthValueMatches;
+export const VStatsHealthValue: v.GenericSchema<IStatsHealthValue> = _VStatsHealthValue;
+
+export type IStatsHealthKey = (typeof statsHealthDef)[number];
+export type IStatsHealth = Partial<Record<IStatsHealthKey, IStatsHealthValue[]>>;
+export const VStatsHealth: v.GenericSchema<IStatsHealth> = v.object(
+  statsHealthDef.reduce<Record<string, v.GenericSchema<IStatsHealthValue[] | undefined>>>((memo, key) => {
+    memo[key] = v.optional(v.array(VStatsHealthValue));
+    return memo;
+  }, {})
+);
 
 export type IStatsKey = keyof IStatsLength | keyof IStatsWeight | keyof IStatsPercentage;
 
@@ -1310,12 +1406,14 @@ export interface ISettingsTimers {
   workout?: number | null;
   reminder?: number;
   superset?: number;
+  getReady?: number;
 }
 const _VSettingsTimers = v.object({
   warmup: v.optional(v.union([v.number(), v.null()])),
   workout: v.optional(v.union([v.number(), v.null()])),
   reminder: v.optional(v.number()),
   superset: v.optional(v.number()),
+  getReady: v.optional(v.number()),
 });
 const _VSettingsTimersMatches: IEquals<v.InferOutput<typeof _VSettingsTimers>, ISettingsTimers> = true;
 void _VSettingsTimersMatches;
@@ -1411,6 +1509,7 @@ export interface IExerciseDataValue {
   notes?: string;
   muscleMultipliers?: Record<string, number | undefined>;
   isUnilateral?: boolean;
+  volumeMultiplier?: number;
 }
 const _VExerciseDataValue = v.object({
   rm1: v.optional(VWeight),
@@ -1419,6 +1518,7 @@ const _VExerciseDataValue = v.object({
   notes: v.optional(v.string()),
   muscleMultipliers: v.optional(v.record(v.string(), v.optional(v.number()))),
   isUnilateral: v.optional(v.boolean()),
+  volumeMultiplier: v.optional(v.number()),
 });
 const _VExerciseDataValueMatches: IEquals<v.InferOutput<typeof _VExerciseDataValue>, IExerciseDataValue> = true;
 void _VExerciseDataValueMatches;
@@ -1465,6 +1565,9 @@ export interface IWorkoutSettings {
   shouldKeepProgramExerciseId?: boolean;
   shouldShowInvisibleEquipment?: boolean;
   pickerSort?: IExercisePickerSort;
+  showWorkoutNotes?: boolean;
+  showExerciseNotes?: boolean;
+  shouldCollapseSets?: boolean;
 }
 const _VWorkoutSettings = v.object({
   targetType: VTargetType,
@@ -1472,6 +1575,9 @@ const _VWorkoutSettings = v.object({
   shouldKeepProgramExerciseId: v.optional(v.boolean()),
   shouldShowInvisibleEquipment: v.optional(v.boolean()),
   pickerSort: v.optional(VExercisePickerSort),
+  showWorkoutNotes: v.optional(v.boolean()),
+  showExerciseNotes: v.optional(v.boolean()),
+  shouldCollapseSets: v.optional(v.boolean()),
 });
 const _VWorkoutSettingsMatches: IEquals<v.InferOutput<typeof _VWorkoutSettings>, IWorkoutSettings> = true;
 void _VWorkoutSettingsMatches;
@@ -1516,7 +1622,7 @@ export const VMuscleGroupsSettings: v.GenericSchema<IMuscleGroupsSettings> = _VM
 export interface ISettings {
   timers: ISettingsTimers;
   gyms: IGym[];
-  deletedGyms: string[];
+  deletedGyms?: string[];
   graphs: IGraphs;
   graphOptions: Record<string, IGraphOptions | undefined>;
   graphsSettings: {
@@ -1543,9 +1649,11 @@ export interface ISettings {
   muscleGroups: IMuscleGroupsSettings;
   appleHealthSyncWorkout?: boolean;
   appleHealthSyncMeasurements?: boolean;
+  appleHealthSyncSleepNutrition?: boolean;
   appleHealthAnchor?: string;
   googleHealthSyncWorkout?: boolean;
   googleHealthSyncMeasurements?: boolean;
+  googleHealthSyncSleepNutrition?: boolean;
   googleHealthAnchor?: string;
   healthConfirmation?: boolean;
   ignoreDoNotDisturb?: boolean;
@@ -1557,6 +1665,7 @@ export interface ISettings {
   startWeekFromMonday?: boolean;
   textSize?: number;
   starredExercises?: Record<string, boolean | undefined>;
+  recentExercises?: Partial<Record<string, string[]>>;
   theme?: "dark" | "light";
   currentBodyweight?: IWeight;
   affiliateEnabled?: boolean;
@@ -1564,7 +1673,7 @@ export interface ISettings {
 const _VSettings = v.object({
   timers: VSettingsTimers,
   gyms: v.array(VGym),
-  deletedGyms: v.array(v.string()),
+  deletedGyms: v.optional(v.array(v.string())),
   graphs: VGraphs,
   graphOptions: v.record(v.string(), v.optional(VGraphOptions)),
   graphsSettings: v.object({
@@ -1591,9 +1700,11 @@ const _VSettings = v.object({
   muscleGroups: VMuscleGroupsSettings,
   appleHealthSyncWorkout: v.optional(v.boolean()),
   appleHealthSyncMeasurements: v.optional(v.boolean()),
+  appleHealthSyncSleepNutrition: v.optional(v.boolean()),
   appleHealthAnchor: v.optional(v.string()),
   googleHealthSyncWorkout: v.optional(v.boolean()),
   googleHealthSyncMeasurements: v.optional(v.boolean()),
+  googleHealthSyncSleepNutrition: v.optional(v.boolean()),
   googleHealthAnchor: v.optional(v.string()),
   healthConfirmation: v.optional(v.boolean()),
   ignoreDoNotDisturb: v.optional(v.boolean()),
@@ -1605,6 +1716,7 @@ const _VSettings = v.object({
   startWeekFromMonday: v.optional(v.boolean()),
   textSize: v.optional(v.number()),
   starredExercises: v.optional(v.record(VExerciseId, v.optional(v.boolean()))),
+  recentExercises: v.optional(v.record(VExerciseId, v.optional(v.array(VExerciseId)))),
   theme: v.optional(v.union([v.literal("dark"), v.literal("light")])),
   currentBodyweight: v.optional(VWeight),
   affiliateEnabled: v.optional(v.boolean()),
@@ -1617,11 +1729,13 @@ export interface IStats {
   weight: IStatsWeight;
   length: IStatsLength;
   percentage: IStatsPercentage;
+  health?: IStatsHealth;
 }
 const _VStats = v.object({
   weight: VStatsWeight,
   length: VStatsLength,
   percentage: VStatsPercentage,
+  health: v.optional(VStatsHealth),
 });
 const _VStatsMatches: IEquals<v.InferOutput<typeof _VStats>, IStats> = true;
 void _VStatsMatches;
@@ -1695,18 +1809,45 @@ const _VImportSessionMatches: IEquals<v.InferOutput<typeof _VImportSession>, IIm
 void _VImportSessionMatches;
 export const VImportSession: v.GenericSchema<IImportSession> = _VImportSession;
 
+export interface IHearAboutUs {
+  result?: {
+    source: string;
+    detail?: string;
+    freeform?: string;
+    ts: number;
+  };
+  requests: number[];
+  done?: boolean;
+}
+const _VHearAboutUs = v.object({
+  result: v.optional(
+    v.object({
+      source: v.string(),
+      detail: v.optional(v.string()),
+      freeform: v.optional(v.string()),
+      ts: v.number(),
+    })
+  ),
+  requests: v.array(v.number()),
+  done: v.optional(v.boolean()),
+});
+const _VHearAboutUsMatches: IEquals<v.InferOutput<typeof _VHearAboutUs>, IHearAboutUs> = true;
+void _VHearAboutUsMatches;
+export const VHearAboutUs: v.GenericSchema<IHearAboutUs> = _VHearAboutUs;
+
 interface IStorageRaw {
   history: IHistoryRecord[];
-  deletedHistory: number[];
+  deletedHistory?: number[];
   stats: IStats;
-  deletedStats: number[];
+  deletedStats?: number[];
   settings: ISettings;
   currentProgramId?: string;
   version: string;
   programs: IProgram[];
-  deletedPrograms: number[];
+  deletedPrograms?: number[];
   reviewRequests: number[];
   signupRequests: number[];
+  hearAboutUs?: IHearAboutUs;
   helps: string[];
   tempUserId: string;
   email?: string;
@@ -1727,16 +1868,17 @@ interface IStorageRaw {
 }
 const _VStorage = v.object({
   history: v.array(VHistoryRecord),
-  deletedHistory: v.array(v.number()),
+  deletedHistory: v.optional(v.array(v.number())),
   stats: VStats,
-  deletedStats: v.array(v.number()),
+  deletedStats: v.optional(v.array(v.number())),
   settings: VSettings,
   currentProgramId: v.optional(v.string()),
   version: v.string(),
   programs: v.array(VProgram),
-  deletedPrograms: v.array(v.number()),
+  deletedPrograms: v.optional(v.array(v.number())),
   reviewRequests: v.array(v.number()),
   signupRequests: v.array(v.number()),
+  hearAboutUs: v.optional(_VHearAboutUs),
   helps: v.array(v.string()),
   tempUserId: v.string(),
   email: v.optional(v.string()),
@@ -1790,6 +1932,22 @@ export type IProgramContentSettings = Partial<
     timers: Partial<ISettings["timers"]>;
   }
 >;
+// Only /api/settings validates against this - the export/import paths keep passing it around unchecked
+const _VProgramContentSettings = v.object({
+  units: v.optional(VUnit),
+  timers: v.optional(VSettingsTimers),
+  planner: v.optional(VPlannerSettings),
+  muscleGroups: v.optional(VMuscleGroupsSettings),
+  exerciseData: v.optional(v.record(v.string(), v.optional(VExerciseDataValue))),
+  workoutSettings: v.optional(VWorkoutSettings),
+});
+const _VProgramContentSettingsMatches: IEquals<
+  v.InferOutput<typeof _VProgramContentSettings>,
+  IProgramContentSettings
+> = true;
+void _VProgramContentSettingsMatches;
+export const VProgramContentSettings: v.GenericSchema<IProgramContentSettings> = _VProgramContentSettings;
+export const VDeletedExerciseDataKeys: v.GenericSchema<string[]> = v.array(v.string());
 
 export type IDayData = {
   week?: number;
@@ -1849,6 +2007,7 @@ export const CONTROLLED_FIELDS: Record<IControlledType, readonly string[]> = {
     "timerEntryIndex",
     "timerSetIndex",
     "setTimer",
+    "setTimerGetReady",
     "amrapModal",
     "currentEntryIndex",
   ] as const,
@@ -1911,6 +2070,8 @@ export const STORAGE_VERSION_TYPES: IVersionTypes<IAtomicType, IControlledType> 
   compactionThresholds: {
     "subscription.apple": 14 * 24 * 60 * 60 * 1000,
     "subscription.google": 14 * 24 * 60 * 60 * 1000,
+    history: 180 * 24 * 60 * 60 * 1000,
+    progress: 30 * 24 * 60 * 60 * 1000,
   },
   typeValidators: {
     progress: vIs(VHistoryRecord),

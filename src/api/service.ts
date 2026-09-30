@@ -7,15 +7,25 @@ import {
   IMuscleGeneratorResponse,
   IPlannerProgramWeek,
   IAffiliateData,
+  IProgramContentSettings,
 } from "../types";
 import { IAccount } from "../models/account";
 import { IEither } from "../utils/types";
 import { UrlUtils_build } from "../utils/url";
 import { IStorageUpdate2 } from "../utils/sync";
 import { IExportedProgram, IProgramIndexEntry } from "../models/program";
-import { CollectionUtils_uniqBy } from "../utils/collection";
+import { CollectionUtils_inGroupsOf, CollectionUtils_uniqBy } from "../utils/collection";
 import { Encoder_encode, Encoder_decode } from "../utils/encoder";
 import { IAppleOffer, IGoogleOffer } from "../models/state";
+import {
+  HistoryDelta_apply,
+  HistoryDelta_missingIds,
+  HistoryDelta_unresolvedIds,
+  IHistoryDeltaLocal,
+} from "../utils/historyDelta";
+import { HistoryIds_MAX } from "../utils/historyIds";
+
+export type IPostSyncHistory = { mode: "page" } | { mode: "none" } | { mode: "delta"; local: IHistoryDeltaLocal };
 
 function Service_nativeClientHeaders(): Record<string, string> {
   if (Platform.OS === "ios") {
@@ -27,6 +37,12 @@ function Service_nativeClientHeaders(): Record<string, string> {
   return {};
 }
 
+export interface IServiceError {
+  status?: number;
+  message: string;
+  body?: string;
+}
+
 export interface IProgramDetail {
   fullDescription: string;
   faq?: string;
@@ -36,6 +52,11 @@ export interface IProgramDetail {
     weeks: IPlannerProgramWeek[];
   };
 }
+
+export type IEmailAuthResponse =
+  | { type: "success"; response: IGetStorageResponse }
+  | { type: "confirmation_sent" }
+  | { type: "error"; error: string; providers?: string[] };
 
 export interface IGetStorageResponse {
   email: string;
@@ -141,6 +162,7 @@ export type IEventPayload =
       userId?: string;
       timestamp: number;
       action: string;
+      detail?: string;
       affiliates?: Partial<Record<string, IAffiliateData>>;
       subscriptions: string[];
       referrer?: string;
@@ -150,12 +172,11 @@ export type IEventPayload =
       isMobile?: boolean;
     };
 
-const cachePromises: Partial<Record<string, unknown>> = {};
+const cachePromises: Partial<Record<string, Promise<{ result: boolean }>>> = {};
 
 declare let __API_HOST__: string;
 declare let __HOST__: string;
 declare let __COMMIT_HASH__: string;
-declare let __STREAMING_API_HOST__: string;
 
 export interface IRecordResponse {
   history: IHistoryRecord[];
@@ -281,6 +302,23 @@ export class Service {
     return json.history;
   }
 
+  public async getHistoryByIds(ids: number[]): Promise<IHistoryRecord[]> {
+    const chunks = CollectionUtils_inGroupsOf(HistoryIds_MAX, ids);
+    const pages = await Promise.all(
+      chunks.map(async (chunk) => {
+        const url = UrlUtils_build(`${__API_HOST__}/api/history`);
+        url.searchParams.set("ids", chunk.join(","));
+        const response = await this.client(url.toString(), { credentials: "include" });
+        if (response.status !== 200) {
+          throw new Error(`Failed to fetch history records by ids: ${response.status}`);
+        }
+        const json: { history: IHistoryRecord[] } = await response.json();
+        return json.history;
+      })
+    );
+    return pages.flat();
+  }
+
   public async appleSignIn(code: string, idToken: string, id: string): Promise<IGetStorageResponse> {
     const historylimit = 20;
     const response = await this.client(`${__API_HOST__}/api/signin/apple`, {
@@ -306,6 +344,124 @@ export class Service {
       is_new_user: json.is_new_user,
       session: json.session,
     };
+  }
+
+  public async emailSignUp(email: string, password: string, id: string): Promise<IEmailAuthResponse> {
+    return this.emailAuth(`${__API_HOST__}/api/signup/email`, { email, password, id });
+  }
+
+  public async emailSignIn(email: string, password: string, id: string): Promise<IEmailAuthResponse> {
+    return this.emailAuth(`${__API_HOST__}/api/signin/email`, { email, password, id });
+  }
+
+  private async emailAuth(url: string, body: Record<string, string>): Promise<IEmailAuthResponse> {
+    const historylimit = 20;
+    let response: Response;
+    let json: IGetStorageResponse & { status?: string; error?: string; providers?: string[] };
+    try {
+      response = await this.client(url, {
+        method: "POST",
+        body: JSON.stringify({ ...body, historylimit }),
+        credentials: "include",
+        headers: Service_nativeClientHeaders(),
+      });
+      json = await response.json();
+    } catch (e) {
+      return { type: "error", error: "network_error" };
+    }
+    if (!response.ok) {
+      return { type: "error", error: json.error || "unknown_error", providers: json.providers };
+    }
+    if (json.status === "confirmation_sent") {
+      return { type: "confirmation_sent" };
+    }
+    json.storage.history = await this.getAllHistoryRecords({
+      alreadyFetchedHistory: json.storage.history,
+      historyLimit: historylimit,
+    });
+    return {
+      type: "success",
+      response: {
+        email: json.email,
+        storage: json.storage,
+        user_id: json.user_id,
+        is_new_user: json.is_new_user,
+        key: json.key,
+        session: json.session,
+      },
+    };
+  }
+
+  public async forgotPassword(email: string): Promise<{ error?: string; providers?: string[] }> {
+    try {
+      const response = await this.client(`${__API_HOST__}/api/auth/forgotpassword`, {
+        method: "POST",
+        body: JSON.stringify({ email }),
+        credentials: "include",
+        headers: Service_nativeClientHeaders(),
+      });
+      if (response.ok) {
+        return {};
+      }
+      const json = await response.json().catch(() => ({}));
+      return { error: json.error || "unknown_error", providers: json.providers };
+    } catch (e) {
+      return { error: "network_error" };
+    }
+  }
+
+  public async resetPassword(token: string, password: string): Promise<{ error?: string }> {
+    try {
+      const response = await this.client(`${__API_HOST__}/api/auth/resetpassword`, {
+        method: "POST",
+        body: JSON.stringify({ token, password }),
+        credentials: "include",
+        headers: Service_nativeClientHeaders(),
+      });
+      if (response.ok) {
+        return {};
+      }
+      const json = await response.json().catch(() => ({}));
+      return { error: json.error || "unknown_error" };
+    } catch (e) {
+      return { error: "network_error" };
+    }
+  }
+
+  public async verifyEmail(token: string): Promise<{ error?: string }> {
+    try {
+      const response = await this.client(`${__API_HOST__}/api/auth/verifyemail`, {
+        method: "POST",
+        body: JSON.stringify({ token }),
+        credentials: "include",
+        headers: Service_nativeClientHeaders(),
+      });
+      if (response.ok) {
+        return {};
+      }
+      const json = await response.json().catch(() => ({}));
+      return { error: json.error || "unknown_error" };
+    } catch (e) {
+      return { error: "network_error" };
+    }
+  }
+
+  public async changePassword(currentPassword: string | undefined, newPassword: string): Promise<string | undefined> {
+    try {
+      const response = await this.client(`${__API_HOST__}/api/auth/changepassword`, {
+        method: "POST",
+        body: JSON.stringify({ currentPassword, newPassword }),
+        credentials: "include",
+        headers: Service_nativeClientHeaders(),
+      });
+      if (response.ok) {
+        return undefined;
+      }
+      const json = await response.json().catch(() => ({}));
+      return json.error || "unknown_error";
+    } catch (e) {
+      return "network_error";
+    }
   }
 
   public async signout(): Promise<void> {
@@ -340,16 +496,24 @@ export class Service {
     return undefined;
   }
 
-  public async getProgramRevisions(programId: string): Promise<IEither<string[], string>> {
-    const result = await this.client(`${__API_HOST__}/api/programrevisions/${programId}`, {
-      method: "GET",
-      credentials: "include",
-    });
-    if (result.ok) {
-      const json = await result.json();
-      return { success: true, data: json.data };
-    } else {
-      return { success: false, error: "error" };
+  public async getProgramRevisions(programId: string): Promise<IEither<string[], IServiceError>> {
+    try {
+      const result = await this.client(`${__API_HOST__}/api/programrevisions/${programId}`, {
+        method: "GET",
+        credentials: "include",
+      });
+      if (result.ok) {
+        const json = await result.json();
+        return { success: true, data: json.data };
+      } else {
+        const body = await result.text().catch(() => "");
+        return {
+          success: false,
+          error: { status: result.status, message: `http_error`, body: body.slice(0, 500) },
+        };
+      }
+    } catch (e) {
+      return { success: false, error: { message: e instanceof Error ? e.message : String(e) } };
     }
   }
 
@@ -371,6 +535,7 @@ export class Service {
     tempUserId: string | undefined;
     signal?: AbortSignal;
     deviceId?: string;
+    history?: IPostSyncHistory;
   }): Promise<IPostSyncResponse> {
     const url = UrlUtils_build(`${__API_HOST__}/api/sync2`);
     if (args.tempUserId) {
@@ -392,12 +557,23 @@ export class Service {
     });
     const json: IPostSyncResponse = await result.json();
     if (json.type === "dirty") {
-      json.storage.history = await this.getAllHistoryRecords({
-        alreadyFetchedHistory: json.storage.history,
-        historyLimit: 20,
-      });
+      json.storage = await this.completeSyncHistory(json.storage, args.history || { mode: "page" });
     }
     return json;
+  }
+
+  private async completeSyncHistory(storage: IStorage, history: IPostSyncHistory): Promise<IStorage> {
+    if (history.mode === "none") {
+      return storage;
+    }
+    const missingIds =
+      history.mode === "delta" ? HistoryDelta_missingIds(history.local, storage._versions, storage.history) : undefined;
+    const fetched = missingIds != null && missingIds.length > 0 ? await this.getHistoryByIds(missingIds) : [];
+    if (missingIds == null || HistoryDelta_unresolvedIds(missingIds, fetched).length > 0) {
+      const full = await this.getAllHistoryRecords({ alreadyFetchedHistory: storage.history, historyLimit: 20 });
+      return { ...storage, history: full };
+    }
+    return HistoryDelta_apply(storage, fetched);
   }
 
   public async createDebugSession(
@@ -416,6 +592,25 @@ export class Service {
       return undefined;
     }
     return response.json();
+  }
+
+  public async postSetupTestAccount(apiKey?: string, session?: string): Promise<{ apiKeyBound: boolean; key: string }> {
+    const response = await this.client(`${__API_HOST__}/api/dev/setuptestaccount`, {
+      method: "POST",
+      body: JSON.stringify({ apiKey }),
+      credentials: "include",
+      headers: {
+        ...Service_nativeClientHeaders(),
+        ...(session ? { authorization: `Bearer ${session}` } : {}),
+      },
+    });
+    const json: { data?: { apiKeyBound: boolean; key: string }; error?: string } = await response
+      .json()
+      .catch(() => ({}));
+    if (response.status !== 200 || json.data == null) {
+      throw new Error(`Test account setup failed (${response.status}): ${json.error || "unknown error"}`);
+    }
+    return json.data;
   }
 
   public async postDebug(id: string, state: string, meta: Record<string, string>): Promise<boolean> {
@@ -477,6 +672,31 @@ export class Service {
       if (response.status === 200) {
         const json = await response.json();
         return { success: true, data: json.data.id };
+      } else {
+        const json = await response.json();
+        return { success: false, error: json.error };
+      }
+    } catch (error) {
+      const e = error as Error;
+      return { success: false, error: e.message };
+    }
+  }
+
+  public async postSaveSettings(args: {
+    settings: IProgramContentSettings;
+    deletedExerciseDataKeys: string[];
+    version: string;
+    deviceId?: string;
+  }): Promise<IEither<undefined, string>> {
+    const url = UrlUtils_build(`${__API_HOST__}/api/settings`);
+    try {
+      const response = await this.client(url.toString(), {
+        method: "POST",
+        body: JSON.stringify(args),
+        credentials: "include",
+      });
+      if (response.status === 200) {
+        return { success: true, data: undefined };
       } else {
         const json = await response.json();
         return { success: false, error: json.error };
@@ -619,8 +839,9 @@ export class Service {
     return JSON.parse(await Encoder_decode(json.storage));
   }
 
-  public async getExceptionData(id: string): Promise<string | undefined> {
+  public async getExceptionData(id: string, key: string): Promise<string | undefined> {
     const apiUrl = UrlUtils_build(`${__API_HOST__}/api/exception/${id}`);
+    apiUrl.searchParams.set("key", key);
     try {
       const result = await this.client(apiUrl.toString(), { credentials: "include" });
       const json = await result.json();
@@ -631,11 +852,17 @@ export class Service {
     }
   }
 
-  private async cache(key: string, fn: () => Promise<unknown>): Promise<unknown> {
+  // A negative verdict is not cached: the phone re-adds the same receipt after a cleanup, and a page-lifetime
+  // `false` would delete it again on every sync.
+  private async cacheVerdict(key: string, fn: () => Promise<{ result: boolean }>): Promise<boolean> {
     if (cachePromises[key] == null) {
       cachePromises[key] = fn();
     }
-    return cachePromises[key];
+    const result = !!(await cachePromises[key]).result;
+    if (!result) {
+      delete cachePromises[key];
+    }
+    return result;
   }
 
   public async postEvent(event: IEventPayload): Promise<void> {
@@ -686,7 +913,7 @@ export class Service {
   }
 
   public async verifyAppleReceipt(userId: string, appleReceipt: string): Promise<boolean> {
-    const json = await this.cache(`verifyAppleReceipt:${userId}:${appleReceipt}`, async () => {
+    return this.cacheVerdict(`verifyAppleReceipt:${userId}:${appleReceipt}`, async () => {
       try {
         const url = UrlUtils_build(`${__API_HOST__}/api/verifyapplereceipt`);
         const result = await this.client(url.toString(), {
@@ -699,11 +926,10 @@ export class Service {
         return { result: true };
       }
     });
-    return !!(json as { result: boolean }).result;
   }
 
   public async verifyGooglePurchaseToken(userId: string, googlePurchaseToken: string): Promise<boolean> {
-    const json = await this.cache(`verifyGooglePurchaseToken:${userId}:${googlePurchaseToken}`, async () => {
+    return this.cacheVerdict(`verifyGooglePurchaseToken:${userId}:${googlePurchaseToken}`, async () => {
       try {
         const url = UrlUtils_build(`${__API_HOST__}/api/verifygooglepurchasetoken`);
         const result = await this.client(url.toString(), {
@@ -716,15 +942,19 @@ export class Service {
         return { result: true };
       }
     });
-    return !!(json as { result: boolean }).result;
   }
 
   public async verifySubscriptionKey(userId: string, key: string): Promise<{ clear: boolean }> {
     try {
       const url = UrlUtils_build(`${__API_HOST__}/api/verifysubscriptionkey`);
+      // The server only verifies keys outside of prod when `enforce` is set — tests rely on it
+      const enforce =
+        typeof window !== "undefined" && window.location?.href
+          ? !!UrlUtils_build(window.location.href).searchParams.get("enforce")
+          : false;
       const result = await this.client(url.toString(), {
         method: "POST",
-        body: JSON.stringify({ user: userId, key }),
+        body: JSON.stringify({ user: userId, key, enforce }),
         credentials: "include",
       });
       if (result.status !== 200) {
@@ -795,82 +1025,6 @@ export class Service {
     }
   }
 
-  public async generateAiPrompt(input: string): Promise<{ prompt?: string; error?: string }> {
-    const response = await this.client(`${__API_HOST__}/api/ai/prompt`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input }),
-      credentials: "include",
-    });
-
-    if (!response.ok && response.status !== 200) {
-      return { error: `HTTP ${response.status}: ${response.statusText}` };
-    }
-
-    const json = await response.json();
-    return json;
-  }
-
-  public async *streamAiLiftoscriptProgram(
-    input: string
-  ): AsyncGenerator<{ type: "progress" | "result" | "error" | "retry" | "finish"; data: string }, void, unknown> {
-    try {
-      const url = `${__STREAMING_API_HOST__}/stream/ai/liftoscript`;
-
-      const response = await this.client(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input }),
-        credentials: "include",
-      });
-
-      if (!response.ok && response.status !== 402) {
-        yield { type: "error", data: `HTTP ${response.status}: ${response.statusText}` };
-        return;
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        yield { type: "error", data: "No response body" };
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (line.trim() === "") {
-            continue;
-          }
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data === "[DONE]") {
-              return;
-            }
-            try {
-              const json = JSON.parse(data);
-              yield json;
-            } catch (e) {
-              console.error("Failed to parse SSE data:", e, data);
-            }
-          }
-        }
-      }
-    } catch (error) {
-      yield { type: "error", data: error instanceof Error ? error.message : "Unknown error" };
-    }
-  }
-
   public async getUserContext(): Promise<{ account?: IAccount; units?: IUnit }> {
     const result = await this.client(`${__API_HOST__}/api/usercontext`, {
       method: "GET",
@@ -893,6 +1047,28 @@ export class Service {
       return json.data?.keys || [];
     }
     return [];
+  }
+
+  public async postPushToken(args: { deviceId: string; platform: "ios" | "android"; token: string }): Promise<void> {
+    const result = await this.client(`${__API_HOST__}/api/pushtoken`, {
+      method: "POST",
+      body: JSON.stringify(args),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!result.ok) {
+      throw new Error(`postPushToken failed: ${result.status}`);
+    }
+  }
+
+  public async deletePushToken(deviceId: string): Promise<void> {
+    const result = await this.client(`${__API_HOST__}/api/pushtoken/${encodeURIComponent(deviceId)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!result.ok) {
+      throw new Error(`deletePushToken failed: ${result.status}`);
+    }
   }
 
   public async createApiKey(name: string): Promise<{ key: string; name: string; createdAt: number } | undefined> {

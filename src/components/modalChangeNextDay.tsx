@@ -1,5 +1,5 @@
 import { JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NativeScrollEvent, NativeSyntheticEvent, ScrollView, View } from "react-native";
+import { Animated, NativeScrollEvent, NativeSyntheticEvent, Platform, ScrollView, View } from "react-native";
 import { Text } from "./primitives/text";
 
 import { IProgram, ISettings, IStats } from "../types";
@@ -49,6 +49,7 @@ export function ModalChangeNextDayContent(props: IModalChangeNextDayProps): JSX.
 
   const scrollRef = useRef<ScrollView>(null);
   const scrollYRef = useRef(0);
+  const contentSizeRef = useRef({ width: 0, height: 0 });
   const scrollListenersRef = useRef<Set<INavScreenScrollListener>>(new Set());
   const addScrollListener = useCallback((listener: INavScreenScrollListener) => {
     scrollListenersRef.current.add(listener);
@@ -58,9 +59,34 @@ export function ModalChangeNextDayContent(props: IModalChangeNextDayProps): JSX.
   }, []);
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     scrollYRef.current = e.nativeEvent.contentOffset.y;
+    contentSizeRef.current = e.nativeEvent.contentSize;
     scrollListenersRef.current.forEach((l) => l(e));
   }, []);
-  const scrollCtx = useMemo(() => ({ scrollRef, scrollYRef, addScrollListener }), [addScrollListener]);
+  const scrollAnimatedY = useRef(new Animated.Value(0)).current;
+  const onAnimatedScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollAnimatedY } } }], {
+        useNativeDriver: Platform.OS !== "web",
+        listener: onScroll,
+      }),
+    [scrollAnimatedY, onScroll]
+  );
+  // No footer slot on this screen, so nothing occludes the bottom of the scroll content and
+  // there's nothing to measure a viewport against.
+  const viewportRef = useRef<View>(null);
+  const scrollCtx = useMemo(
+    () => ({
+      scrollRef,
+      scrollYRef,
+      contentSizeRef,
+      scrollAnimatedY,
+      viewportRef,
+      footerHeight: 0,
+      stickyHeaderHeight: 0,
+      addScrollListener,
+    }),
+    [scrollAnimatedY, addScrollListener]
+  );
 
   useEffect(() => {
     scrollYRef.current = 0;
@@ -122,11 +148,11 @@ export function ModalChangeNextDayContent(props: IModalChangeNextDayProps): JSX.
 
   return (
     <NavScreenScrollContext.Provider value={scrollCtx}>
-      <ScrollView
+      <Animated.ScrollView
         ref={scrollRef}
         className="flex-1"
         keyboardShouldPersistTaps="handled"
-        onScroll={onScroll}
+        onScroll={onAnimatedScroll}
         scrollEventThrottle={16}
       >
         {header}
@@ -144,7 +170,7 @@ export function ModalChangeNextDayContent(props: IModalChangeNextDayProps): JSX.
             onSelect={handleSelect}
           />
         ))}
-      </ScrollView>
+      </Animated.ScrollView>
     </NavScreenScrollContext.Provider>
   );
 }

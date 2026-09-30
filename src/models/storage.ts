@@ -8,15 +8,10 @@ import RB from "rollbar";
 import { IState, updateState } from "./state";
 import { lb } from "lens-shmens";
 import { IDispatch } from "../ducks/types";
-import { ObjectUtils_isEqual, ObjectUtils_values } from "../utils/object";
+import { ObjectUtils_isEqual } from "../utils/object";
 import { DateUtils_formatYYYYMMDD } from "../utils/date";
-import { IStorageUpdate, IStorageUpdate2 } from "../utils/sync";
 import { IHistoryRecord, IStorage, IPartialStorage, STORAGE_VERSION_TYPES, VStorage, VHistoryRecord } from "../types";
-import {
-  CollectionUtils_groupByKeyUniq,
-  CollectionUtils_compact,
-  CollectionUtils_immutableSort,
-} from "../utils/collection";
+import { CollectionUtils_immutableSort } from "../utils/collection";
 import { IVersions, VersionTracker } from "./versionTracker";
 import { lg } from "../utils/posthog";
 import { Diagnostics_getLastActions, Diagnostics_setLastValidationErrors } from "../utils/diagnostics";
@@ -76,7 +71,7 @@ export function Storage_validateAndReportStorage(data: Record<string, unknown>):
   return result;
 }
 
-export function Storage_fillVersions<T extends IPartialStorage | IStorage>(storage: T, deviceId?: string): T {
+export function Storage_fillVersions<T extends IPartialStorage | IStorage>(storage: T, deviceId: string): T {
   const versionTracker = new VersionTracker(STORAGE_VERSION_TYPES, { deviceId });
   const timestamp = Date.now();
   const filledVersions = versionTracker.fillVersions(storage, storage._versions || {}, timestamp);
@@ -158,6 +153,7 @@ export function Storage_getDefault(): IStorage {
     currentProgramId: undefined,
     reviewRequests: [],
     signupRequests: [],
+    // Builds before 2026-09-26 require the deleted* arrays in VStorage. Drop with their removal migration.
     deletedHistory: [],
     deletedPrograms: [],
     deletedStats: [],
@@ -249,7 +245,7 @@ export function Storage_partialStorageToStorage(partialStorage: IPartialStorage)
 export function Storage_updateVersions(
   oldStorage: IPartialStorage,
   newStorage: IPartialStorage,
-  deviceId?: string
+  deviceId: string
 ): IVersions<IStorage> {
   const { id: oldId, originalId: oldOriginalId, _versions: oldVersions, ...oldCleanedStorage } = oldStorage;
   const { id: newId, originalId: newOriginalId, _versions: newVersions, ...newCleanedStorage } = newStorage;
@@ -271,7 +267,7 @@ export function Storage_updateVersions(
   }
 }
 
-export function Storage_mergeStorage(oldStorage: IStorage, newStorage: IStorage, deviceId?: string): IStorage {
+export function Storage_mergeStorage(oldStorage: IStorage, newStorage: IStorage, deviceId: string): IStorage {
   const migratedOldStorage = runMigrations(oldStorage);
   const migratedNewStorage = runMigrations(newStorage);
   const { id: oldId, originalId: oldOriginalId, _versions: oldVersions, ...oldCleanedStorage } = migratedOldStorage;
@@ -325,70 +321,4 @@ function sortProgressByIndex(progress: IHistoryRecord[] | undefined): IHistoryRe
     return progress;
   }
   return [{ ...head, entries: sortedEntries }, ...progress.slice(1)];
-}
-
-export function Storage_applyStorageUpdate2(storage: IStorage, update: IStorageUpdate2, deviceId?: string): IStorage {
-  if (!update.storage || Object.keys(update.storage).length === 0) {
-    return storage;
-  }
-
-  const versionTracker = new VersionTracker(STORAGE_VERSION_TYPES, { deviceId });
-  const currentVersions = storage._versions || {};
-  const incomingVersions = update.versions || {};
-
-  const mergedVersions = versionTracker.mergeVersions(currentVersions, incomingVersions);
-  const mergedStorage = versionTracker.mergeByVersions(
-    storage,
-    currentVersions,
-    incomingVersions,
-    update.storage as Partial<IStorage>
-  );
-
-  const updatedStorage: IStorage = {
-    ...mergedStorage,
-    _versions: mergedVersions,
-  };
-
-  const sortedProgress = sortProgressByIndex(updatedStorage.progress);
-  return sortedProgress === updatedStorage.progress ? updatedStorage : { ...updatedStorage, progress: sortedProgress };
-}
-
-export function Storage_applyUpdate(storage: IPartialStorage, updateWithStats: IStorageUpdate): IPartialStorage {
-  const { stats, ...update } = updateWithStats;
-
-  const deletedGyms = new Set([...storage.settings.deletedGyms, ...(update.settings?.deletedGyms || [])]);
-  const lastGyms = CollectionUtils_groupByKeyUniq(storage.settings.gyms || [], "id");
-  const newGyms = CollectionUtils_groupByKeyUniq(update.settings?.gyms || [], "id");
-  const gymsObj = { ...lastGyms, ...newGyms };
-  const gymsArr = CollectionUtils_compact(ObjectUtils_values(gymsObj)).filter((g) => !deletedGyms.has(g.id));
-
-  const deletedHistory = Array.from(new Set([...storage.deletedHistory, ...(update.deletedHistory || [])]));
-  const deletedPrograms = Array.from(new Set([...storage.deletedPrograms, ...(update.deletedPrograms || [])]));
-  const deletedStats = Array.from(new Set([...storage.deletedStats, ...(update.deletedStats || [])]));
-  const reviewRequests = Array.from(new Set([...storage.reviewRequests, ...(update.reviewRequests || [])]));
-  const signupRequests = Array.from(new Set([...storage.signupRequests, ...(update.signupRequests || [])]));
-  const helps = Array.from(new Set([...storage.helps, ...(update.helps || [])]));
-
-  const exercises = { ...storage.settings.exercises, ...(update.settings?.exercises || {}) };
-  const exerciseData = { ...storage.settings.exerciseData, ...(update.settings?.exerciseData || {}) };
-
-  const newStorage: IPartialStorage = {
-    ...storage,
-    ...update,
-    deletedHistory,
-    deletedPrograms,
-    deletedStats,
-    reviewRequests,
-    signupRequests,
-    helps,
-    settings: {
-      ...storage.settings,
-      ...update.settings,
-      exercises,
-      exerciseData,
-      gyms: gymsArr,
-    },
-  };
-
-  return newStorage;
 }

@@ -9,16 +9,32 @@ import { Modal } from "../../../components/modal";
 import { ISettings, IUnit, IScreenMuscle } from "../../../types";
 import { ObjectUtils_keys, ObjectUtils_fromArray } from "../../../utils/object";
 import { Muscle_getAvailableMuscleGroups, Muscle_getMuscleGroupName } from "../../../models/muscle";
+import { Settings_withWeeklyRangeSetsBound } from "../../../models/settings";
 import { LinkButton } from "../../../components/linkButton";
+import { IconSpinner } from "../../../components/icons/iconSpinner";
 import { ILensDispatch } from "../../../utils/useLensReducer";
 import { IEither } from "../../../utils/types";
+
+export type IPlannerSettingsSaveStatus = "saving" | "saved" | "error";
 
 interface IModalPlannerSettingsProps {
   settings: ISettings;
   inApp: boolean;
+  saveStatus?: IPlannerSettingsSaveStatus;
   onShowEditMuscleGroups: () => void;
   dispatch: ILensDispatch<ISettings>;
   onClose: () => void;
+}
+
+function SaveStatus(props: { status: IPlannerSettingsSaveStatus }): JSX.Element {
+  if (props.status === "saving") {
+    return <IconSpinner width={12} height={12} />;
+  }
+  return (
+    <Text className={`text-xs ${props.status === "error" ? "text-text-error" : "text-text-secondary"}`}>
+      {props.status === "error" ? "Failed to save" : "Saved"}
+    </Text>
+  );
 }
 
 function parseAndClamp(
@@ -224,6 +240,16 @@ export function ModalPlannerSettingsContent(props: IModalPlannerSettingsProps): 
   return (
     <View className="pb-4">
       <GroupHeader size="large" name="Muscle Settings" />
+      <View className="flex-row items-start">
+        <Text className="flex-1 text-xs text-text-secondary">
+          These apply to your whole account, not just this program.
+        </Text>
+        {props.saveStatus != null && (
+          <View className="ml-2">
+            <SaveStatus status={props.saveStatus} />
+          </View>
+        )}
+      </View>
       <View className="mt-2" style={!props.inApp ? { minWidth: 512 } : undefined}>
         {!props.inApp && (
           <View className="mb-1">
@@ -330,7 +356,7 @@ export function ModalPlannerSettingsContent(props: IModalPlannerSettingsProps): 
         </View>
         <View>
           <View className={`${!props.inApp ? "flex-row" : ""} items-start mb-2`}>
-            <Text className="w-32 text-sm font-bold text-text-error">Change All</Text>
+            <Text className="w-scaled-32 text-sm font-bold text-text-error">Change All</Text>
             <View className="flex-row flex-1 w-full gap-2">
               <View className="flex-1">
                 <Input
@@ -402,7 +428,11 @@ const MuscleGroupRow = memo(function MuscleGroupRow(props: IMuscleGroupRowProps)
       const v = parseAndClamp(e, 0);
       if (v != null) {
         dispatch(
-          lb<ISettings>().p("planner").p("weeklyRangeSets").p(muscleGroup).i(0).record(v),
+          lb<ISettings>()
+            .p("planner")
+            .p("weeklyRangeSets")
+            .p(muscleGroup)
+            .recordModify((range) => Settings_withWeeklyRangeSetsBound(range, "min", v)),
           `Update ${muscleGroup} min`
         );
       }
@@ -415,7 +445,11 @@ const MuscleGroupRow = memo(function MuscleGroupRow(props: IMuscleGroupRowProps)
       const v = parseAndClamp(e, 0);
       if (v != null) {
         dispatch(
-          lb<ISettings>().p("planner").p("weeklyRangeSets").p(muscleGroup).i(1).record(v),
+          lb<ISettings>()
+            .p("planner")
+            .p("weeklyRangeSets")
+            .p(muscleGroup)
+            .recordModify((range) => Settings_withWeeklyRangeSetsBound(range, "max", v)),
           `Update ${muscleGroup} max`
         );
       }
@@ -438,7 +472,7 @@ const MuscleGroupRow = memo(function MuscleGroupRow(props: IMuscleGroupRowProps)
 
   return (
     <View className={`${!props.inApp ? "flex-row" : ""} items-start mb-2`}>
-      <Text className="w-32 text-xs font-bold">{props.muscleGroupName}</Text>
+      <Text className="w-scaled-32 text-xs font-bold">{props.muscleGroupName}</Text>
       <View className="flex-row flex-1 w-full gap-2">
         <View className="flex-1">
           <Input label="Min" min={0} type="number" labelSize="xs" value={props.min} changeHandler={onMin} />

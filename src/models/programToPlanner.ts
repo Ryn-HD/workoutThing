@@ -15,7 +15,7 @@ import {
 } from "../types";
 import { n } from "../utils/math";
 import { Dialog_alert } from "../utils/dialog";
-import { ObjectUtils_isEqual, ObjectUtils_entries } from "../utils/object";
+import { ObjectUtils_isEqual, ObjectUtils_entries, ObjectUtils_keys } from "../utils/object";
 import {
   Weight_eqNull,
   Weight_eq,
@@ -28,9 +28,12 @@ import {
 import {
   PlannerProgramExercise_currentEvaluatedSetVariationIndex,
   PlannerProgramExercise_getOnlyChangedState,
+  PlannerProgramExercise_getProgressScript,
   PlannerProgramExercise_getState,
   PlannerProgramExercise_getStateMetadata,
+  PlannerProgramExercise_getUpdateScript,
   PlannerProgramExercise_sets,
+  PlannerProgramExercise_warmups,
 } from "../pages/planner/models/plannerProgramExercise";
 import {
   IPlannerProgramExercise,
@@ -39,9 +42,9 @@ import {
   IPlannerProgramExerciseWarmupSet,
 } from "../pages/planner/models/types";
 import { IEvaluatedProgram, Program_getProgramExercise } from "./program";
-import { Exercise_get, Exercise_fullName } from "./exercise";
+import { Exercise_get, Exercise_fullName, Exercise_buildName } from "./exercise";
 import { CollectionUtils_compact } from "../utils/collection";
-import { PP_iterate2 } from "./pp";
+import { PP_iterate2, PP_iterateTopLineExercises } from "./pp";
 import { PlannerKey_fromFullName, PlannerKey_fromPlannerExercise } from "../pages/planner/plannerKey";
 import { IPlannerTopLineItem } from "../pages/planner/plannerExerciseEvaluator";
 
@@ -49,11 +52,27 @@ interface IPlannerToProgram2Globals {
   weight?: IWeight | IPercentage;
   rpe?: number;
   timer?: number;
+  setTimer?: number;
+  isOverflowSetTimer?: boolean;
   logRpe?: boolean;
   askWeight?: boolean;
 }
 
-type IDereuseDecision = "sets" | "weight" | "rpe" | "timer" | "progress" | "update";
+type IDereuseDecision = "sets" | "weight" | "rpe" | "timer" | "setTimer" | "progress" | "update";
+
+type IShareablePropertyName = "progress" | "update" | "warmup" | "id";
+interface IPropertyCandidate {
+  location: string;
+  exercise: IPlannerProgramExercise;
+  isOrigin: boolean;
+}
+// Where a shared property gets printed, and which instance it's read from. Those differ because
+// the UI edits shared properties on the first instance only (EditProgramUiHelpers_changeFirstInstance).
+// TODO: once the editProgramExercise UI is gone (the editor sheet edits Liftoscript text directly,
+// so it never goes through here), drop 'exercise' and read the property off the origin instance.
+type IPropertyTarget = { location: string; exercise: IPlannerProgramExercise };
+type IPropertyTargets = Record<IShareablePropertyName, Record<string, IPropertyTarget>>;
+type IPropertyCandidates = Record<IShareablePropertyName, Record<string, IPropertyCandidate[]>>;
 
 export interface IPlannerToProgramConvertOpts {
   renameMapping?: Record<string, { to: string; dayData?: Required<IDayData> }>;
@@ -164,6 +183,16 @@ export class ProgramToPlanner {
           if (reuseSet ? programSet.timer !== reuseSet.timer : globals.timer !== reusedGlobals.timer) {
             if (globals.timer != null) {
               dereuseDecisions.add("timer");
+            } else {
+              dereuseDecisions.add("sets");
+            }
+          }
+          if (
+            programSet.setTimer !== reuseSet?.setTimer ||
+            !!programSet.isOverflowSetTimer !== !!reuseSet?.isOverflowSetTimer
+          ) {
+            if (globals.setTimer != null) {
+              dereuseDecisions.add("setTimer");
             } else {
               dereuseDecisions.add("sets");
             }
@@ -294,6 +323,101 @@ export class ProgramToPlanner {
     }
   }
 
+  private addPropertyCandidate(
+    candidates: Record<string, IPropertyCandidate[]>,
+    key: string,
+    candidate: IPropertyCandidate
+  ): void {
+    candidates[key] = candidates[key] || [];
+    candidates[key].push(candidate);
+  }
+
+  // 'progress'/'update'/'warmup' are shared across every instance of an exercise, so they're printed
+  // only once. Authors deliberately place bulky blocks away from the top of the program (e.g. on the
+  // last week), so print them back where they were written instead of on the first instance.
+  // A repeat-materialized copy carries the original's syntax points, so it's excluded from being the
+  // origin - otherwise every week a `[1-3]` line spans would claim to be where it was written.
+  private getPropertyTargets(
+    groupedTopLineMap: IPlannerTopLineItem[][][][],
+    opts: IPlannerToProgramConvertOpts
+  ): IPropertyTargets {
+    const candidates: IPropertyCandidates = { progress: {}, update: {}, warmup: {}, id: {} };
+    PP_iterateTopLineExercises(groupedTopLineMap, (line, weekIndex, dayInWeekIndex, dayIndex) => {
+      const value = this.getRenamedValue(opts, line, weekIndex, dayInWeekIndex);
+      const exercise = Program_getProgramExercise(dayIndex + 1, this.program, value);
+      if (exercise == null) {
+        return;
+      }
+      const location = `${weekIndex}_${dayInWeekIndex}`;
+      const dereuseDecisions = this.shouldReuseSets(exercise) ? this.getDereuseDecisions(exercise) : [];
+      const progress = exercise.progress;
+      if (
+        progress != null &&
+        progress.type !== "none" &&
+        (progress.reuse || progress.script) &&
+        (!exercise.reuse || dereuseDecisions.includes("progress"))
+      ) {
+        this.addPropertyCandidate(candidates.progress, exercise.key, {
+          location,
+          exercise,
+          isOrigin: exercise.points.progressPoint != null && !exercise.isRepeat,
+        });
+      }
+      const update = exercise.update;
+      if (
+        update != null &&
+        (update.reuse || update.script) &&
+        (!exercise.reuse || dereuseDecisions.includes("update"))
+      ) {
+        this.addPropertyCandidate(candidates.update, exercise.key, {
+          location,
+          exercise,
+          isOrigin: exercise.points.updatePoint != null && !exercise.isRepeat,
+        });
+      }
+      if (exercise.warmupSets != null) {
+        this.addPropertyCandidate(candidates.warmup, exercise.key, {
+          location,
+          exercise,
+          isOrigin: exercise.points.warmupPoint != null && !exercise.isRepeat,
+        });
+      }
+      if ((exercise.tags || []).length > 0) {
+        this.addPropertyCandidate(candidates.id, exercise.key, {
+          location,
+          exercise,
+          isOrigin: exercise.points.idPoint != null && !exercise.isRepeat,
+        });
+      }
+    });
+    const targets: IPropertyTargets = { progress: {}, update: {}, warmup: {}, id: {} };
+    for (const property of ObjectUtils_keys(candidates)) {
+      for (const key of ObjectUtils_keys(candidates[property])) {
+        const list = candidates[property][key];
+        const origin = list.find((c) => c.isOrigin) || list[0];
+        if (origin != null) {
+          targets[property][key] = { location: origin.location, exercise: list[0].exercise };
+        }
+      }
+    }
+    return targets;
+  }
+
+  private getPropertySource(
+    targets: IPropertyTargets,
+    property: IShareablePropertyName,
+    key: string,
+    weekIndex: number,
+    dayInWeekIndex: number,
+    fallback: IPlannerProgramExercise
+  ): IPlannerProgramExercise | undefined {
+    const target = targets[property][key];
+    if (target == null) {
+      return fallback;
+    }
+    return target.location === `${weekIndex}_${dayInWeekIndex}` ? target.exercise : undefined;
+  }
+
   public convertToPlanner(opts: IPlannerToProgramConvertOpts = {}): IPlannerProgram {
     const plannerWeeks: IPlannerProgramWeek[] = [];
     const plannerProgram = this.program.planner;
@@ -308,6 +432,7 @@ export class ProgramToPlanner {
     let groupedTopLineMap = PlannerProgram_groupedTopLines(topLineMap);
     groupedTopLineMap = opts.reorder ? this.reorderGroupedTopLine(groupedTopLineMap, opts.reorder) : groupedTopLineMap;
     groupedTopLineMap = opts.add ? this.addGroupedTopLine(groupedTopLineMap, opts.add) : groupedTopLineMap;
+    const propertyTargets = this.getPropertyTargets(groupedTopLineMap, opts);
     let dayIndex = 0;
     const addedProgressMap: Record<string, boolean> = {};
     const addedUpdateMap: Record<string, boolean> = {};
@@ -446,7 +571,16 @@ export class ProgramToPlanner {
                   if (dereuseDecisions.includes("rpe") && globals.rpe != null) {
                     overriddenGlobals.push(`@${n(globals.rpe)}${globals.logRpe ? "+" : ""}`);
                   }
-                  if (dereuseDecisions.includes("timer") && globals.timer != null) {
+                  if (
+                    globals.setTimer != null &&
+                    (dereuseDecisions.includes("setTimer") ||
+                      dereuseDecisions.includes("timer") ||
+                      dereuseDecisions.includes("sets"))
+                  ) {
+                    // The rest timer is embedded in the setTimer|rest token, so any timer-ish change
+                    // (and materialized sets, which skip per-set timer tokens) restates the whole token.
+                    overriddenGlobals.push(this.setTimerGlobalToStr(globals));
+                  } else if (dereuseDecisions.includes("timer") && globals.timer != null) {
                     overriddenGlobals.push(`${n(globals.timer)}s`);
                   }
                   if (overriddenGlobals.length > 0) {
@@ -468,7 +602,9 @@ export class ProgramToPlanner {
                   if (globals.rpe != null) {
                     globalsStr.push(`@${globals.rpe}${globals.logRpe ? "+" : ""}`);
                   }
-                  if (globals.timer != null) {
+                  if (globals.setTimer != null) {
+                    globalsStr.push(this.setTimerGlobalToStr(globals));
+                  } else if (globals.timer != null) {
                     globalsStr.push(`${globals.timer}s`);
                   }
                   if (globalsStr.length > 0) {
@@ -476,16 +612,28 @@ export class ProgramToPlanner {
                   }
                 }
 
-                if (!addedWarmupsMap[key] && evalExercise?.warmupSets) {
-                  const warmupSets = this.getWarmupSets(evalExercise);
+                const warmupSource =
+                  !addedWarmupsMap[key] && evalExercise?.warmupSets
+                    ? this.getPropertySource(propertyTargets, "warmup", key, weekIndex, dayInWeekIndex, evalExercise)
+                    : undefined;
+                if (warmupSource != null) {
+                  const warmupSets = this.getWarmupSets(warmupSource);
                   if (warmupSets != null) {
                     plannerExercise += ` / warmup: ${warmupSets}`;
                     addedWarmupsMap[key] = true;
                   }
                 }
 
-                if (!addedIdMap[key] && (evalExercise.tags || []).length > 0) {
-                  plannerExercise += this.getId(evalExercise);
+                // Printed at the instance the author wrote it on, like the other shared properties.
+                // Every instance of a key carries identical tags (PlannerEvaluator_fillInMetadata
+                // rejects anything else), so which one prints them doesn't change the value - but
+                // printing them on the first instance put them on a line compaction may delete.
+                const idSource =
+                  !addedIdMap[key] && (evalExercise.tags || []).length > 0
+                    ? this.getPropertySource(propertyTargets, "id", key, weekIndex, dayInWeekIndex, evalExercise)
+                    : undefined;
+                if (idSource != null) {
+                  plannerExercise += ` / ${this.idToStr(idSource)}`;
                   addedIdMap[key] = true;
                 }
 
@@ -497,11 +645,21 @@ export class ProgramToPlanner {
                 const update = evalExercise.update;
                 if (!addedUpdateMap[key] && update && (update.reuse || update.script)) {
                   if (!evalExercise.reuse || dereuseDecisions.includes("update")) {
-                    const updateStr = ProgramToPlanner.getUpdate(evalExercise, this.settings);
-                    if (updateStr) {
-                      plannerExercise += ` / ${updateStr}`;
+                    const source = this.getPropertySource(
+                      propertyTargets,
+                      "update",
+                      key,
+                      weekIndex,
+                      dayInWeekIndex,
+                      evalExercise
+                    );
+                    if (source != null) {
+                      const updateStr = ProgramToPlanner.getUpdate(source, this.settings);
+                      if (updateStr) {
+                        plannerExercise += ` / ${updateStr}`;
+                      }
+                      addedUpdateMap[key] = true;
                     }
-                    addedUpdateMap[key] = true;
                   } else if (update.reuse?.fullName === evalExercise.reuse.fullName) {
                     addedUpdateMap[key] = true;
                   }
@@ -512,11 +670,21 @@ export class ProgramToPlanner {
                   plannerExercise += ` / progress: none`;
                 } else if (!addedProgressMap[key] && progress && (progress.reuse || progress.script)) {
                   if (!evalExercise.reuse || dereuseDecisions.includes("progress")) {
-                    const progressStr = ProgramToPlanner.getProgress(evalExercise, this.settings, false);
-                    if (progressStr) {
-                      plannerExercise += ` / ${progressStr}`;
+                    const source = this.getPropertySource(
+                      propertyTargets,
+                      "progress",
+                      key,
+                      weekIndex,
+                      dayInWeekIndex,
+                      evalExercise
+                    );
+                    if (source != null) {
+                      const progressStr = ProgramToPlanner.getProgress(source, this.settings, false);
+                      if (progressStr) {
+                        plannerExercise += ` / ${progressStr}`;
+                      }
+                      addedProgressMap[key] = true;
                     }
-                    addedProgressMap[key] = true;
                   } else if (progress.reuse?.fullName === evalExercise.reuse.fullName) {
                     addedProgressMap[key] = true;
                   }
@@ -556,8 +724,85 @@ export class ProgramToPlanner {
     return newPlanner;
   }
 
+  // The exercise as the evaluator sees it, printed back as Liftoscript: every `...reuse`
+  // resolved into the values it stands for, and every property that governs the exercise on the
+  // line even when it's declared on another week. Read-only — it is what the sheet shows when
+  // asked what a line means, never what gets saved, which is why it can ignore both the reuse
+  // the author wrote and the once-per-exercise placement rules convertToPlanner keeps to.
+  public materializeExercise(exercise: IPlannerProgramExercise): string {
+    const parts: string[] = [this.getExerciseName(exercise)];
+    if (exercise.notused) {
+      parts.push("used: none");
+    }
+    // From evaluatedSetVariations rather than setVariations: an exercise that only reuses sets
+    // has none of its own, and those resolved sets are the whole point of the view.
+    //
+    // An empty variation is skipped rather than printed: a template that carries only properties
+    // (`tmpl / used: none / progress: ...`) has one, and the set printer's empty-list fallback
+    // would invent a `0x1 0lb` for it.
+    const variations = exercise.evaluatedSetVariations;
+    const globals = this.getGlobals(exercise);
+    for (let i = 0; i < variations.length; i += 1) {
+      if (variations[i].sets.length > 0) {
+        parts.push(this.variationToString(variations[i], globals, i, exercise));
+      }
+    }
+    const globalsStr: string[] = [];
+    if (globals.weight != null) {
+      globalsStr.push(`${this.weightExprToStr(globals.weight)}${globals.askWeight ? "+" : ""}`);
+    } else if (globals.askWeight) {
+      globalsStr.push("?+");
+    }
+    if (globals.rpe != null) {
+      globalsStr.push(`@${n(globals.rpe)}${globals.logRpe ? "+" : ""}`);
+    }
+    if (globals.setTimer != null) {
+      globalsStr.push(this.setTimerGlobalToStr(globals));
+    } else if (globals.timer != null) {
+      globalsStr.push(`${n(globals.timer)}s`);
+    }
+    if (globalsStr.length > 0) {
+      parts.push(globalsStr.join(" "));
+    }
+    const warmupSets = this.warmupSetsToStr(PlannerProgramExercise_warmups(exercise));
+    if (warmupSets != null) {
+      parts.push(`warmup: ${warmupSets}`);
+    }
+    if ((exercise.tags || []).length > 0) {
+      parts.push(this.idToStr(exercise));
+    }
+    if (exercise.superset?.name) {
+      parts.push(`superset: ${exercise.superset.name}`);
+    }
+    const update = ProgramToPlanner.getUpdate(exercise, this.settings, false, true);
+    if (update) {
+      parts.push(update);
+    }
+    const progress = ProgramToPlanner.getProgress(exercise, this.settings, false, true);
+    if (progress) {
+      parts.push(progress);
+    }
+    return parts.join(" / ");
+  }
+
   private getExerciseName(programExercise: IPlannerProgramExercise): string {
-    if (programExercise.exerciseType) {
+    const variations = programExercise.exerciseVariations;
+    if (variations != null && variations.length > 1) {
+      const currentIndex = variations.findIndex((v) => v.isCurrent);
+      const activeIndex = currentIndex === -1 ? 0 : currentIndex;
+      const parts = variations.map((variation, i) => {
+        const label = i === 0 ? programExercise.label : undefined;
+        const segment = variation.exerciseType
+          ? Exercise_fullName(Exercise_get(variation.exerciseType, this.settings.exercises), this.settings, label)
+          : Exercise_buildName(variation.name, this.settings, label);
+        return `${i === activeIndex && i > 0 ? "! " : ""}${segment}`;
+      });
+      let name = parts.join(" | ");
+      if (programExercise.order > 0) {
+        name = `${name}[${programExercise.order}]`;
+      }
+      return name;
+    } else if (programExercise.exerciseType) {
       const exercise = Exercise_get(programExercise.exerciseType, this.settings.exercises);
       let name = Exercise_fullName(exercise, this.settings, programExercise.label);
       if (programExercise.order > 0) {
@@ -593,10 +838,25 @@ export class ProgramToPlanner {
     return str;
   }
 
-  public static getUpdate(programExercise: IPlannerProgramExercise, settings: ISettings, hideScript?: boolean): string {
-    const update = programExercise.update;
+  public static getUpdate(
+    programExercise: IPlannerProgramExercise,
+    settings: ISettings,
+    hideScript?: boolean,
+    resolveReuse?: boolean
+  ): string {
+    const update = programExercise.update ?? (resolveReuse ? programExercise.reuse?.exercise?.update : undefined);
     if (!update) {
       return "";
+    }
+    // Only as far as the app itself resolves: past a couple of hops the runtime can't find the
+    // script either (progress.ts's update runner reads the same getter and does nothing without
+    // one), so printing the chain out here would promise behaviour that never runs. Falls through
+    // to naming the reuse instead — which is what the exercise really has.
+    if (resolveReuse) {
+      const script = PlannerProgramExercise_getUpdateScript(programExercise);
+      if (script != null) {
+        return `update: custom() ${hideScript ? "{~ ... ~}" : script}`;
+      }
     }
     if (update.reuse) {
       if (update.reuse.exercise?.exerciseType) {
@@ -604,23 +864,24 @@ export class ProgramToPlanner {
         const fullName = Exercise_fullName(exercise, settings, update.reuse.exercise.label);
         return `update: custom() { ...${fullName} }`;
       } else {
-        return ` / update: custom() { ...${update.reuse.exercise?.fullName || update.reuse.fullName} }`;
+        return `update: custom() { ...${update.reuse.exercise?.fullName || update.reuse.fullName} }`;
       }
     } else {
       return `update: custom() ${hideScript ? "{~ ... ~}" : update.script}`;
     }
   }
 
-  private getId(programExercise: IPlannerProgramExercise): string {
-    return ` / id: tags(${(programExercise.tags || []).join(", ")})`;
+  private idToStr(programExercise: IPlannerProgramExercise): string {
+    return `id: tags(${(programExercise.tags || []).join(", ")})`;
   }
 
   public static getProgress(
     programExercise: IPlannerProgramExercise,
     settings: ISettings,
-    hideScript?: boolean
+    hideScript?: boolean,
+    resolveReuse?: boolean
   ): string {
-    const progress = programExercise.progress;
+    const progress = programExercise.progress ?? (resolveReuse ? programExercise.reuse?.exercise?.progress : undefined);
     if (!progress) {
       return "";
     }
@@ -628,8 +889,13 @@ export class ProgramToPlanner {
     const state = PlannerProgramExercise_getState(programExercise);
     const stateMetadata = PlannerProgramExercise_getStateMetadata(programExercise);
     if (progress.type === "custom") {
-      const onlyChangedState = PlannerProgramExercise_getOnlyChangedState(programExercise);
-      progressStr += `(${ObjectUtils_entries(onlyChangedState)
+      // Resolved, every variable is spelled out: the ones inherited from the reuse target are
+      // exactly the ones the reader can't see from here.
+      // Only a `{ ...Name }` script merges the target's state back in at evaluation. An own script
+      // on a reuse line evaluates with its own state alone, so it has to declare all of it.
+      const argsState =
+        resolveReuse || progress.reuse == null ? state : PlannerProgramExercise_getOnlyChangedState(programExercise);
+      progressStr += `(${ObjectUtils_entries(argsState)
         .map(([k, v]) => {
           return `${k}${stateMetadata[k]?.userPrompted ? "+" : ""}: ${Weight_print(v)}`;
         })
@@ -672,7 +938,10 @@ export class ProgramToPlanner {
       progressStr += `(${args.join(", ")})`;
     }
     if (progress.type === "custom") {
-      if (progress.reuse) {
+      const resolvedScript = resolveReuse ? PlannerProgramExercise_getProgressScript(programExercise) : undefined;
+      if (resolvedScript != null) {
+        progressStr += hideScript ? ` {~ ... ~}` : ` ${resolvedScript}`;
+      } else if (progress.reuse) {
         if (progress.reuse.exercise?.exerciseType) {
           const exercise = Exercise_get(progress.reuse.exercise.exerciseType, settings.exercises);
           const fullName = Exercise_fullName(exercise, settings, progress.reuse.exercise.label);
@@ -696,6 +965,8 @@ export class ProgramToPlanner {
         weight: globals?.weight ?? reusedGlobals.weight,
         rpe: globals?.rpe ?? reusedGlobals.rpe,
         timer: globals?.timer ?? reusedGlobals.timer,
+        setTimer: globals?.setTimer ?? reusedGlobals.setTimer,
+        isOverflowSetTimer: globals?.isOverflowSetTimer ?? reusedGlobals.isOverflowSetTimer,
         logRpe: globals?.logRpe ?? reusedGlobals.logRpe,
         askWeight: globals?.askWeight ?? reusedGlobals.askWeight,
       };
@@ -708,7 +979,24 @@ export class ProgramToPlanner {
     // When any set carries a set timer, its rest is embedded in the setTimer|rest token, so the rest
     // timer must not also be lifted to a global (a global would override the embedded rest on re-parse).
     const hasAnySetTimer = variations.some((v) => v.sets.some((s) => s.setTimer != null));
+    const firstSetTimer = variations[0]?.sets[0]?.setTimer;
+    const firstIsOverflowSetTimer = !!variations[0]?.sets[0]?.isOverflowSetTimer;
+    // A set timer is only liftable to a global together with its embedded rest, so the whole
+    // setTimer/overflow/rest tuple must be uniform across every set. Even then, keep the source's
+    // style: lift only if it was written as a global, or the sets are reused (where a global
+    // override is the only way to express a timer change without materializing the set list).
+    const setTimerIsGlobal =
+      firstSetTimer != null &&
+      (exercise.globals.setTimer != null || exercise.reuse != null) &&
+      variations.every((v) =>
+        v.sets.every(
+          (s) =>
+            s.setTimer === firstSetTimer && !!s.isOverflowSetTimer === firstIsOverflowSetTimer && s.timer === firstTimer
+        )
+      );
     return {
+      setTimer: setTimerIsGlobal ? firstSetTimer : undefined,
+      isOverflowSetTimer: setTimerIsGlobal ? firstIsOverflowSetTimer : undefined,
       weight:
         firstWeight != null &&
         variations.every((v) =>
@@ -724,7 +1012,9 @@ export class ProgramToPlanner {
           : undefined,
       logRpe: variations.every((v) => v.sets.every((s) => s.rpe === firstRpe && !!s.logRpe)),
       timer:
-        !hasAnySetTimer && firstTimer != null && variations.every((v) => v.sets.every((s) => s.timer === firstTimer))
+        (setTimerIsGlobal || !hasAnySetTimer) &&
+        firstTimer != null &&
+        variations.every((v) => v.sets.every((s) => s.timer === firstTimer))
           ? firstTimer
           : undefined,
     };
@@ -738,7 +1028,9 @@ export class ProgramToPlanner {
     if (sets.length === 0) {
       const originalSets = PlannerProgramExercise_sets(exercise, index)[0];
       const setType =
-        originalSets?.setType ?? originalSets?.repRange?.setType ?? (originalSets?.repRange?.isAmrap ? "amrap" : "normal");
+        originalSets?.setType ??
+        originalSets?.repRange?.setType ??
+        (originalSets?.repRange?.isAmrap ? "amrap" : "normal");
       return [
         [
           {
@@ -786,7 +1078,10 @@ export class ProgramToPlanner {
   }
 
   private getWarmupSets(programExercise: IPlannerProgramExercise): string | undefined {
-    const warmupSets = programExercise.warmupSets;
+    return this.warmupSetsToStr(programExercise.warmupSets);
+  }
+
+  private warmupSetsToStr(warmupSets: IPlannerProgramExerciseWarmupSet[] | undefined): string | undefined {
     if (warmupSets) {
       const groups = this.groupWarmupsSets(warmupSets);
       const strs: string[] = [];
@@ -807,6 +1102,12 @@ export class ProgramToPlanner {
       return Weight_print(weightExpr);
     }
     return "";
+  }
+
+  private setTimerGlobalToStr(globals: IPlannerToProgram2Globals): string {
+    const overflow = globals.isOverflowSetTimer ? "+" : "";
+    const restPart = globals.timer != null ? `${n(Math.max(0, globals.timer))}s` : "?";
+    return `${n(Math.max(0, globals.setTimer ?? 0))}s${overflow}|${restPart}`;
   }
 
   private variationToString(
@@ -839,12 +1140,11 @@ export class ProgramToPlanner {
         setStr += set.rpe != null ? ` @${n(Math.max(0, set.rpe))}` : "";
         setStr += set.rpe != null && set.logRpe ? "+" : "";
       }
-      if (set.setTimer != null) {
-        // SetTimer embeds the rest timer, so it's always rendered per-set (never lifted to a global)
+      if (set.setTimer != null && globals.setTimer == null) {
         const overflow = set.isOverflowSetTimer ? "+" : "";
         const restPart = set.timer != null ? `${n(Math.max(0, set.timer))}s` : "?";
         setStr += ` ${n(Math.max(0, set.setTimer))}s${overflow}|${restPart}`;
-      } else if (globals.timer == null) {
+      } else if (set.setTimer == null && globals.timer == null) {
         setStr += set.timer ? ` ${n(Math.max(0, set.timer))}s` : "";
       }
       if (set.auto) {

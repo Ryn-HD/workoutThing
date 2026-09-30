@@ -409,4 +409,68 @@ export const migrations = {
     }
     return storage;
   },
+  "20260702120000_sanitize_pipe_bang_in_custom_exercise_names": (aStorage: IStorage): IStorage => {
+    const storage: IStorage = JSON.parse(JSON.stringify(aStorage));
+    // `|` now separates exercise variations and `!` marks the current one in Liftoscript, so custom
+    // exercise names can no longer contain them. Occurrence is near-zero (no built-in uses them).
+    const renames: { from: string; to: string }[] = [];
+    for (const customExerciseKey of ObjectUtils_keys(storage.settings.exercises)) {
+      const customExercise = storage.settings.exercises[customExerciseKey];
+      if (customExercise?.name != null && /[|!]/.test(customExercise.name)) {
+        const from = customExercise.name;
+        const to = from.replace(/[|!]/g, "-").replace(/\s+/g, " ").trim();
+        customExercise.name = to;
+        if (to !== from) {
+          renames.push({ from, to });
+        }
+      }
+    }
+    // Programs reference custom exercises by name in their planner text, so the same names must be
+    // rewritten there - otherwise the parser reads the old `|`/`!` as variation syntax and misparses.
+    if (renames.length > 0) {
+      renames.sort((a, b) => b.from.length - a.from.length);
+      const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      for (const program of storage.programs || []) {
+        for (const week of program.planner?.weeks || []) {
+          for (const day of week.days || []) {
+            for (const rename of renames) {
+              day.exerciseText = day.exerciseText.replace(new RegExp(escapeRegExp(rename.from), "gi"), rename.to);
+            }
+          }
+        }
+      }
+    }
+    return storage;
+  },
+  "20260903120000_default_get_ready_to_5s": (aStorage: IStorage): IStorage => {
+    const storage: IStorage = JSON.parse(JSON.stringify(aStorage));
+    // Only when the key is absent: `0` is someone who deliberately turned the countdown off, and after
+    // this runs a cleared field stays cleared, so the setting is still switchable off.
+    if (storage.settings.timers.getReady == null) {
+      storage.settings.timers.getReady = 5;
+    }
+    return storage;
+  },
+  "20260906120000_drop_set_timer_without_id": (aStorage: IStorage): IStorage => {
+    const storage: IStorage = JSON.parse(JSON.stringify(aStorage));
+    for (const record of [...(storage.progress || []), ...(storage.history || [])]) {
+      const setTimer = record.setTimer as { id?: string } | undefined;
+      if (setTimer != null && setTimer.id == null) {
+        record.setTimer = undefined;
+      }
+    }
+    return storage;
+  },
+  "20260919120000_hide_notes_never_used": (aStorage: IStorage): IStorage => {
+    const storage: IStorage = JSON.parse(JSON.stringify(aStorage));
+    const records = [...(storage.progress || []), ...(storage.history || [])];
+    const workoutSettings = storage.settings.workoutSettings;
+    if (workoutSettings.showWorkoutNotes == null) {
+      workoutSettings.showWorkoutNotes = records.some((r) => !!r.notes);
+    }
+    if (workoutSettings.showExerciseNotes == null) {
+      workoutSettings.showExerciseNotes = records.some((r) => r.entries.some((e) => !!e.notes));
+    }
+    return storage;
+  },
 };

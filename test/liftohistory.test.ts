@@ -9,6 +9,7 @@ import {
 } from "../src/liftohistory/liftohistoryDeserializer";
 import { IHistoryRecord, IHistoryEntry, ISet, ISettings } from "../src/types";
 import { UidFactory_generateUid } from "../src/utils/generator";
+import { History_workoutTime } from "../src/models/history";
 
 function buildSettings(): ISettings {
   return Settings_build();
@@ -321,6 +322,57 @@ describe("Liftohistory", () => {
       expect(result).to.include("/ target: 1x5 200lb 90s");
     });
 
+    it("serializes recorded set timers and target set timers", () => {
+      const settings = buildSettings();
+      const hold = (completedSetTimer: number): ISet =>
+        buildSet({
+          completedReps: 1,
+          completedWeight: Weight_build(0, "kg"),
+          completedSetTimer,
+          reps: 1,
+          weight: Weight_build(0, "kg"),
+          setTimer: 60,
+          timer: 45,
+          isCompleted: true,
+        });
+      const record = buildRecord({
+        entries: [
+          buildEntry({
+            exercise: { id: "squat", equipment: "barbell" },
+            sets: [hold(60), hold(60), hold(52)],
+          }),
+        ],
+      });
+      const result = LiftohistorySerializer_serialize(record, settings);
+      expect(result).to.include("/ 2x1 0kg 60s, 1x1 0kg 52s / target: 3x1 0kg 60s|45s");
+    });
+
+    it("serializes unilateral recorded set timers, overflow and default rest", () => {
+      const settings = buildSettings();
+      const record = buildRecord({
+        entries: [
+          buildEntry({
+            exercise: { id: "squat", equipment: "barbell" },
+            sets: [
+              buildSet({
+                completedReps: 1,
+                completedRepsLeft: 1,
+                isUnilateral: true,
+                completedSetTimer: 40,
+                completedSetTimerLeft: 35,
+                reps: 1,
+                setTimer: 30,
+                isOverflowSetTimer: true,
+                isCompleted: true,
+              }),
+            ],
+          }),
+        ],
+      });
+      const result = LiftohistorySerializer_serialize(record, settings);
+      expect(result).to.include("/ 1x1|1 40s|35s / target: 1x1 30s+|?");
+    });
+
     it("serializes duration from intervals", () => {
       const settings = buildSettings();
       const start = new Date("2026-02-28T10:30:00.000Z").getTime();
@@ -430,6 +482,19 @@ describe("Liftohistory", () => {
       }
       const record = result.data.historyRecords[0];
       expect(record.endTime! - record.startTime).to.equal(3600000);
+    });
+
+    it("finishes the workout at start time when duration is missing", () => {
+      const settings = buildSettings();
+      const text = `2026-02-28T10:30:00.000Z / exercises: {\n}`;
+      const result = LiftohistoryDeserializer_deserialize(text, settings);
+      expect(result.success).to.be.true;
+      if (!result.success) {
+        return;
+      }
+      const record = result.data.historyRecords[0];
+      expect(record.endTime).to.equal(record.startTime);
+      expect(History_workoutTime(record)).to.equal(0);
     });
 
     it("parses completed sets", () => {
@@ -588,6 +653,34 @@ describe("Liftohistory", () => {
       expect(set.timer).to.equal(90);
     });
 
+    it("parses recorded set timers and target set timers", () => {
+      const settings = buildSettings();
+      const text = `2026-02-28T10:30:00.000Z / exercises: {
+  Squat, Barbell / 1x1 0kg 52s, 1x1|1 40s|35s, 1x1 ?|30s / target: 1x1 0kg 60s|45s, 1x1 30s+|?, 1x1 90s
+}`;
+      const result = LiftohistoryDeserializer_deserialize(text, settings);
+      expect(result.success).to.be.true;
+      if (!result.success) {
+        return;
+      }
+      const [plain, unilateral, leftOnly] = result.data.historyRecords[0].entries[0].sets;
+      expect(plain.completedSetTimer).to.equal(52);
+      expect(plain.completedSetTimerLeft).to.be.undefined;
+      expect(plain.setTimer).to.equal(60);
+      expect(plain.timer).to.equal(45);
+      expect(plain.isOverflowSetTimer).to.be.undefined;
+      expect(unilateral.completedSetTimer).to.equal(40);
+      expect(unilateral.completedSetTimerLeft).to.equal(35);
+      expect(unilateral.setTimer).to.equal(30);
+      expect(unilateral.isOverflowSetTimer).to.be.true;
+      expect(unilateral.timer).to.be.undefined;
+      expect(leftOnly.completedSetTimer).to.be.undefined;
+      expect(leftOnly.completedSetTimerLeft).to.equal(30);
+      expect(leftOnly.isUnilateral).to.be.true;
+      expect(leftOnly.setTimer).to.be.undefined;
+      expect(leftOnly.timer).to.equal(90);
+    });
+
     it("parses set labels", () => {
       const settings = buildSettings();
       const text = `2026-02-28T10:30:00.000Z / exercises: {
@@ -713,6 +806,37 @@ describe("Liftohistory", () => {
       const keys = Object.keys(customExercises);
       expect(keys).to.have.length(1);
       expect(customExercises[keys[0]].name).to.equal("My Custom Exercise");
+    });
+
+    it("round-trips custom exercises whose names contain grammar-rejected characters", () => {
+      const settings = buildSettings();
+      settings.exercises = {
+        abcd1234: {
+          vtype: "custom_exercise",
+          id: "abcd1234",
+          name: "Meadows Row (Ganbaru)",
+          isDeleted: false,
+          types: [],
+          meta: { bodyParts: [], targetMuscles: [], synergistMuscles: [], sortedEquipment: [] },
+        },
+      };
+      const record = buildRecord({
+        entries: [
+          buildEntry({
+            exercise: { id: "abcd1234" },
+            sets: [buildSet({ completedReps: 10, completedWeight: Weight_build(50, "kg") })],
+          }),
+        ],
+      });
+      const serialized = LiftohistorySerializer_serialize(record, settings);
+      expect(serialized).to.contain("Meadows Row Ganbaru");
+      const result = LiftohistoryDeserializer_deserialize(serialized, buildSettings());
+      expect(result.success).to.be.true;
+      if (!result.success) {
+        return;
+      }
+      const names = Object.values(result.data.customExercises).map((e) => e.name);
+      expect(names).to.deep.equal(["Meadows Row Ganbaru"]);
     });
 
     it("parses kg weights", () => {
@@ -957,6 +1081,81 @@ describe("Liftohistory", () => {
       expect(set.minReps).to.equal(8);
       expect(set.reps).to.equal(12);
       expect(set.timer).to.equal(90);
+    });
+
+    it("round-trips set timers", () => {
+      const settings = buildSettings();
+      const record = buildRecord({
+        entries: [
+          buildEntry({
+            exercise: { id: "squat", equipment: "barbell" },
+            sets: [
+              buildSet({
+                completedReps: 1,
+                completedSetTimer: 64,
+                reps: 1,
+                setTimer: 60,
+                timer: 45,
+                isCompleted: true,
+              }),
+              buildSet({
+                completedReps: 1,
+                completedRepsLeft: 1,
+                isUnilateral: true,
+                completedSetTimer: 40,
+                completedSetTimerLeft: 35,
+                reps: 1,
+                setTimer: 30,
+                isOverflowSetTimer: true,
+                isCompleted: true,
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const serialized = LiftohistorySerializer_serialize(record, settings);
+      const deserialized = LiftohistoryDeserializer_deserialize(serialized, settings);
+      expect(deserialized.success).to.be.true;
+      if (!deserialized.success) {
+        return;
+      }
+
+      const [first, second] = deserialized.data.historyRecords[0].entries[0].sets;
+      expect(first.completedSetTimer).to.equal(64);
+      expect(first.setTimer).to.equal(60);
+      expect(first.timer).to.equal(45);
+      expect(second.completedSetTimer).to.equal(40);
+      expect(second.completedSetTimerLeft).to.equal(35);
+      expect(second.setTimer).to.equal(30);
+      expect(second.isOverflowSetTimer).to.be.true;
+      expect(second.timer).to.be.undefined;
+    });
+
+    it("rounds fractional set timers so the export stays parseable", () => {
+      const settings = buildSettings();
+      const hold = (completedSetTimer: number): ISet =>
+        buildSet({
+          completedReps: 1,
+          completedSetTimer,
+          reps: 1,
+          setTimer: 30.4,
+          timer: 60,
+          isCompleted: true,
+        });
+      const record = buildRecord({
+        entries: [
+          buildEntry({
+            exercise: { id: "squat", equipment: "barbell" },
+            sets: [hold(12.5), hold(13.2), hold(6.000000000000001)],
+          }),
+        ],
+      });
+
+      const serialized = LiftohistorySerializer_serialize(record, settings);
+      expect(serialized).to.include("/ 2x1 13s, 1x1 6s / target: 3x1 30s|60s");
+      const deserialized = LiftohistoryDeserializer_deserialize(serialized, settings);
+      expect(deserialized.success).to.be.true;
     });
 
     it("round-trips askWeight", () => {

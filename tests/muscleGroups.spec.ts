@@ -10,7 +10,7 @@ import {
 
 test("Muscle Groups", async ({ page }) => {
   await page.goto(startpage + "?skipintro=1");
-  PlaywrightUtils_disableTours(page);
+  await PlaywrightUtils_disableTours(page);
   await PlaywrightUtils_createProgram(page, "My Program");
 
   await page.getByTestId("tab-edit").click();
@@ -65,6 +65,7 @@ Bent Over Row / 3x5 / 100lb / warmup: none`
 
   await page.getByTestId("footer-program").click();
   await page.getByTestId("tab-edit").click();
+  await page.getByTestId("editor-v2-ui-program").click();
 
   await page.getByTestId("editor-v2-week-muscles").click();
 

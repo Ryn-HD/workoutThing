@@ -58,6 +58,10 @@ export interface IFastTextProps extends IFastTextStyle {
   // Web-only: render with white-space: pre (no soft-wrap, whitespace preserved). Native
   // achieves the same by being measured at unbounded width inside a horizontal ScrollView.
   noWrap?: boolean;
+  // Web-only: soft-wrap long lines but keep the newlines and indentation the text already has
+  // (white-space: pre-wrap). Without it the browser collapses both, which turns a multi-line
+  // script into one run of prose. Native preserves them either way.
+  preserveWhitespace?: boolean;
   paddingHorizontal?: number;
   lineHeight?: number;
   numberOfLines?: number;
@@ -134,12 +138,13 @@ export function StyledText_fragmentsToSpans(text: string, fragments?: IFastTextF
   return spans;
 }
 
-export type IFastTextSize = "xs" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl";
+export type IFastTextSize = "2xs" | "xs" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl";
 
 const BASE_REM = 16;
 
 // Mirrors the --text-* scale in useRem.ts / useRem.native.ts (px at rem=16).
 const SIZE_PX: Record<IFastTextSize, number> = {
+  "2xs": 10,
   xs: 12,
   sm: 14,
   base: 16,

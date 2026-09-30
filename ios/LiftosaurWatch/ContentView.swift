@@ -224,8 +224,8 @@ struct ContentView: View {
                                     startTime: workoutManager.workoutStartTime,
                                     heartRate: workoutManager.heartRate,
                                     isCompletingSet: workoutManager.isCompletingSet,
-                                    onComplete: { entryIndex, setIndex, reps, weight in
-                                        await workoutManager.completeSet(entryIndex: entryIndex, setIndex: setIndex)
+                                    onComplete: { entryIndex, setIndex, values in
+                                        await workoutManager.completeSet(entryIndex: entryIndex, setIndex: setIndex, values: values)
                                     },
                                     onGetNextEntryAndSetIndex: { entryIndex, setIndex in
                                         await workoutManager.getNextEntryAndSetIndex(entryIndex: entryIndex, setIndex: setIndex)
@@ -242,8 +242,8 @@ struct ContentView: View {
                                     onUpdateWeight: { entryIndex, setIndex, weight in
                                         await workoutManager.updateSetWeight(entryIndex: entryIndex, setIndex: setIndex, weight: weight)
                                     },
-                                    onUpdateCompletedSetTimer: { entryIndex, setIndex, seconds in
-                                        await workoutManager.updateCompletedSetTimer(entryIndex: entryIndex, setIndex: setIndex, seconds: seconds)
+                                    onUpdateCompletedSetTimer: { entryIndex, setIndex, seconds, secondsLeft in
+                                        await workoutManager.updateCompletedSetTimer(entryIndex: entryIndex, setIndex: setIndex, seconds: seconds, secondsLeft: secondsLeft)
                                     },
                                     onGetAmrapModal: {
                                         await workoutManager.getAmrapModal()

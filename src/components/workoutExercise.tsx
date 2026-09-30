@@ -1,5 +1,9 @@
-import { JSX, memo, useCallback, useEffect, useMemo, useState } from "react";
+import { JSX, memo, MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
+import Animated from "react-native-reanimated";
+import { WorkoutLayoutTransition } from "./workoutLayoutTransition";
+import { useWorkoutImpression } from "../utils/useWorkoutImpression";
+import { useTrackClick } from "../utils/clickTracking";
 import { ActiveGraphContext, IActiveGraphContext } from "./activeGraphContext";
 import { IDispatch } from "../ducks/types";
 import { IHistoryRecord, ISettings, ISubscription, IHistoryEntry, IProgramState, IStats } from "../types";
@@ -46,15 +50,42 @@ interface IWorkoutExerciseProps {
   stats: IStats;
   entryIndex: number;
   entry: IHistoryEntry;
+  isCurrentPage?: boolean;
+  impressionsSeenRef?: MutableRefObject<Set<string>>;
   subscription: ISubscription;
   settings: ISettings;
   dispatch: IDispatch;
-  hidePlatesCalculator?: boolean;
+  onTitleLayout?: (title: View) => void;
 }
 
 function WorkoutExerciseInner(props: IWorkoutExerciseProps): JSX.Element {
   usePerfRenderCount("WorkoutExercise");
-  const exerciseType = props.entry.exercise;
+  // Stabilize the exercise reference by identity: props.entry.exercise gets rebuilt (value-identical,
+  // new ref) on every set completion, and it feeds GraphExercise/ExerciseHistory and their O(history)
+  // memos — so key it on the exercise key so those stay memoized across set completions regardless of
+  // any upstream reference churn.
+  const exerciseType = useMemo(() => props.entry.exercise, [Exercise_toKey(props.entry.exercise)]);
+
+  const fallbackSeenRef = useRef<Set<string>>(new Set());
+  const seenRef = props.impressionsSeenRef ?? fallbackSeenRef;
+  const isCurrentPage = props.isCurrentPage ?? false;
+  const graphImpression = useWorkoutImpression({ name: "workout-graph", isCurrentPage, seenRef });
+  const historyImpression = useWorkoutImpression({ name: "workout-history", isCurrentPage, seenRef });
+  const trackClick = useTrackClick();
+  // A ref, not a closure: a new identity per page change would re-render the memoized graph.
+  const isCurrentPageRef = useRef(isCurrentPage);
+  isCurrentPageRef.current = isCurrentPage;
+  const onGraphInteract = useCallback(
+    (reason: "manipulate" | "type") => {
+      const name = reason === "type" ? "workout-graph-type" : "workout-graph-interact";
+      if (!isCurrentPageRef.current || seenRef.current.has(name)) {
+        return;
+      }
+      seenRef.current.add(name);
+      trackClick(name);
+    },
+    [seenRef, trackClick]
+  );
 
   const [isHeavyContentReady, setIsHeavyContentReady] = useState(false);
   useEffect(() => {
@@ -63,9 +94,12 @@ function WorkoutExerciseInner(props: IWorkoutExerciseProps): JSX.Element {
     // screen uses native-stack transitions (react-native-screens) and a gesture-driven pager, neither
     // of which registers a JS interaction handle — runAfterInteractions would fire mid-transition, not
     // after it. ~350ms clears the push slide so the work lands once the screen has settled.
+    if (!isCurrentPage || isHeavyContentReady) {
+      return undefined;
+    }
     const t = setTimeout(() => setIsHeavyContentReady(true), 350);
     return () => clearTimeout(t);
-  }, []);
+  }, [isCurrentPage, isHeavyContentReady]);
 
   // The "previous workout" values shown on first paint come from props.prevData, which the parent
   // builds for the whole workout in a single pass — so the card mounts without scanning history here.
@@ -149,66 +183,77 @@ function WorkoutExerciseInner(props: IWorkoutExerciseProps): JSX.Element {
           showHelp={props.showHelp}
           helps={props.helps}
           subscription={props.subscription}
-          hidePlatesCalculator={props.hidePlatesCalculator}
+          onTitleLayout={props.onTitleLayout}
         />
       </PerfProbeSubtree>
-      {((props.prevData?.count ?? 0) > 1 || showPrs) && (
-        <View className="items-center mt-2">
-          <LinkButton className="text-sm" name="toggle-workout-graphs" onClick={onToggleGraphs}>
-            {props.settings.workoutSettings.shouldHideGraphs ? "Show Graphs and PRs" : "Hide Graphs and PRs"}
-          </LinkButton>
-        </View>
-      )}
-      {!props.settings.workoutSettings.shouldHideGraphs && (
-        <>
-          {history.length > 1 && isHeavyContentReady && (
-            <View data-testid="workout-stats-graph" testID="workout-stats-graph" className="relative mx-4 mt-2">
-              <Locker topic="Graphs" dispatch={props.dispatch} blur={8} subscription={props.subscription} />
-              <ActiveGraphContext.Provider value={activeGraphValue}>
-                <PerfProbeSubtree id="graph">
-                  <GraphExercise
-                    id={`workout-graph-${Exercise_toKey(exerciseType)}`}
-                    isSameXAxis={false}
-                    minX={Math.round(minX / 1000)}
-                    maxX={Math.round(maxX / 1000)}
-                    isWithOneRm={true}
-                    key={`${Exercise_toKey(exerciseType)}_${props.settings.theme}`}
-                    settings={props.settings}
-                    isWithProgramLines={true}
-                    history={props.history}
-                    exercise={exerciseType}
-                    initialType={props.settings.graphsSettings.defaultType}
-                    dispatch={props.dispatch}
-                    isInteractive={Subscriptions_hasSubscription(props.subscription)}
-                  />
-                </PerfProbeSubtree>
-              </ActiveGraphContext.Provider>
-            </View>
-          )}
-          {showPrs && (
-            <View className="mx-4 mt-2">
-              <ExerciseAllTimePRs
-                maxWeight={maxWeightProp}
-                max1RM={max1RMProp}
+      <Animated.View layout={WorkoutLayoutTransition}>
+        {((props.prevData?.count ?? 0) > 1 || showPrs) && (
+          <View className="items-center mt-2">
+            <LinkButton className="text-sm" name="toggle-workout-graphs" onClick={onToggleGraphs}>
+              {props.settings.workoutSettings.shouldHideGraphs ? "Show Graphs and PRs" : "Hide Graphs and PRs"}
+            </LinkButton>
+          </View>
+        )}
+        {!props.settings.workoutSettings.shouldHideGraphs && (
+          <>
+            {history.length > 1 && isHeavyContentReady && (
+              <View
+                data-testid="workout-stats-graph"
+                testID="workout-stats-graph"
+                className="relative mx-4 mt-2"
+                ref={graphImpression.ref}
+                onLayout={graphImpression.onLayout}
+              >
+                <Locker topic="Graphs" dispatch={props.dispatch} blur={8} subscription={props.subscription} />
+                <ActiveGraphContext.Provider value={activeGraphValue}>
+                  <PerfProbeSubtree id="graph">
+                    <GraphExercise
+                      id={`workout-graph-${Exercise_toKey(exerciseType)}`}
+                      isSameXAxis={false}
+                      minX={Math.round(minX / 1000)}
+                      maxX={Math.round(maxX / 1000)}
+                      isWithOneRm={true}
+                      key={`${Exercise_toKey(exerciseType)}_${props.settings.theme}`}
+                      settings={props.settings}
+                      isWithProgramLines={true}
+                      history={props.history}
+                      exercise={exerciseType}
+                      initialType={props.settings.graphsSettings.defaultType}
+                      dispatch={props.dispatch}
+                      isInteractive={Subscriptions_hasSubscription(props.subscription)}
+                      onInteract={onGraphInteract}
+                    />
+                  </PerfProbeSubtree>
+                </ActiveGraphContext.Provider>
+              </View>
+            )}
+            {showPrs && (
+              <View className="mx-4 mt-2">
+                <ExerciseAllTimePRs
+                  maxWeight={maxWeightProp}
+                  max1RM={max1RMProp}
+                  settings={props.settings}
+                  dispatch={props.dispatch}
+                />
+              </View>
+            )}
+          </>
+        )}
+        {history.length > 0 && isHeavyContentReady && (
+          <View className="mx-4 mt-2">
+            <PerfProbeSubtree id="history">
+              <ExerciseHistory
+                exerciseType={exerciseType}
                 settings={props.settings}
                 dispatch={props.dispatch}
+                history={history}
+                source="workout"
+                firstRecordProbe={historyImpression}
               />
-            </View>
-          )}
-        </>
-      )}
-      {history.length > 0 && isHeavyContentReady && (
-        <View className="mx-4 mt-2">
-          <PerfProbeSubtree id="history">
-            <ExerciseHistory
-              exerciseType={exerciseType}
-              settings={props.settings}
-              dispatch={props.dispatch}
-              history={history}
-            />
-          </PerfProbeSubtree>
-        </View>
-      )}
+            </PerfProbeSubtree>
+          </View>
+        )}
+      </Animated.View>
     </View>
   );
 }

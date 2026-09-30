@@ -38,6 +38,7 @@ struct WatchSet: Codable, SetInfoProvider, Equatable {
     let completedWeight: WatchWeight?
     let completedRpe: Double?
     let completedSetTimer: Int?
+    var completedSetTimerLeft: Int?
     let status: String
     let plates: String?
     let isWarmup: Bool
@@ -119,6 +120,24 @@ struct WatchValidWeights: Codable {
     let currentIndex: Int
 }
 
+// Values the user dialed in on a set whose debounced write hasn't reached storage yet. They travel with
+// the completion so it doesn't race that write. Only edited fields are set — nil means "leave whatever
+// storage already has", which is what keeps an untouched AMRAP set opening its modal instead of logging 0.
+struct WatchSetLogValues: Codable {
+    var reps: Int?
+    var repsLeft: Int?
+    var weight: Double?
+
+    var isEmpty: Bool {
+        reps == nil && repsLeft == nil && weight == nil
+    }
+
+    func toJson() -> String? {
+        guard !isEmpty, let data = try? JSONEncoder().encode(self) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+}
+
 struct WatchUserPromptedStateVar: Codable {
     let name: String
     let value: Double
@@ -162,6 +181,17 @@ struct WatchSetTimerModal: Codable, Identifiable, Equatable {
     let imageUrl: String?
     let currentSet: Int  // 1-based, across warmups+work
     let totalSets: Int
+    // Optional so a Debug build still decodes an older locally-embedded bundle; absent reads as work.
+    let phase: String?
+    let getReady: Int?
+    let phaseId: String?
+    let side: String?
+    let recordedThisSide: Bool?
+
+    var isGetReady: Bool { phase == "getReady" }
+    var isLeftSide: Bool { side == "left" }
+    var isRightSide: Bool { side == "right" }
+    var isUnilateral: Bool { isLeftSide || isRightSide }
 }
 
 struct WatchSetTimerCheckDue: Codable {

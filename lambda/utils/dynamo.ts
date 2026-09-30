@@ -16,7 +16,14 @@ import {
   NativeAttributeValue,
 } from "@aws-sdk/lib-dynamodb";
 import { CollectionUtils_inGroupsOf, CollectionUtils_compact } from "../../src/utils/collection";
+import { Concurrency_runWithLimit } from "../../src/utils/concurrency";
 import { ILogUtil } from "./log";
+
+export interface IDynamoCondition {
+  expression: string;
+  attrs?: Record<string, string>;
+  values?: Partial<Record<string, string | number>>;
+}
 
 export interface IDynamoUtil {
   query<T>(args: {
@@ -28,6 +35,7 @@ export interface IDynamoUtil {
     attrs?: Record<string, string>;
     values?: Partial<Record<string, string | string[] | number | number[]>>;
     limit?: number;
+    projection?: string;
   }): Promise<T[]>;
   scan<T>(args: {
     tableName: string;
@@ -66,9 +74,20 @@ export interface IDynamoUtil {
     expression: string;
     attrs?: Record<string, string>;
     values?: Partial<Record<string, NativeAttributeValue>>;
-  }): Promise<void>;
-  remove(args: { tableName: string; key: Record<string, NativeAttributeValue> }): Promise<void>;
-  batchGet<T>(args: { tableName: string; keys: Record<string, NativeAttributeValue>[] }): Promise<T[]>;
+    returnValues?: "ALL_NEW" | "UPDATED_NEW";
+  }): Promise<Record<string, NativeAttributeValue> | undefined>;
+  remove(args: {
+    tableName: string;
+    key: Record<string, NativeAttributeValue>;
+    condition?: IDynamoCondition;
+  }): Promise<boolean>;
+  batchGet<T>(args: {
+    tableName: string;
+    keys: Record<string, NativeAttributeValue>[];
+    consistentRead?: boolean;
+    projection?: string;
+    attrs?: Record<string, string>;
+  }): Promise<T[]>;
   batchDelete(args: { tableName: string; keys: Record<string, NativeAttributeValue>[] }): Promise<void>;
   batchPut(args: { tableName: string; items: Record<string, NativeAttributeValue>[] }): Promise<void>;
 }
@@ -96,6 +115,7 @@ export class DynamoUtil implements IDynamoUtil {
     attrs?: Record<string, string>;
     values?: Partial<Record<string, string | string[] | number>>;
     limit?: number;
+    projection?: string;
   }): Promise<T[]> {
     const startTime = Date.now();
     try {
@@ -108,6 +128,7 @@ export class DynamoUtil implements IDynamoUtil {
             ScanIndexForward: args.scanIndexForward,
             KeyConditionExpression: args.expression,
             FilterExpression: args.filterExpression,
+            ProjectionExpression: args.projection,
             ExpressionAttributeNames: args.attrs,
             ExpressionAttributeValues: args.values,
             Limit: args.limit,
@@ -277,12 +298,20 @@ export class DynamoUtil implements IDynamoUtil {
       await this.dynamo.send(new PutCommand({ TableName: args.tableName, Item: item }));
     } catch (error) {
       const e = error as Error;
-      this.log.log(`FAILED Dynamo put: ${args.tableName} - `, args.item, ` - ${Date.now() - startTime}ms`);
+      this.log.log(
+        `FAILED Dynamo put: ${args.tableName} - `,
+        DynamoUtil_redactForLog(args.item),
+        ` - ${Date.now() - startTime}ms`
+      );
       this.log.log(e.message);
       this.log.log(e.stack);
       throw e;
     }
-    this.log.log(`Dynamo put: ${args.tableName} - `, args.item, ` - ${Date.now() - startTime}ms`);
+    this.log.log(
+      `Dynamo put: ${args.tableName} - `,
+      DynamoUtil_redactForLog(args.item),
+      ` - ${Date.now() - startTime}ms`
+    );
   }
 
   public async putIfNotExists(args: {
@@ -319,7 +348,7 @@ export class DynamoUtil implements IDynamoUtil {
 
       this.log.log(
         `Dynamo putIfNotExists (inserted): ${args.tableName} - `,
-        args.item,
+        DynamoUtil_redactForLog(args.item),
         ` - ${Date.now() - startTime}ms`
       );
       return true;
@@ -328,12 +357,16 @@ export class DynamoUtil implements IDynamoUtil {
       if (e.name === "ConditionalCheckFailedException") {
         this.log.log(
           `Dynamo putIfNotExists (already exists): ${args.tableName} - `,
-          args.item,
+          DynamoUtil_redactForLog(args.item),
           ` - ${Date.now() - startTime}ms`
         );
         return false;
       }
-      this.log.log(`FAILED Dynamo putIfNotExists: ${args.tableName} - `, args.item, ` - ${Date.now() - startTime}ms`);
+      this.log.log(
+        `FAILED Dynamo putIfNotExists: ${args.tableName} - `,
+        DynamoUtil_redactForLog(args.item),
+        ` - ${Date.now() - startTime}ms`
+      );
       this.log.log(e.message);
       this.log.log(e.stack);
       throw e;
@@ -346,29 +379,33 @@ export class DynamoUtil implements IDynamoUtil {
     expression: string;
     attrs?: Record<string, string>;
     values?: Partial<Record<string, NativeAttributeValue>>;
-  }): Promise<void> {
+    returnValues?: "ALL_NEW" | "UPDATED_NEW";
+  }): Promise<Record<string, NativeAttributeValue> | undefined> {
     const startTime = Date.now();
     const clampedPaths: string[] = [];
     const values = DynamoUtil_sanitizeNumbers(args.values, clampedPaths);
     if (clampedPaths.length > 0) {
       this.log.log(`Dynamo update: clamped out-of-range numbers in ${args.tableName}: `, clampedPaths);
     }
+    let attributes: Record<string, NativeAttributeValue> | undefined;
     try {
-      await this.dynamo.send(
+      const res = await this.dynamo.send(
         new UpdateCommand({
           TableName: args.tableName,
           Key: args.key,
           UpdateExpression: args.expression,
           ExpressionAttributeNames: args.attrs,
           ExpressionAttributeValues: values,
+          ReturnValues: args.returnValues,
         })
       );
+      attributes = res.Attributes;
     } catch (e) {
       this.log.log(
         `FAILED Dynamo update: ${args.tableName} - `,
         args.key,
         args.expression,
-        args.values,
+        DynamoUtil_redactForLog(args.values),
         ` - ${Date.now() - startTime}ms`
       );
       throw e;
@@ -377,25 +414,38 @@ export class DynamoUtil implements IDynamoUtil {
       `Dynamo update: ${args.tableName} - `,
       args.key,
       args.expression,
-      args.values,
+      DynamoUtil_redactForLog(args.values),
       ` - ${Date.now() - startTime}ms`
     );
+    return attributes;
   }
 
-  public async remove(args: { tableName: string; key: Record<string, NativeAttributeValue> }): Promise<void> {
+  public async remove(args: {
+    tableName: string;
+    key: Record<string, NativeAttributeValue>;
+    condition?: IDynamoCondition;
+  }): Promise<boolean> {
     const startTime = Date.now();
     try {
       await this.dynamo.send(
         new DeleteCommand({
           TableName: args.tableName,
           Key: args.key,
+          ConditionExpression: args.condition?.expression,
+          ExpressionAttributeNames: args.condition?.attrs,
+          ExpressionAttributeValues: args.condition?.values,
         })
       );
     } catch (e) {
+      if (e instanceof Error && e.name === "ConditionalCheckFailedException") {
+        this.log.log(`Dynamo delete skipped by condition: ${args.tableName} - `, args.key);
+        return false;
+      }
       this.log.log(`FAILED Dynamo delete: ${args.tableName} - `, args.key, ` - ${Date.now() - startTime}ms`);
       throw e;
     }
     this.log.log(`Dynamo delete: ${args.tableName} - `, args.key, ` - ${Date.now() - startTime}ms`);
+    return true;
   }
 
   // DynamoDB BatchWriteItem can succeed (HTTP 200) while leaving some items unwritten in
@@ -459,7 +509,13 @@ export class DynamoUtil implements IDynamoUtil {
     );
   }
 
-  public async batchGet<T>(args: { tableName: string; keys: Record<string, NativeAttributeValue>[] }): Promise<T[]> {
+  public async batchGet<T>(args: {
+    tableName: string;
+    keys: Record<string, NativeAttributeValue>[];
+    consistentRead?: boolean;
+    projection?: string;
+    attrs?: Record<string, string>;
+  }): Promise<T[]> {
     if (args.keys.length === 0) {
       return [];
     }
@@ -467,7 +523,17 @@ export class DynamoUtil implements IDynamoUtil {
     try {
       const result = await Promise.all(
         CollectionUtils_inGroupsOf(95, args.keys).map((group) => {
-          return this.sendBatchGetWithRetry({ [args.tableName]: { Keys: group } }, `get ${args.tableName}`);
+          return this.sendBatchGetWithRetry(
+            {
+              [args.tableName]: {
+                Keys: group,
+                ConsistentRead: args.consistentRead,
+                ProjectionExpression: args.projection,
+                ExpressionAttributeNames: args.attrs,
+              },
+            },
+            `get ${args.tableName}`
+          );
         })
       );
       this.log.log(`Dynamo batch get: ${args.tableName} - `, args.keys, ` - ${Date.now() - startTime}ms`);
@@ -508,8 +574,8 @@ export class DynamoUtil implements IDynamoUtil {
     if (clampedPaths.length > 0) {
       this.log.log(`Dynamo batch put: clamped out-of-range numbers in ${args.tableName}: `, clampedPaths);
     }
-    await Promise.all(
-      CollectionUtils_inGroupsOf(25, sanitizedItems).map(async (group) => {
+    await Concurrency_runWithLimit(
+      CollectionUtils_inGroupsOf(25, sanitizedItems).map((group) => async () => {
         const startTime = Date.now();
         try {
           await this.sendBatchWriteWithRetry(
@@ -529,7 +595,7 @@ export class DynamoUtil implements IDynamoUtil {
             );
             this.log.log(
               "Duplicated items: ",
-              group.map((item) => JSON.stringify(item))
+              group.map((item) => JSON.stringify(DynamoUtil_redactForLog(item)))
             );
           }
           if (e instanceof Error && e.message.includes("Item size has exceeded the maximum allowed size")) {
@@ -538,7 +604,7 @@ export class DynamoUtil implements IDynamoUtil {
               this.log.log(`batchPut payload length: ${json.length}`);
               for (let i = 0; i < group.length; i++) {
                 const item = group[i];
-                const jsonItem = JSON.stringify(item);
+                const jsonItem = JSON.stringify(DynamoUtil_redactForLog(item));
                 this.log.log(`batchPut payload[${i}] length: ${JSON.stringify(jsonItem).length}`);
                 if (jsonItem.length > 100000) {
                   this.log.log(`batchPut payload[${i}]: ${jsonItem.slice(0, 100000)}`);
@@ -553,18 +619,44 @@ export class DynamoUtil implements IDynamoUtil {
           throw e;
         }
         this.log.log(`Dynamo batch put: ${args.tableName}`, `${group.length} items`, ` - ${Date.now() - startTime}ms`);
-      })
+      }),
+      BATCH_WRITE_CONCURRENCY
     );
   }
 }
 
 const BATCH_MAX_ATTEMPTS = 8;
 
+// A write that touches one partition key (e.g. every stat of a single user, which a full Apple
+// Health re-import produces) is capped at DynamoDB's 1000 WCU/s per-partition ceiling no matter how
+// the table is billed. Fanning every 25-item batch out at once put 100+ BatchWriteItems in flight
+// against that one key and returned a hard ThrottlingException instead of retryable
+// UnprocessedItems, so keep the in-flight burst small enough for the backoff loop to absorb.
+const BATCH_WRITE_CONCURRENCY = 8;
+
 // Exponential backoff with full jitter, capped at ~2s, so retries of throttled batch operations
 // spread out instead of hammering the table in lockstep.
 function batchBackoffMs(attempt: number): number {
   const ceiling = Math.min(2000, 50 * Math.pow(2, attempt));
   return Math.floor(Math.random() * ceiling);
+}
+
+const SENSITIVE_LOG_KEYS = new Set(["passwordHash"]);
+
+// Replace sensitive fields (e.g. password hashes) with a placeholder before an
+// item/values object is written to logs. Recursive so nested items are covered.
+export function DynamoUtil_redactForLog<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((v) => DynamoUtil_redactForLog(v)) as unknown as T;
+  }
+  if (value != null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      result[k] = SENSITIVE_LOG_KEYS.has(k) ? "[redacted]" : DynamoUtil_redactForLog(v);
+    }
+    return result as unknown as T;
+  }
+  return value;
 }
 
 // The AWS SDK throws when marshalling a finite number outside the IEEE-safe integer range

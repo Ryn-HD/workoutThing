@@ -14,6 +14,7 @@ const cardActionTypes: Set<ICardsAction["type"]> = new Set([
   "CompleteSetAction",
   "CheckSetTimerAction",
   "CloseSetTimerAction",
+  "StartSetTimerWorkAction",
 ]);
 
 function isCardsAction(action: unknown): action is ICardsAction {
@@ -45,7 +46,7 @@ export function buildPlaygroundDispatch(
     if (isCardsAction(action)) {
       const progress = getProgress();
       if (progress) {
-        const newProgress = buildCardsReducer(settings, stats, undefined)(progress, action);
+        const newProgress = buildCardsReducer([], settings, stats, undefined)(progress, action);
         updateState(dispatch, [lbProgress.record(newProgress)], action.type);
       }
     } else {

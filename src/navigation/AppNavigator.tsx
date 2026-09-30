@@ -31,6 +31,7 @@ import {
   NavScreenUnits,
   NavScreenSetupEquipment,
   NavScreenSetupPlates,
+  NavScreenHearAboutUs,
   NavScreenProgramSelectOnboarding,
   NavScreenProgramsOnboarding,
   NavScreenProgramPreviewOnboarding,
@@ -49,6 +50,7 @@ import {
   NavScreenMuscleGroups,
   NavScreenStats,
   NavScreenMeasurements,
+  NavScreenSleepNutrition,
   NavScreenExerciseStats,
   NavScreenApiKeys,
   NavScreenRecentImports,
@@ -61,6 +63,7 @@ import { NavModalEditProgramExercisePicker } from "./modals/NavModalEditProgramE
 import { NavModalEditTarget } from "./modals/NavModalEditTarget";
 import { NavModalSetTimer } from "./modals/NavModalSetTimer";
 import { NavModalSetTimerEdit } from "./modals/NavModalSetTimerEdit";
+import { NavModalRoundingInfo } from "./modals/NavModalRoundingInfo";
 import { NavModalDate } from "./modals/NavModalDate";
 import { NavModal1RM } from "./modals/NavModal1RM";
 import { NavModalEquipment } from "./modals/NavModalEquipment";
@@ -79,6 +82,7 @@ import { NavModalDayFromAdhoc } from "./modals/NavModalDayFromAdhoc";
 import { NavModalNextWorkout } from "./modals/NavModalNextWorkout";
 import { NavModalWhatsnew } from "./modals/NavModalWhatsnew";
 import { NavModalSignupRequest } from "./modals/NavModalSignupRequest";
+import { NavModalHearAboutUs } from "./modals/NavModalHearAboutUs";
 import { NavModalCorruptedState } from "./modals/NavModalCorruptedState";
 import { NavModalDebug } from "./modals/NavModalDebug";
 import { NavModalWorkoutShare } from "./modals/NavModalWorkoutShare";
@@ -97,6 +101,8 @@ import { NavModalEditProgressScript } from "./modals/NavModalEditProgressScript"
 import { NavModalEditUpdateScript } from "./modals/NavModalEditUpdateScript";
 import { NavModalMonthCalendar } from "./modals/NavModalMonthCalendar";
 import { NavModalAccount } from "./modals/NavModalAccount";
+import { NavModalEmailAuth } from "./modals/NavModalEmailAuth";
+import { NavModalChangePassword } from "./modals/NavModalChangePassword";
 import { NavModalSubscriptionInfo } from "./modals/NavModalSubscriptionInfo";
 import { NavModalWeekInsightsDetails } from "./modals/NavModalWeekInsightsDetails";
 import { NavModalSetSplit } from "./modals/NavModalSetSplit";
@@ -111,7 +117,11 @@ import { NavModalStatsSettings } from "./modals/NavModalStatsSettings";
 import { NavModalProgramInfo } from "./modals/NavModalProgramInfo";
 import { NavModalChangeNextDay } from "./modals/NavModalChangeNextDay";
 import { NavModalInputSelect } from "./modals/NavModalInputSelect";
+import { NavModalStateVars } from "./modals/NavModalStateVars";
+import { NavModalAcrossProgram } from "./modals/NavModalAcrossProgram";
+import { NavModalCreateStateVar } from "./modals/NavModalCreateStateVar";
 import { NavModalTextInput } from "./modals/NavModalTextInput";
+import { NavModalEditDetails } from "./modals/NavModalEditDetails";
 import { NavModalRepMaxCalculator } from "./modals/NavModalRepMaxCalculator";
 import { NavModalMuscleGroupMusclePicker } from "./modals/NavModalMuscleGroupMusclePicker";
 import { NavModalPhotoPicker } from "./modals/NavModalPhotoPicker";
@@ -121,6 +131,8 @@ import { NavModalExerciseCloneLibrary } from "./modals/NavModalExerciseCloneLibr
 import { NavModalExerciseTypesPicker } from "./modals/NavModalExerciseTypesPicker";
 import { NavModalExerciseMusclesPicker } from "./modals/NavModalExerciseMusclesPicker";
 import { NavModalHelp } from "./modals/NavModalHelp";
+import { NavModalExerciseLiftoEditor } from "./modals/NavModalExerciseLiftoEditor";
+import { NavModalDayLiftoEditor } from "./modals/NavModalDayLiftoEditor";
 
 function renderScreenWithErrorBoundary(args: {
   route: { name: string };
@@ -172,6 +184,11 @@ function OnboardingStackScreen(): JSX.Element {
       <OnboardingStack.Screen name="units" component={NavScreenUnits} />
       <OnboardingStack.Screen name="setupequipment" component={NavScreenSetupEquipment} />
       <OnboardingStack.Screen name="setupplates" component={NavScreenSetupPlates} />
+      <OnboardingStack.Screen
+        name="hearaboutus"
+        component={NavScreenHearAboutUs}
+        options={{ headerShown: true, header: NavHeader }}
+      />
       <OnboardingStack.Screen name="programselect" component={NavScreenProgramSelectOnboarding} />
       <OnboardingStack.Screen name="programs" component={NavScreenProgramsOnboarding} />
       <OnboardingStack.Screen name="programPreview" component={NavScreenProgramPreviewOnboarding} />
@@ -252,6 +269,7 @@ function MeStackScreen(): JSX.Element {
       <MeStack.Screen name="muscleGroups" component={NavScreenMuscleGroups} />
       <MeStack.Screen name="stats" component={NavScreenStats} />
       <MeStack.Screen name="measurements" component={NavScreenMeasurements} />
+      <MeStack.Screen name="sleepNutrition" component={NavScreenSleepNutrition} />
       <MeStack.Screen name="exerciseStats" component={NavScreenExerciseStats} />
       <MeStack.Screen name="apiKeys" component={NavScreenApiKeys} />
       <MeStack.Screen name="recentImports" component={NavScreenRecentImports} />
@@ -297,7 +315,14 @@ function MainTabsScreen(): JSX.Element {
   );
 }
 
-const onboardingScreens: IScreen[] = ["first", "units", "setupequipment", "setupplates", "programselect"];
+const onboardingScreens: IScreen[] = [
+  "first",
+  "units",
+  "setupequipment",
+  "setupplates",
+  "hearaboutus",
+  "programselect",
+];
 
 const InitialScreenContext = createContext<IScreen | undefined>(undefined);
 
@@ -334,6 +359,7 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           <RootStack.Screen name="editSetTargetModal" component={NavModalEditTarget} />
           <RootStack.Screen name="setTimerModal" component={NavModalSetTimer} />
           <RootStack.Screen name="setTimerEditModal" component={NavModalSetTimerEdit} />
+          <RootStack.Screen name="roundingInfoModal" component={NavModalRoundingInfo} />
           <RootStack.Screen name="dateModal" component={NavModalDate} />
           <RootStack.Screen name="rm1Modal" component={NavModal1RM} />
           <RootStack.Screen name="equipmentModal" component={NavModalEquipment} />
@@ -352,6 +378,7 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           <RootStack.Screen name="nextWorkoutModal" component={NavModalNextWorkout} />
           <RootStack.Screen name="whatsnewModal" component={NavModalWhatsnew} />
           <RootStack.Screen name="signupRequestModal" component={NavModalSignupRequest} />
+          <RootStack.Screen name="hearAboutUsModal" component={NavModalHearAboutUs} />
           <RootStack.Screen name="corruptedStateModal" component={NavModalCorruptedState} />
           <RootStack.Screen name="debugModal" component={NavModalDebug} />
           <RootStack.Screen name="workoutShareModal" component={NavModalWorkoutShare} />
@@ -370,6 +397,8 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           <RootStack.Screen name="editUpdateScriptModal" component={NavModalEditUpdateScript} />
           <RootStack.Screen name="monthCalendarModal" component={NavModalMonthCalendar} />
           <RootStack.Screen name="accountModal" component={NavModalAccount} />
+          <RootStack.Screen name="emailAuthModal" component={NavModalEmailAuth} />
+          <RootStack.Screen name="changePasswordModal" component={NavModalChangePassword} />
           <RootStack.Screen name="subscriptionInfoModal" component={NavModalSubscriptionInfo} />
           <RootStack.Screen name="weekInsightsDetailsModal" component={NavModalWeekInsightsDetails} />
           <RootStack.Screen name="setSplitModal" component={NavModalSetSplit} />
@@ -384,7 +413,11 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           <RootStack.Screen name="programInfoModal" component={NavModalProgramInfo} />
           <RootStack.Screen name="changeNextDayModal" component={NavModalChangeNextDay} />
           <RootStack.Screen name="inputSelectModal" component={NavModalInputSelect} />
+          <RootStack.Screen name="stateVarsModal" component={NavModalStateVars} />
+          <RootStack.Screen name="acrossProgramModal" component={NavModalAcrossProgram} />
+          <RootStack.Screen name="createStateVarModal" component={NavModalCreateStateVar} />
           <RootStack.Screen name="textInputModal" component={NavModalTextInput} />
+          <RootStack.Screen name="editDetailsModal" component={NavModalEditDetails} />
           <RootStack.Screen name="repMaxCalculatorModal" component={NavModalRepMaxCalculator} />
           <RootStack.Screen name="muscleGroupMusclePickerModal" component={NavModalMuscleGroupMusclePicker} />
           <RootStack.Screen name="photoPickerModal" component={NavModalPhotoPicker} />
@@ -394,6 +427,8 @@ export function AppNavigator(props: { initialScreen?: IScreen }): JSX.Element {
           <RootStack.Screen name="exerciseTypesPickerModal" component={NavModalExerciseTypesPicker} />
           <RootStack.Screen name="exerciseMusclesPickerModal" component={NavModalExerciseMusclesPicker} />
           <RootStack.Screen name="helpModal" component={NavModalHelp} />
+          <RootStack.Screen name="exerciseLiftoEditorModal" component={NavModalExerciseLiftoEditor} />
+          <RootStack.Screen name="dayLiftoEditorModal" component={NavModalDayLiftoEditor} />
         </RootStack.Group>
       </RootStack.Navigator>
     </InitialScreenContext.Provider>
