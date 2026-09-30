@@ -14,7 +14,7 @@ function cookieSecret(): string {
 }
 
 export function Auth_setSessionCookie(res: VercelResponse, userId: string): void {
-  const token = jwt.sign({ userId }, cookieSecret());
+  const token = jwt.sign({ userId }, cookieSecret(), { algorithm: "HS256" });
   // Host-only cookie (no Domain) so it applies on the Vercel deployment domain.
   res.setHeader(
     "Set-Cookie",
@@ -46,9 +46,8 @@ export function Auth_getUserId(req: VercelRequest): string | undefined {
     return undefined;
   }
   try {
-    jwt.verify(token, cookieSecret());
-    const decoded = jwt.decode(token) as { userId?: string } | null;
-    return decoded?.userId === USER_ID ? decoded.userId : undefined;
+    const payload = jwt.verify(token, cookieSecret(), { algorithms: ["HS256"] }) as { userId?: string };
+    return payload.userId === USER_ID ? payload.userId : undefined;
   } catch (_e) {
     return undefined;
   }

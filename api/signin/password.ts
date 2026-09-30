@@ -3,6 +3,16 @@ import { Auth_setSessionCookie } from "../_lib/auth";
 import { Db_getStorage, USER_EMAIL, USER_ID } from "../_lib/db";
 import { Http_parseJson, Http_rawBody } from "../_lib/http";
 import { Storage_getDefault } from "../../src/models/storage";
+import { createHash, timingSafeEqual } from "crypto";
+
+function passwordMatches(candidate: unknown, expected: string): boolean {
+  if (typeof candidate !== "string") {
+    return false;
+  }
+  const candidateDigest = createHash("sha256").update(candidate).digest();
+  const expectedDigest = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(candidateDigest, expectedDigest);
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
   if (req.method !== "POST") {
@@ -15,7 +25,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     return;
   }
   const body = Http_parseJson(await Http_rawBody(req));
-  if (body.password !== appPassword) {
+  if (!passwordMatches(body.password, appPassword)) {
     res.status(401).json({ error: "invalid_password" });
     return;
   }
