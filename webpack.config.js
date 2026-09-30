@@ -366,6 +366,18 @@ const mainConfig = {
         to: `get-ready-end.m4r`,
       },
       {
+        from: `src/notification.mp3`,
+        to: `notification.mp3`,
+      },
+      {
+        from: `src/set-timer-end.mp3`,
+        to: `set-timer-end.mp3`,
+      },
+      {
+        from: `src/get-ready-end.mp3`,
+        to: `get-ready-end.mp3`,
+      },
+      {
         from: "icons",
         to: "icons",
       },
