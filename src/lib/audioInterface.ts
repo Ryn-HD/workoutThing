@@ -14,17 +14,40 @@ export class MockAudioInterface implements IAudioInterface {
   }
 }
 
+interface INavigatorWithAudioSession extends Navigator {
+  audioSession?: { type: "auto" | "playback" | "transient" | "transient-solo" | "ambient" | "play-and-record" };
+}
+
 const SOUND_NAMES: ISoundName[] = ["notification", "set-timer-end", "get-ready-end"];
 
 const UNLOCK_EVENTS = ["pointerdown", "touchend", "click", "keydown"];
 
+const RESUME_TIMEOUT_MS = 300;
+
+// MP3 rather than the native .m4r (AAC), which Chromium builds without proprietary codecs can't decode.
+function soundUrl(sound: ISoundName): string {
+  return `/${sound}.mp3`;
+}
+
+function isRunning(context: AudioContext): boolean {
+  return context.state === "running";
+}
+
 export class AudioInterface implements IAudioInterface {
   private context: AudioContext | undefined;
   private readonly buffers: Map<ISoundName, Promise<AudioBuffer>> = new Map();
+  private readonly elements: Map<ISoundName, HTMLAudioElement> = new Map();
   private isUnlocked = false;
 
   constructor(private readonly timer: ITimerBridge) {
     if (typeof window !== "undefined") {
+      // By default iOS gives page audio a non-mixable session, so Spotify or a podcast playing in the
+      // background interrupts it and the chime never sounds. "transient" marks it as a short notification
+      // that plays over other audio, like a native alarm.
+      const audioSession = (navigator as INavigatorWithAudioSession).audioSession;
+      if (audioSession != null) {
+        audioSession.type = "transient";
+      }
       // Kept attached for the page's lifetime: iOS re-suspends the context after interruptions
       // (backgrounding, calls), and only a user gesture can resume it again.
       for (const event of UNLOCK_EVENTS) {
@@ -44,7 +67,7 @@ export class AudioInterface implements IAudioInterface {
       navigator.vibrate([300, 150, 300]);
     }
     if (volume > 0) {
-      this.playBuffer(sound, volume).catch((e) => console.error("Failed to play timer sound:", e));
+      this.playSound(sound, volume).catch((e) => console.error("Failed to play timer sound:", e));
     }
   }
 
@@ -60,10 +83,13 @@ export class AudioInterface implements IAudioInterface {
     source.buffer = context.createBuffer(1, 1, 22050);
     source.connect(context.destination);
     source.start(0);
-    this.isUnlocked = true;
-    for (const sound of SOUND_NAMES) {
-      this.loadBuffer(sound).catch(() => undefined);
+    if (!this.isUnlocked) {
+      for (const sound of SOUND_NAMES) {
+        this.loadBuffer(sound).catch(() => undefined);
+        this.primeElement(sound);
+      }
     }
+    this.isUnlocked = true;
   };
 
   private getContext(): AudioContext | undefined {
@@ -82,8 +108,7 @@ export class AudioInterface implements IAudioInterface {
     if (context == null) {
       return Promise.reject(new Error("Web Audio is not available"));
     }
-    // MP3 rather than the native .m4r (AAC), which Chromium builds without proprietary codecs can't decode.
-    const promise = fetch(`/${sound}.mp3`)
+    const promise = fetch(soundUrl(sound))
       .then((response) => response.arrayBuffer())
       .then((data) => context.decodeAudioData(data))
       .catch((e) => {
@@ -94,21 +119,54 @@ export class AudioInterface implements IAudioInterface {
     return promise;
   }
 
-  private async playBuffer(sound: ISoundName, volume: number): Promise<void> {
+  // iOS lets a media element play from a timer only once it has played inside a user gesture, so each
+  // fallback element is played muted during the unlock tap.
+  private primeElement(sound: ISoundName): void {
+    const element = new Audio(soundUrl(sound));
+    element.preload = "auto";
+    element.muted = true;
+    element
+      .play()
+      .then(() => {
+        element.pause();
+        element.currentTime = 0;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        element.muted = false;
+      });
+    this.elements.set(sound, element);
+  }
+
+  private async playSound(sound: ISoundName, volume: number): Promise<void> {
     const context = this.getContext();
-    if (context == null) {
+    if (context != null && (await this.ensureRunning(context))) {
+      const buffer = await this.loadBuffer(sound);
+      const gain = context.createGain();
+      gain.gain.value = Math.min(1, Math.max(0, volume));
+      gain.connect(context.destination);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(gain);
+      source.start(0);
       return;
     }
-    if (context.state !== "running") {
-      await context.resume();
+    const element = this.elements.get(sound) ?? new Audio(soundUrl(sound));
+    element.volume = Math.min(1, Math.max(0, volume));
+    element.currentTime = 0;
+    await element.play();
+  }
+
+  // An interrupted iOS context's resume() can stay pending forever outside a user gesture, so it gets a
+  // deadline rather than being awaited directly.
+  private async ensureRunning(context: AudioContext): Promise<boolean> {
+    if (isRunning(context)) {
+      return true;
     }
-    const buffer = await this.loadBuffer(sound);
-    const gain = context.createGain();
-    gain.gain.value = Math.min(1, Math.max(0, volume));
-    gain.connect(context.destination);
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.connect(gain);
-    source.start(0);
+    await Promise.race([
+      context.resume().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, RESUME_TIMEOUT_MS)),
+    ]);
+    return isRunning(context);
   }
 }
