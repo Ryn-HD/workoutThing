@@ -19,6 +19,9 @@ const filesToCache = [
   "/icons/icon512.png",
   "/icons/maskable_icon_512.png",
   "/notification.m4r",
+  "/notification.mp3",
+  "/set-timer-end.mp3",
+  "/get-ready-end.mp3",
 ];
 
 function cacheRequest(request: RequestInfo, response: Response): Promise<Response> {
