@@ -25,6 +25,7 @@ import {
 } from "../../utils/sendMessage";
 import { HealthSync_eligibleForAppleHealth, HealthSync_eligibleForGoogleHealth } from "../../lib/healthSync";
 import type { IRootStackParamList } from "../types";
+import { AppleHealthShortcutAction } from "../../components/appleHealthShortcut";
 
 export function NavModalWorkoutShare(): JSX.Element {
   const { state, dispatch } = useAppState();
@@ -65,9 +66,15 @@ export function NavModalWorkoutShare(): JSX.Element {
   const isIos = Platform.OS === "ios" || SendMessage_isIos();
   const healthName = isIos ? "Apple Health" : "Google Health";
   const shouldShowHealthSync = HealthSync_eligibleForAppleHealth() || HealthSync_eligibleForGoogleHealth();
+  const savedRecord = progressId !== 0 ? state.storage.history.find((record) => record.id === progress.id) : undefined;
 
   const content = (
     <View className="pb-4">
+      {savedRecord && (
+        <View className="px-4 pb-4">
+          <AppleHealthShortcutAction record={savedRecord} dispatch={dispatch} />
+        </View>
+      )}
       {isMobile && (
         <>
           <BottomSheetItem

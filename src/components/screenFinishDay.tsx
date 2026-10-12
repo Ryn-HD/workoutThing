@@ -50,6 +50,11 @@ import { Muscle_getMuscleGroupName } from "../models/muscle";
 import { IconDoc } from "./icons/iconDoc";
 import { LiftohistorySerializer_serialize } from "../liftohistory/liftohistorySerializer";
 import { navigateToModal } from "../navigation/navigationService";
+import {
+  AppleHealthShortcutAction,
+  AppleHealthShortcut_isEligible,
+  useAppleHealthShortcutEnabled,
+} from "./appleHealthShortcut";
 
 interface IProps {
   history: IHistoryRecord[];
@@ -64,10 +69,11 @@ interface IProps {
 
 export function ScreenFinishDay(props: IProps): JSX.Element {
   useNavOptions({ navTitle: "Congratulations!" });
+  const shortcutEnabled = useAppleHealthShortcutEnabled();
 
   const recordById =
     props.historyRecordId != null ? props.history.find((h) => h.id === props.historyRecordId) : undefined;
-  const record = recordById ?? props.history[0];
+  const record = props.historyRecordId != null ? recordById : props.history[0];
 
   // On the very first workout, history is momentarily empty between the
   // navigate-to-finishDay and the FinishProgramDayAction commit, so `record`
@@ -101,6 +107,13 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
     Platform.OS === "android" ||
     (SendMessage_isIos() && SendMessage_iosAppVersion() >= 11) ||
     (SendMessage_isAndroid() && SendMessage_androidAppVersion() >= 20);
+
+  const onContinue = (): void => {
+    props.dispatch(Thunk_pushScreen("main", undefined, { tab: "home" }));
+    props.dispatch(Thunk_maybeRequestReview());
+    props.dispatch(Thunk_maybeRequestSignup());
+  };
+  const useShortcut = AppleHealthShortcut_isEligible() && shortcutEnabled;
 
   return (
     <>
@@ -208,22 +221,25 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
               </Button>
             </View>
           )}
-          <View className="items-center justify-center flex-1 pb-8">
-            <Button
-              name="finish-day-continue"
-              kind="purple"
-              className="w-36"
-              testID="finish-day-continue"
-              onPress={() => {
-                props.dispatch(Thunk_pushScreen("main", undefined, { tab: "home" }));
-                props.dispatch(Thunk_maybeRequestReview());
-                props.dispatch(Thunk_maybeRequestSignup());
-              }}
-            >
-              Continue
-            </Button>
-          </View>
+          {!useShortcut && (
+            <View className="items-center justify-center flex-1 pb-8">
+              <Button
+                name="finish-day-continue"
+                kind="purple"
+                className="w-36"
+                testID="finish-day-continue"
+                onPress={onContinue}
+              >
+                Continue
+              </Button>
+            </View>
+          )}
         </View>
+        {useShortcut && (
+          <View className="pb-8">
+            <AppleHealthShortcutAction record={record} dispatch={props.dispatch} onDone={onContinue} />
+          </View>
+        )}
       </View>
       <Confetti />
     </>

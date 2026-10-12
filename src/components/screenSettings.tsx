@@ -53,6 +53,7 @@ import { LinkButton } from "./linkButton";
 import { Features_isEnabled } from "../utils/features";
 import { Slider } from "./primitives/slider";
 import { usePerfRenderCount } from "../utils/usePerfRenderCount";
+import { AppleHealthShortcutSetup } from "./appleHealthShortcut";
 
 interface IProps {
   dispatch: IDispatch;
@@ -418,6 +419,7 @@ function ScreenSettingsInner(props: IProps): JSX.Element {
           )}
         </>
       )}
+      <AppleHealthShortcutSetup />
       <GroupHeader name="Appearance" topPadding={true} />
       <MenuItemWrapper name="text-size">
         <View className="py-2">

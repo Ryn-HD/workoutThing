@@ -375,6 +375,73 @@ describe("Persistence", () => {
   });
 
   describe("scheduleSave", () => {
+    it("rejects a failed handoff save and allows a subsequent retry", async () => {
+      let fail = true;
+      const failingStore: IPersistenceStore = {
+        get: (key) => store.get(key),
+        getAllKeys: () => store.getAllKeys(),
+        setMany: async (pairs) => {
+          if (fail && pairs.some(([key]) => key.startsWith("liftosaurshard:"))) {
+            throw new Error("quota exceeded");
+          }
+          return store.setMany(pairs);
+        },
+      };
+      const scheduler = new Persistence(failingStore, "sharded", 10000);
+      const data = { storage: buildStorage([1, 2]) };
+      scheduler.scheduleSave("acc", data);
+      let error: unknown;
+      try {
+        await scheduler.saveForHandoff("acc", data);
+      } catch (e) {
+        error = e;
+      }
+      expect(error).to.be.instanceOf(Error);
+      fail = false;
+      await scheduler.saveForHandoff("acc", data);
+      expect((await scheduler.load("liftosaur_acc"))?.storage?.history).to.have.length(2);
+    });
+
+    it("finishes an in-flight older save before acknowledging the new workout", async () => {
+      let release: (() => void) | undefined;
+      let started: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const began = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let first = true;
+      const delayedStore: IPersistenceStore = {
+        get: (key) => store.get(key),
+        getAllKeys: () => store.getAllKeys(),
+        setMany: async (pairs) => {
+          if (first && pairs.some(([key]) => key.startsWith("liftosaurshard:"))) {
+            first = false;
+            started!();
+            await gate;
+          }
+          return store.setMany(pairs);
+        },
+      };
+      const scheduler = new Persistence(delayedStore, "sharded", 10000);
+      scheduler.scheduleSave("acc", { storage: buildStorage([1]) });
+      const older = scheduler.flushSave();
+      await began;
+      const data = { storage: buildStorage([1, 2]) };
+      scheduler.scheduleSave("acc", data);
+      let acknowledged = false;
+      const handoff = scheduler.saveForHandoff("acc", data).then(() => {
+        acknowledged = true;
+      });
+      await Promise.resolve();
+      expect(acknowledged).to.equal(false);
+      release!();
+      await Promise.all([older, handoff]);
+      const freshBoot = new Persistence(store, "sharded");
+      expect((await freshBoot.load("liftosaur_acc"))?.storage?.history).to.have.length(2);
+    });
+
     it("writes the data it was given, not whatever is current when the timer runs", async () => {
       const scheduler = new Persistence(store, "sharded", 0);
       scheduler.scheduleSave("acc", { storage: buildStorage([1]) });

@@ -169,6 +169,7 @@ export class Persistence {
   private readonly oldBaselineShardsToDelete = new Set<string>();
   private scheduled: { accountId: string; data: ILocalStorage } | undefined = undefined;
   private scheduledTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  private writeTail: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly store: IPersistenceStore = indexedDBStore,
@@ -197,14 +198,7 @@ export class Persistence {
     }
     this.scheduled = undefined;
     try {
-      // The account pointer is best-effort. IndexedDBUtils_setMany rejects on a failed
-      // transaction, and a failed pointer write must not stop the workout data from being saved.
-      await this.store.setMany([["current_account", pending.accountId]]);
-    } catch (e) {
-      lg("ls-persistence-account-pointer-error", { error: String(e) });
-    }
-    try {
-      const stats = await this.save(`liftosaur_${pending.accountId}`, pending.data);
+      const stats = await this.enqueueWrite(() => this.saveAccountSnapshot(pending.accountId, pending.data));
       if (PerfProbe_isTarget()) {
         lg("perf-persist", {
           stringify_ms: stats.stringifyMs,
@@ -229,6 +223,34 @@ export class Persistence {
   }
 
   public async save(baseKey: string, data: ILocalStorage): Promise<IPersistenceSaveStats> {
+    return this.enqueueWrite(() => this.saveSnapshot(baseKey, data));
+  }
+
+  // External-app handoffs must know the transaction finished, including when an
+  // older scheduled save is already in flight. Unlike flushSave, this rejects.
+  public async saveForHandoff(accountId: string, data: ILocalStorage): Promise<void> {
+    if (this.scheduled?.accountId === accountId) {
+      this.cancelSave();
+    }
+    await this.enqueueWrite(() => this.saveAccountSnapshot(accountId, data));
+  }
+
+  private enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.writeTail.then(operation);
+    this.writeTail = next.catch(() => undefined);
+    return next;
+  }
+
+  private async saveAccountSnapshot(accountId: string, data: ILocalStorage): Promise<IPersistenceSaveStats> {
+    try {
+      await this.store.setMany([["current_account", accountId]]);
+    } catch (e) {
+      lg("ls-persistence-account-pointer-error", { error: String(e) });
+    }
+    return this.saveSnapshot(`liftosaur_${accountId}`, data);
+  }
+
+  private async saveSnapshot(baseKey: string, data: ILocalStorage): Promise<IPersistenceSaveStats> {
     const t0 = Date.now();
     if (this.mode === "legacy") {
       const json = serializeLegacy(data);
@@ -305,8 +327,10 @@ export class Persistence {
   }
 
   public async saveFull(baseKey: string, data: ILocalStorage): Promise<IPersistenceSaveStats> {
-    delete this.writeCache[baseKey];
-    return this.save(baseKey, data);
+    return this.enqueueWrite(() => {
+      delete this.writeCache[baseKey];
+      return this.saveSnapshot(baseKey, data);
+    });
   }
 
   // Migration is lazy: load never writes. A legacy-only account gets its shards +
