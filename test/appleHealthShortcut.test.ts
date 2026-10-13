@@ -6,6 +6,7 @@ import {
   AppleHealthShortcut_buildPayload,
   AppleHealthShortcut_getState,
   AppleHealthShortcut_launchUrl,
+  AppleHealthShortcut_name,
   AppleHealthShortcut_recordTimes,
   AppleHealthShortcut_setState,
 } from "../src/utils/appleHealthShortcut";
@@ -123,6 +124,31 @@ describe("Apple Health Shortcut handoff", () => {
       expect(callback.pathname).to.equal("/apple-health-result.html");
       expect(callback.search).to.not.contain("duration");
       expect(callback.search).to.not.contain("secret");
+    }
+  });
+
+  it("uses percent-encoded spaces for Shortcuts' native URL decoder, preserving literal plus signs", async () => {
+    const payload = { ...(await AppleHealthShortcut_buildPayload("test", record())), requestId: "request + & / café" };
+    const url = new URL(AppleHealthShortcut_launchUrl(payload, "https://velocireps.vercel.app"));
+    // Do not use URLSearchParams here: its form decoder would hide the bug
+    // by translating '+' back to a space, unlike the native Shortcuts decoder.
+    const nativeParameters = Object.fromEntries(
+      url.search
+        .slice(1)
+        .split("&")
+        .map((pair) => {
+          const [key, value] = pair.split("=");
+          return [decodeURIComponent(key), decodeURIComponent(value)];
+        })
+    );
+    expect(url.search).to.not.contain("+");
+    expect(url.search).to.contain("name=VelociReps%20Log%20Workout");
+    expect(nativeParameters.name).to.equal(AppleHealthShortcut_name);
+    expect(JSON.parse(nativeParameters.text)).to.eql(payload);
+    for (const name of ["x-success", "x-cancel", "x-error"]) {
+      const callback = new URL(nativeParameters[name]);
+      expect(callback.origin).to.equal("https://velocireps.vercel.app");
+      expect(callback.searchParams.get("requestId")).to.equal(payload.requestId);
     }
   });
 

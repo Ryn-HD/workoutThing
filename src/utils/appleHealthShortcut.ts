@@ -151,6 +151,10 @@ export function AppleHealthShortcut_launchUrl(payload: IAppleHealthShortcutPaylo
     callback.searchParams.set("requestId", payload.requestId);
     url.searchParams.set(parameter, callback.toString());
   }
+  // Shortcuts decodes percent escapes, but treats form-encoded '+' as a
+  // literal plus. Encode spaces as %20 in both the name and JSON payload.
+  // Real plus characters already encoded as %2B must remain unchanged.
+  url.search = url.searchParams.toString().replace(/\+/g, "%20");
   return url.toString();
 }
 

@@ -23,6 +23,8 @@ Version 1 receives JSON text through `shortcuts://x-callback-url/run-shortcut`. 
 
 The October 13 PWA fix closes new workout intervals at exactly the saved end time, repairs the earlier finish-time discrepancy during export, and keeps manual sending available independently of the browser's preference. It uses the unchanged version 1 Shortcut; existing installations do not need replacing.
 
+The launch URL percent-encodes spaces as `%20`. Shortcuts treats the `+` emitted by form-style `URLSearchParams` serialization literally, causing "could not find VelociReps+Log+Workout" and altering spaces inside the JSON payload. Literal plus signs remain encoded as `%2B`. The regression test decodes query values with `decodeURIComponent`, since `URLSearchParams` would mask this native handoff failure.
+
 The Shortcut hashes `exportId` into a safe filename and keeps per-workout JSON markers in its default Shortcuts folder in iCloud Drive. It writes `pending` before Log Workout and `saved` afterwards. A saved marker returns `alreadySaved`. A pending or interrupted attempt requires the user to check Health and choose whether to retry. Health and file writes are not atomic, and clearing these files removes duplicate protection. Edits do not update an existing Health entry.
 
 Success output is JSON with `exportId`, `requestId`, and `status: saved|alreadySaved`. The result page accepts only a matching pending request and never treats opening Shortcuts as success. A Safari callback may not share the Home Screen app's storage; in that case, the Shortcut's success message and ledger remain the confirmation. No workout metrics, notes, exercise details, account identifiers, or credentials go into the HTTPS callback.
