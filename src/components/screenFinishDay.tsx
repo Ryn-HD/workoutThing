@@ -235,9 +235,14 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
             </View>
           )}
         </View>
-        {useShortcut && (
+        {AppleHealthShortcut_isEligible() && (
           <View className="pb-8">
-            <AppleHealthShortcutAction record={record} dispatch={props.dispatch} onDone={onContinue} />
+            <AppleHealthShortcutAction
+              record={record}
+              dispatch={props.dispatch}
+              manual={true}
+              onDone={useShortcut ? onContinue : undefined}
+            />
           </View>
         )}
       </View>

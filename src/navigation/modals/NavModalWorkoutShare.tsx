@@ -72,7 +72,7 @@ export function NavModalWorkoutShare(): JSX.Element {
     <View className="pb-4">
       {savedRecord && (
         <View className="px-4 pb-4">
-          <AppleHealthShortcutAction record={savedRecord} dispatch={dispatch} />
+          <AppleHealthShortcutAction record={savedRecord} dispatch={dispatch} manual={true} />
         </View>
       )}
       {isMobile && (

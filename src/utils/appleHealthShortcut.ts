@@ -73,38 +73,44 @@ export function AppleHealthShortcut_recordTimes(record: Pick<IHistoryRecord, "st
   durationSeconds: number;
   energyKcal: number;
 } {
-  const intervals = record.intervals ?? [[record.startTime, record.endTime]];
-  const endTime = record.endTime ?? intervals[intervals.length - 1]?.[1];
+  const intervals = record.intervals ?? [];
+  const closedEnds = intervals
+    .map((interval) => interval[1])
+    .filter((end): end is number => end != null && Number.isFinite(end));
+  const endTime = record.endTime ?? (closedEnds.length ? Math.max(...closedEnds) : undefined);
   if (
     !Number.isFinite(record.startTime) ||
     endTime == null ||
     !Number.isFinite(endTime) ||
-    endTime <= record.startTime
+    endTime < record.startTime
   ) {
     throw new Error("This workout needs a valid start and end time before it can be sent to Health.");
   }
+  // Timer metadata may be missing or stale on saved records. Recover it using
+  // the saved session bounds, never today's clock or exercise completion flags.
+  // Older finish logic closed the last interval after capturing endTime.
+  const ranges = intervals
+    .flatMap(([start, end]) => {
+      if (!Number.isFinite(start) || (end != null && !Number.isFinite(end))) {
+        return [];
+      }
+      const from = Math.max(record.startTime, start);
+      const to = Math.min(endTime, end ?? endTime);
+      return to > from ? [[from, to] as [number, number]] : [];
+    })
+    .sort((a, b) => a[0] - b[0]);
   let previousEnd = record.startTime;
   let durationMs = 0;
-  for (const [start, end] of intervals) {
-    if (
-      !Number.isFinite(start) ||
-      end == null ||
-      !Number.isFinite(end) ||
-      start < previousEnd ||
-      end < start ||
-      end > endTime
-    ) {
-      throw new Error("This workout has unfinished or invalid timer intervals.");
-    }
-    durationMs += end - start;
-    previousEnd = end;
+  for (const [start, end] of ranges) {
+    durationMs += Math.max(0, end - Math.max(start, previousEnd));
+    previousEnd = Math.max(previousEnd, end);
   }
-  if (durationMs < 1000) {
-    throw new Error("A workout must have at least one second of recorded time to send to Health.");
+  if (!ranges.length) {
+    durationMs = endTime - record.startTime;
   }
   return {
     startDate: new Date(record.startTime).toISOString(),
-    durationSeconds: Math.floor(durationMs / 1000),
+    durationSeconds: Math.max(1, Math.floor(durationMs / 1000)),
     energyKcal: Math.floor(durationMs / 60000) * 6,
   };
 }

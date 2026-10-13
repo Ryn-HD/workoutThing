@@ -2,6 +2,8 @@
 
 Status: implemented in the PWA with a signed installation artifact. Local verification is complete; physical iPhone Health-write verification remains outstanding. See `shortcuts/README.md` for build instructions and verification limits.
 
+October 13 review: partial workouts now finish without an incomplete-set confirmation. Manual sending is available regardless of the browser-local preference. New intervals close at the saved finish timestamp, and export normalizes old timer metadata within saved session bounds, falling back to the saved elapsed duration when necessary. The installed version 1 Shortcut remains compatible. This supersedes the original strict interval rejection and setup-gating proposals below.
+
 ## Intended experience
 
 Keep using the fork at `https://velocireps.vercel.app/app/`. Install one iPhone Shortcut, grant it permission to write workouts to Health, and enable the integration in the app.

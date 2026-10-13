@@ -15,7 +15,6 @@ import {
   AppleHealthShortcut_getState,
   AppleHealthShortcut_isEnabled,
   AppleHealthShortcut_launchUrl,
-  AppleHealthShortcut_name,
   AppleHealthShortcut_setEnabled,
   AppleHealthShortcut_setState,
   IAppleHealthShortcutPayload,
@@ -69,8 +68,8 @@ export function AppleHealthShortcutSetup(): JSX.Element | null {
     <View testID="apple-health-shortcut-setup">
       <GroupHeader name="Apple Health" topPadding={true} />
       <Text className="text-sm text-text-secondary pb-3">
-        Install the Shortcut once, then send your saved workout from the finish screen. Shortcuts opens to log strength
-        training, active workout time, and estimated calories. Allow Shortcuts to write workouts to Health.
+        Install the Shortcut once to send saved workouts to Health. If you already installed it, keep using it. This
+        switch only makes Send the main finish-screen action. You can always send a saved workout from Share.
       </Text>
       <LinkButton
         name="apple-health-shortcut-install"
@@ -78,7 +77,7 @@ export function AppleHealthShortcutSetup(): JSX.Element | null {
           window.location.assign("/apple-health-setup.html");
         }}
       >
-        Install Apple Health Shortcut
+        Shortcut download & help
       </LinkButton>
       <View className="pt-3 pb-2">
         <Button
@@ -92,7 +91,7 @@ export function AppleHealthShortcutSetup(): JSX.Element | null {
             }
           }}
         >
-          {enabled ? "Turn off finish-screen sending" : "I've installed it — enable on finish screen"}
+          {enabled ? "Use Continue as the main finish action" : "Make Send the main finish action"}
         </Button>
       </View>
       <Text className="text-xs text-text-secondary pb-3">This setting applies to this device and browser.</Text>
@@ -104,6 +103,7 @@ interface IActionProps {
   record: IHistoryRecord;
   dispatch: IDispatch;
   onDone?: () => void;
+  manual?: boolean;
 }
 
 export function AppleHealthShortcutAction(props: IActionProps): JSX.Element | null {
@@ -114,8 +114,9 @@ export function AppleHealthShortcutAction(props: IActionProps): JSX.Element | nu
   const [attempt, setAttempt] = useState(0);
   const launching = useRef(false);
   const eligible = AppleHealthShortcut_isEligible();
+  const available = eligible && (enabled || !!props.manual);
   useEffect(() => {
-    if (!eligible || !enabled) {
+    if (!available) {
       return;
     }
     let active = true;
@@ -126,8 +127,8 @@ export function AppleHealthShortcutAction(props: IActionProps): JSX.Element | nu
       try {
         const current = getState();
         const record = current.storage.history.find((item) => item.id === props.record.id);
-        if (!record || record !== props.record) {
-          throw new Error("The saved workout changed. Reopen it before sending to Health.");
+        if (!record) {
+          throw new Error("This workout hasn't been saved yet. Save it before sending to Health.");
         }
         await env.persistence.saveForHandoff(current.user?.id || current.storage.tempUserId, {
           storage: current.storage,
@@ -147,7 +148,7 @@ export function AppleHealthShortcutAction(props: IActionProps): JSX.Element | nu
     return () => {
       active = false;
     };
-  }, [eligible, enabled, props.record, props.dispatch, attempt]);
+  }, [available, props.record, props.dispatch, attempt]);
 
   useEffect(() => {
     if (!payload) {
@@ -170,7 +171,7 @@ export function AppleHealthShortcutAction(props: IActionProps): JSX.Element | nu
     };
   }, [payload]);
 
-  if (!eligible || !enabled) {
+  if (!available) {
     return null;
   }
   const saved = state?.status === "saved";
@@ -233,7 +234,7 @@ export function AppleHealthShortcutAction(props: IActionProps): JSX.Element | nu
               }, 1500);
             } catch {
               launching.current = false;
-              setError(`Couldn't open ${AppleHealthShortcut_name}. Check website storage and Shortcut installation.`);
+              setError("Couldn't open Shortcuts. Your workout is still saved. Try again, or open Apple Health help.");
             }
           }}
         >
@@ -250,7 +251,7 @@ export function AppleHealthShortcutAction(props: IActionProps): JSX.Element | nu
           name="apple-health-shortcut-help"
           onPress={() => window.location.assign("/apple-health-setup.html")}
         >
-          Shortcut setup & help
+          Apple Health help
         </LinkButton>
       )}
     </View>

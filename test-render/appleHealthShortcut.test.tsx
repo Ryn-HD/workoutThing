@@ -129,7 +129,7 @@ it("keeps a save failure visible and retries before enabling send", async () => 
 it("refuses a stale or uncommitted record instead of sending another workout", async () => {
   await render(<AppleHealthShortcutAction record={{ ...workout, id: 2 }} dispatch={dispatch} />);
   await settle();
-  expect(screen.getByText("The saved workout changed. Reopen it before sending to Health.")).toBeTruthy();
+  expect(screen.getByText("This workout hasn't been saved yet. Save it before sending to Health.")).toBeTruthy();
   expect(save).not.toHaveBeenCalled();
   expect(assign).not.toHaveBeenCalled();
 });
@@ -154,4 +154,28 @@ it("does not access browser APIs when mounted in the native app", async () => {
   await render(<AppleHealthShortcutAction record={workout} dispatch={dispatch} />);
   expect(screen.queryByTestId("apple-health-shortcut-action")).toBeNull();
   expect(save).not.toHaveBeenCalled();
+});
+
+it("can send from a saved workout when this browser has no setup flag", async () => {
+  AppleHealthShortcut_setEnabled(false);
+  await render(<AppleHealthShortcutAction record={workout} dispatch={dispatch} manual={true} />);
+  await settle();
+  expect(screen.getByTestId("apple-health-shortcut-send")).toBeEnabled();
+  await fireEvent.press(screen.getByTestId("apple-health-shortcut-send"));
+  expect(assign).toHaveBeenCalledTimes(1);
+  expect(new URL(assign.mock.calls[0][0]).protocol).toBe("shortcuts:");
+});
+
+it("uses the latest saved record even if the rendered reference is an older copy", async () => {
+  await render(
+    <AppleHealthShortcutAction
+      record={{ ...workout, endTime: workout.endTime! - 1000 }}
+      dispatch={dispatch}
+      manual={true}
+    />
+  );
+  await settle();
+  await fireEvent.press(screen.getByTestId("apple-health-shortcut-send"));
+  const payload = JSON.parse(new URL(assign.mock.calls[0][0]).searchParams.get("text")!);
+  expect(payload.durationSeconds).toBe(600);
 });

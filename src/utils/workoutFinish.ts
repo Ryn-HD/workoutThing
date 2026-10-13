@@ -8,7 +8,6 @@ import {
   Thunk_saveWorkoutToHealth,
 } from "../ducks/thunks";
 import { History_calories, History_pauseWorkout } from "../models/history";
-import { Progress_isFullyEmptyOrFinishedSet } from "../models/progress";
 import { IHistoryRecord, ISettings } from "../types";
 import { HealthSync_eligibleForAppleHealth, HealthSync_eligibleForGoogleHealth } from "../lib/healthSync";
 import { SendMessage_isIos } from "./sendMessage";
@@ -28,13 +27,8 @@ function nextPaint(): Promise<void> {
 
 export async function WorkoutFinish_run(args: IWorkoutFinishArgs): Promise<void> {
   const { progress, settings, dispatch, isCurrent, setIsFinishing } = args;
-  const isFullyFinished = isCurrent && Progress_isFullyEmptyOrFinishedSet(progress);
-  if (!isFullyFinished) {
-    const confirmed = await Dialog_confirm(
-      isCurrent
-        ? "Are you sure you want to FINISH this workout? Some sets are not marked as completed."
-        : "Are you sure you want to SAVE this PAST workout?"
-    );
+  if (!isCurrent) {
+    const confirmed = await Dialog_confirm("Are you sure you want to SAVE this PAST workout?");
     if (!confirmed) {
       return;
     }

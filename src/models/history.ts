@@ -176,7 +176,7 @@ export function History_finishProgramDay(
     timerMode: undefined,
     setTimer: undefined,
     setTimerGetReady: undefined,
-    intervals: History_pauseWorkout(progress.intervals),
+    intervals: History_pauseWorkout(progress.intervals, endTime),
     ...(Progress_isCurrent(progress) ? { endTime } : {}),
   };
 }
@@ -1002,15 +1002,15 @@ export function History_pauseWorkoutState(dispatch: IDispatch): void {
   );
 }
 
-export function History_pauseWorkout(intervals?: IIntervals): IIntervals | undefined {
+export function History_pauseWorkout(intervals?: IIntervals, endTime: number = Date.now()): IIntervals | undefined {
   if (intervals && !History_isPaused(intervals)) {
     const newIntervals = intervals ? ObjectUtils_clone(intervals) : [];
     let lastInterval = newIntervals[newIntervals.length - 1];
     if (lastInterval == null) {
-      lastInterval = [Date.now(), undefined];
+      lastInterval = [endTime, undefined];
       newIntervals.push(lastInterval);
     }
-    lastInterval[1] = Date.now();
+    lastInterval[1] = endTime;
     return newIntervals;
   } else {
     return intervals;
