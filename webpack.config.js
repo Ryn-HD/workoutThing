@@ -186,7 +186,6 @@ const mainConfig = {
     featuredetails: ["./src/featureDetails.tsx", "./src/features.css", "./src/programDetails.css", "./src/index.css"],
     allprograms: ["./src/allPrograms.tsx", "./src/index.css"],
     app: ["./src/index.tsx", "./src/index.css"],
-    appleHealthResult: ["./src/appleHealthResult.ts"],
     admin: ["./src/admin.tsx", "./src/admin.css"],
     record: ["./src/record.tsx", "./src/record.css", "./src/index.css"],
     user: ["./src/user.tsx", "./src/user.css", "./src/index.css"],
@@ -288,11 +287,6 @@ const mainConfig = {
     new CopyPlugin([
       { from: "shortcuts/VelociReps Log Workout.shortcut", to: "shortcuts/VelociReps Log Workout.shortcut" },
       { from: "src/apple-health-setup.html", to: "apple-health-setup.html" },
-      {
-        from: "src/apple-health-result.html",
-        to: "apple-health-result.html",
-        transform: (content) => content.toString().replace(/\?version=xxxxxxxx/g, `?version=${commitHash}`),
-      },
       {
         from: `src/index.html`,
         to: `app/index.html`,

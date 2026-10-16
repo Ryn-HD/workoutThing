@@ -50,11 +50,8 @@ import { Muscle_getMuscleGroupName } from "../models/muscle";
 import { IconDoc } from "./icons/iconDoc";
 import { LiftohistorySerializer_serialize } from "../liftohistory/liftohistorySerializer";
 import { navigateToModal } from "../navigation/navigationService";
-import {
-  AppleHealthShortcutAction,
-  AppleHealthShortcut_isEligible,
-  useAppleHealthShortcutEnabled,
-} from "./appleHealthShortcut";
+import { AppleHealthShortcutAction } from "./appleHealthShortcut";
+import { AppleHealthShortcut_isEligible } from "../utils/appleHealthShortcut";
 
 interface IProps {
   history: IHistoryRecord[];
@@ -69,7 +66,6 @@ interface IProps {
 
 export function ScreenFinishDay(props: IProps): JSX.Element {
   useNavOptions({ navTitle: "Congratulations!" });
-  const shortcutEnabled = useAppleHealthShortcutEnabled();
 
   const recordById =
     props.historyRecordId != null ? props.history.find((h) => h.id === props.historyRecordId) : undefined;
@@ -113,7 +109,6 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
     props.dispatch(Thunk_maybeRequestReview());
     props.dispatch(Thunk_maybeRequestSignup());
   };
-  const useShortcut = AppleHealthShortcut_isEligible() && shortcutEnabled;
 
   return (
     <>
@@ -221,28 +216,21 @@ export function ScreenFinishDay(props: IProps): JSX.Element {
               </Button>
             </View>
           )}
-          {!useShortcut && (
-            <View className="items-center justify-center flex-1 pb-8">
-              <Button
-                name="finish-day-continue"
-                kind="purple"
-                className="w-36"
-                testID="finish-day-continue"
-                onPress={onContinue}
-              >
-                Continue
-              </Button>
-            </View>
-          )}
+          <View className="items-center justify-center flex-1 pb-8">
+            <Button
+              name="finish-day-continue"
+              kind="purple"
+              className="w-36"
+              testID="finish-day-continue"
+              onPress={onContinue}
+            >
+              Continue
+            </Button>
+          </View>
         </View>
         {AppleHealthShortcut_isEligible() && (
           <View className="pb-8">
-            <AppleHealthShortcutAction
-              record={record}
-              dispatch={props.dispatch}
-              manual={true}
-              onDone={useShortcut ? onContinue : undefined}
-            />
+            <AppleHealthShortcutAction record={record} dispatch={props.dispatch} />
           </View>
         )}
       </View>

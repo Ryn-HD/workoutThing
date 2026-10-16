@@ -12,6 +12,7 @@ import { IHistoryRecord, ISettings } from "../types";
 import { HealthSync_eligibleForAppleHealth, HealthSync_eligibleForGoogleHealth } from "../lib/healthSync";
 import { SendMessage_isIos } from "./sendMessage";
 import { Dialog_confirm } from "./dialog";
+import { AppleHealthShortcut_sendOnFinish } from "./appleHealthShortcut";
 
 export interface IWorkoutFinishArgs {
   progress: IHistoryRecord;
@@ -27,6 +28,8 @@ function nextPaint(): Promise<void> {
 
 export async function WorkoutFinish_run(args: IWorkoutFinishArgs): Promise<void> {
   const { progress, settings, dispatch, isCurrent, setIsFinishing } = args;
+  // Before the first await: iOS opens the shortcuts:// URL only inside the tap itself.
+  AppleHealthShortcut_sendOnFinish(progress, isCurrent);
   if (!isCurrent) {
     const confirmed = await Dialog_confirm("Are you sure you want to SAVE this PAST workout?");
     if (!confirmed) {

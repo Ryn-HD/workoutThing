@@ -1,6 +1,6 @@
 # Apple Health handoff from the Vercel PWA
 
-Status: implemented in the PWA with a signed installation artifact. Local verification is complete; physical iPhone Health-write verification remains outstanding. See `shortcuts/README.md` for build instructions and verification limits.
+Status: version 2, October 16. The Finish tap itself opens the Shortcut, so a workout reaches Health with one tap at any point in the session. The Shortcut is eleven actions with no retry ledger, no x-callback-url and no result page; the app records `sent` in localStorage and warns before a second send. Sending on Finish is on by default on an iPhone web app and can be turned off under Me → Apple Health. Physical iPhone Health-write verification remains outstanding. See `shortcuts/README.md` for the protocol, rebuild steps and verification limits. The sections below describe the superseded version 1 design and are kept for the findings.
 
 October 13 review: partial workouts now finish without an incomplete-set confirmation. Manual sending is available regardless of the browser-local preference. New intervals close at the saved finish timestamp, and export normalizes old timer metadata within saved session bounds, falling back to the saved elapsed duration when necessary. The installed version 1 Shortcut remains compatible. This supersedes the original strict interval rejection and setup-gating proposals below.
 

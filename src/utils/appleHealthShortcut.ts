@@ -1,4 +1,7 @@
+import { Platform } from "react-native";
 import type { IHistoryRecord } from "../types";
+import { Platform_isiOS } from "./platform";
+import { SendMessage_isAndroid, SendMessage_isIos } from "./sendMessage";
 
 export const AppleHealthShortcut_name = "VelociReps Log Workout";
 export const AppleHealthShortcut_event = "velocireps-apple-health-change";
@@ -6,19 +9,15 @@ const enabledKey = "velocireps:apple-health-shortcut:enabled";
 const statePrefix = "velocireps:apple-health-shortcut:workout:";
 
 export interface IAppleHealthShortcutPayload {
-  version: 1;
-  exportId: string;
-  requestId: string;
-  activity: "Traditional Strength Training";
+  version: 2;
   startDate: string;
   durationSeconds: number;
   energyKcal: number;
 }
 
 export interface IAppleHealthShortcutState {
-  requestId: string;
-  status: "pending" | "saved" | "cancelled" | "failed";
-  attemptedAt: number;
+  status: "sent";
+  sentAt: number;
 }
 
 type IStore = Pick<Storage, "getItem" | "setItem">;
@@ -29,9 +28,22 @@ function changed(): void {
   }
 }
 
+export function AppleHealthShortcut_isEligible(): boolean {
+  return (
+    Platform.OS === "web" &&
+    typeof window !== "undefined" &&
+    Platform_isiOS() &&
+    /iPhone/i.test(window.navigator.userAgent) &&
+    !SendMessage_isIos() &&
+    !SendMessage_isAndroid()
+  );
+}
+
+// Sending on Finish is on until the user turns it off, so a fresh install of the
+// web app needs no settings visit after installing the Shortcut.
 export function AppleHealthShortcut_isEnabled(store?: IStore): boolean {
   try {
-    return (store ?? window.localStorage).getItem(enabledKey) === "true";
+    return (store ?? window.localStorage).getItem(enabledKey) !== "false";
   } catch {
     return false;
   }
@@ -42,15 +54,10 @@ export function AppleHealthShortcut_setEnabled(enabled: boolean, store: IStore =
   changed();
 }
 
-export function AppleHealthShortcut_getState(exportId: string, store?: IStore): IAppleHealthShortcutState | undefined {
+export function AppleHealthShortcut_getState(recordId: number, store?: IStore): IAppleHealthShortcutState | undefined {
   try {
-    const state = JSON.parse((store ?? window.localStorage).getItem(statePrefix + exportId) ?? "null");
-    if (
-      state &&
-      typeof state.requestId === "string" &&
-      Number.isFinite(state.attemptedAt) &&
-      ["pending", "saved", "cancelled", "failed"].includes(state.status)
-    ) {
+    const state = JSON.parse((store ?? window.localStorage).getItem(statePrefix + recordId) ?? "null");
+    if (state && state.status === "sent" && Number.isFinite(state.sentAt)) {
       return state;
     }
   } catch {
@@ -60,11 +67,11 @@ export function AppleHealthShortcut_getState(exportId: string, store?: IStore): 
 }
 
 export function AppleHealthShortcut_setState(
-  exportId: string,
+  recordId: number,
   state: IAppleHealthShortcutState,
   store: IStore = window.localStorage
 ): void {
-  store.setItem(statePrefix + exportId, JSON.stringify(state));
+  store.setItem(statePrefix + recordId, JSON.stringify(state));
   changed();
 }
 
@@ -109,48 +116,38 @@ export function AppleHealthShortcut_recordTimes(record: Pick<IHistoryRecord, "st
     durationMs = endTime - record.startTime;
   }
   return {
-    startDate: new Date(record.startTime).toISOString(),
+    // Shortcuts parses ISO 8601 for the Log Workout date. Whole seconds keep the
+    // string in the form Apple's date parser documents, with no fraction.
+    startDate: new Date(Math.floor(record.startTime / 1000) * 1000).toISOString().replace(".000Z", "Z"),
     durationSeconds: Math.max(1, Math.floor(durationMs / 1000)),
     energyKcal: Math.floor(durationMs / 60000) * 6,
   };
 }
 
-export async function AppleHealthShortcut_buildPayload(
-  accountId: string,
-  record: IHistoryRecord
-): Promise<IAppleHealthShortcutPayload> {
-  const times = AppleHealthShortcut_recordTimes(record);
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${accountId}:${record.id}`));
-  const exportId = "v1-" + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return {
-    version: 1,
-    exportId,
-    requestId: crypto.randomUUID(),
-    activity: "Traditional Strength Training",
-    ...times,
-  };
+export function AppleHealthShortcut_buildPayload(
+  record: Pick<IHistoryRecord, "startTime" | "endTime" | "intervals">
+): IAppleHealthShortcutPayload {
+  return { version: 2, ...AppleHealthShortcut_recordTimes(record) };
 }
 
-export function AppleHealthShortcut_launchUrl(payload: IAppleHealthShortcutPayload, origin: string): string {
-  const base = new URL(origin);
-  if (!["https:", "http:"].includes(base.protocol)) {
-    throw new Error("Health handoff requires a web app URL.");
-  }
-  const url = new URL("shortcuts://x-callback-url/run-shortcut");
+// The Finish tap sends the in-memory workout. Its open interval is clipped at
+// `now`, which is the end time History_finishProgramDay commits a moment later.
+export function AppleHealthShortcut_finishPayload(
+  progress: Pick<IHistoryRecord, "startTime" | "intervals">,
+  now: number
+): IAppleHealthShortcutPayload {
+  return AppleHealthShortcut_buildPayload({
+    startTime: progress.startTime,
+    endTime: now,
+    intervals: progress.intervals,
+  });
+}
+
+export function AppleHealthShortcut_launchUrl(payload: IAppleHealthShortcutPayload): string {
+  const url = new URL("shortcuts://run-shortcut");
   url.searchParams.set("name", AppleHealthShortcut_name);
   url.searchParams.set("input", "text");
   url.searchParams.set("text", JSON.stringify(payload));
-  for (const [parameter, outcome] of [
-    ["x-success", "success"],
-    ["x-cancel", "cancel"],
-    ["x-error", "error"],
-  ]) {
-    const callback = new URL("/apple-health-result.html", base.origin);
-    callback.searchParams.set("outcome", outcome);
-    callback.searchParams.set("exportId", payload.exportId);
-    callback.searchParams.set("requestId", payload.requestId);
-    url.searchParams.set(parameter, callback.toString());
-  }
   // Shortcuts decodes percent escapes, but treats form-encoded '+' as a
   // literal plus. Encode spaces as %20 in both the name and JSON payload.
   // Real plus characters already encoded as %2B must remain unchanged.
@@ -158,45 +155,48 @@ export function AppleHealthShortcut_launchUrl(payload: IAppleHealthShortcutPaylo
   return url.toString();
 }
 
-// A successful Shortcut launch is not a successful Health write. Only accept the
-// matching Shortcut's structured completion result for a request saved here.
-export function AppleHealthShortcut_acceptCallback(
-  url: URL,
-  store: IStore
-): IAppleHealthShortcutState["status"] | undefined {
-  const exportId = url.searchParams.get("exportId") ?? "";
-  const requestId = url.searchParams.get("requestId");
-  const pending = AppleHealthShortcut_getState(exportId, store);
-  if (!pending || pending.requestId !== requestId || pending.status !== "pending") {
+export interface IFinishLaunchArgs {
+  progress: Pick<IHistoryRecord, "id" | "startTime" | "intervals">;
+  isCurrent: boolean;
+  eligible: boolean;
+  enabled: boolean;
+  alreadySent: boolean;
+  now: number;
+}
+
+// Returns the URL to open from the Finish tap, or undefined when Finish should
+// behave as before. Must stay synchronous: iOS only opens another app's URL
+// scheme inside the tap that requested it.
+export function AppleHealthShortcut_finishLaunch(args: IFinishLaunchArgs): string | undefined {
+  if (!args.isCurrent || !args.eligible || !args.enabled || args.alreadySent) {
     return undefined;
   }
-  let status: IAppleHealthShortcutState["status"];
-  switch (url.searchParams.get("outcome")) {
-    case "cancel":
-      status = "cancelled";
-      break;
-    case "error":
-      status = "failed";
-      break;
-    case "success": {
-      try {
-        const result = JSON.parse(url.searchParams.get("result") ?? "null");
-        if (
-          result?.exportId !== exportId ||
-          result?.requestId !== requestId ||
-          !["saved", "alreadySaved"].includes(result?.status)
-        ) {
-          return undefined;
-        }
-        status = "saved";
-      } catch {
-        return undefined;
-      }
-      break;
-    }
-    default:
-      return undefined;
+  try {
+    return AppleHealthShortcut_launchUrl(AppleHealthShortcut_finishPayload(args.progress, args.now));
+  } catch {
+    return undefined;
   }
-  AppleHealthShortcut_setState(exportId, { ...pending, status }, store);
-  return status;
+}
+
+export function AppleHealthShortcut_sendOnFinish(progress: IHistoryRecord, isCurrent: boolean): boolean {
+  const eligible = AppleHealthShortcut_isEligible();
+  const now = Date.now();
+  const url = AppleHealthShortcut_finishLaunch({
+    progress,
+    isCurrent,
+    eligible,
+    enabled: eligible && AppleHealthShortcut_isEnabled(),
+    alreadySent: eligible && AppleHealthShortcut_getState(progress.id) != null,
+    now,
+  });
+  if (url == null) {
+    return false;
+  }
+  try {
+    AppleHealthShortcut_setState(progress.id, { status: "sent", sentAt: now });
+    window.location.assign(url);
+    return true;
+  } catch {
+    return false;
+  }
 }

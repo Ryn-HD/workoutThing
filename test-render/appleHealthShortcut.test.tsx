@@ -1,9 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-var-requires */
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { webcrypto } from "node:crypto";
 import { Platform } from "react-native";
 import { AppleHealthShortcutAction } from "../src/components/appleHealthShortcut";
-import { AppleHealthShortcut_acceptCallback, AppleHealthShortcut_setEnabled } from "../src/utils/appleHealthShortcut";
+import { AppleHealthShortcut_getState, AppleHealthShortcut_setState } from "../src/utils/appleHealthShortcut";
 import type { IHistoryRecord } from "../src/types";
 import { FrameLoop_cancelAll } from "./setup/frameLoop";
 
@@ -28,10 +27,10 @@ jest.mock("../src/components/linkButton", () => ({ LinkButton: require("../src/c
 const workout = { id: 1, startTime: 1, endTime: 600001 } as IHistoryRecord;
 let save: jest.Mock;
 let assign: jest.Mock;
+let confirm: jest.Mock;
 let storage: Storage;
 let originalWindow: any;
 let originalDocument: any;
-let originalCrypto: any;
 let originalOS: string;
 let pending: Promise<unknown>[];
 
@@ -51,7 +50,6 @@ async function settle(): Promise<void> {
 beforeEach(() => {
   originalWindow = global.window;
   originalDocument = global.document;
-  originalCrypto = global.crypto;
   originalOS = Platform.OS;
   Platform.OS = "web";
   pending = [];
@@ -61,26 +59,24 @@ beforeEach(() => {
     setItem: (key: string, value: string) => items.set(key, value),
   } as any;
   assign = jest.fn();
+  confirm = jest.fn(() => true);
   (global as any).window = Object.assign(new EventTarget(), {
     localStorage: storage,
     navigator: { userAgent: "iPhone" },
     location: { origin: "https://example.com", assign },
-    confirm: jest.fn(() => true),
+    confirm,
   });
   (global as any).document = new EventTarget();
-  (global as any).crypto = webcrypto;
   save = jest.fn().mockResolvedValue(undefined);
-  AppleHealthShortcut_setEnabled(true);
 });
 afterEach(() => {
   FrameLoop_cancelAll();
   (global as any).window = originalWindow;
   (global as any).document = originalDocument;
-  (global as any).crypto = originalCrypto;
   Platform.OS = originalOS as typeof Platform.OS;
 });
 
-it("waits for durable saving, requires a tap, blocks double taps, and accepts only confirmed completion", async () => {
+it("waits for durable saving, requires a tap, blocks double taps, and remembers the send", async () => {
   let finish!: () => void;
   save.mockImplementation(
     () =>
@@ -88,7 +84,7 @@ it("waits for durable saving, requires a tap, blocks double taps, and accepts on
         finish = resolve;
       })
   );
-  await render(<AppleHealthShortcutAction record={workout} dispatch={dispatch} onDone={jest.fn()} />);
+  await render(<AppleHealthShortcutAction record={workout} dispatch={dispatch} />);
   expect(screen.getByTestId("apple-health-shortcut-send")).toBeDisabled();
   expect(assign).not.toHaveBeenCalled();
   await act(async () => {
@@ -99,19 +95,29 @@ it("waits for durable saving, requires a tap, blocks double taps, and accepts on
   await fireEvent.press(screen.getByTestId("apple-health-shortcut-send"));
   await fireEvent.press(screen.getByTestId("apple-health-shortcut-send"));
   expect(assign).toHaveBeenCalledTimes(1);
-  expect(screen.queryByText("Saved to Apple Health.")).toBeNull();
   const launch = new URL(assign.mock.calls[0][0]);
-  const payload = JSON.parse(launch.searchParams.get("text")!);
-  const callback = new URL(launch.searchParams.get("x-success")!);
-  callback.searchParams.set(
-    "result",
-    JSON.stringify({ exportId: payload.exportId, requestId: payload.requestId, status: "saved" })
-  );
-  await act(async () => {
-    AppleHealthShortcut_acceptCallback(callback, storage);
+  expect(launch.protocol).toBe("shortcuts:");
+  expect(launch.searchParams.get("input")).toBe("text");
+  expect(JSON.parse(launch.searchParams.get("text")!)).toEqual({
+    version: 2,
+    startDate: "1970-01-01T00:00:00Z",
+    durationSeconds: 600,
+    energyKcal: 60,
   });
-  expect(screen.getByText("Saved to Apple Health.")).toBeTruthy();
-  expect(screen.queryByTestId("apple-health-shortcut-send")).toBeNull();
+  expect(AppleHealthShortcut_getState(workout.id, storage)?.status).toBe("sent");
+  expect(screen.getByText("Send to Apple Health again")).toBeTruthy();
+});
+
+it("asks before sending a workout that was already sent", async () => {
+  AppleHealthShortcut_setState(workout.id, { status: "sent", sentAt: 5000 }, storage);
+  confirm.mockReturnValueOnce(false);
+  await render(<AppleHealthShortcutAction record={workout} dispatch={dispatch} />);
+  await settle();
+  await fireEvent.press(screen.getByTestId("apple-health-shortcut-send"));
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(assign).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId("apple-health-shortcut-send"));
+  expect(assign).toHaveBeenCalledTimes(1);
 });
 
 it("keeps a save failure visible and retries before enabling send", async () => {
@@ -134,17 +140,11 @@ it("refuses a stale or uncommitted record instead of sending another workout", a
   expect(assign).not.toHaveBeenCalled();
 });
 
-it("keeps the existing flow when disabled or outside the iPhone web app", async () => {
-  AppleHealthShortcut_setEnabled(false);
+it("renders nothing outside the iPhone web app", async () => {
+  Platform.OS = "ios";
   await render(<AppleHealthShortcutAction record={workout} dispatch={dispatch} />);
   expect(screen.queryByTestId("apple-health-shortcut-action")).toBeNull();
   expect(save).not.toHaveBeenCalled();
-  Platform.OS = "ios";
-  await act(async () => {
-    AppleHealthShortcut_setEnabled(true);
-  });
-  await screen.rerender(<AppleHealthShortcutAction record={workout} dispatch={dispatch} />);
-  expect(screen.queryByTestId("apple-health-shortcut-action")).toBeNull();
 });
 
 it("does not access browser APIs when mounted in the native app", async () => {
@@ -156,23 +156,9 @@ it("does not access browser APIs when mounted in the native app", async () => {
   expect(save).not.toHaveBeenCalled();
 });
 
-it("can send from a saved workout when this browser has no setup flag", async () => {
-  AppleHealthShortcut_setEnabled(false);
-  await render(<AppleHealthShortcutAction record={workout} dispatch={dispatch} manual={true} />);
-  await settle();
-  expect(screen.getByTestId("apple-health-shortcut-send")).toBeEnabled();
-  await fireEvent.press(screen.getByTestId("apple-health-shortcut-send"));
-  expect(assign).toHaveBeenCalledTimes(1);
-  expect(new URL(assign.mock.calls[0][0]).protocol).toBe("shortcuts:");
-});
-
 it("uses the latest saved record even if the rendered reference is an older copy", async () => {
   await render(
-    <AppleHealthShortcutAction
-      record={{ ...workout, endTime: workout.endTime! - 1000 }}
-      dispatch={dispatch}
-      manual={true}
-    />
+    <AppleHealthShortcutAction record={{ ...workout, endTime: workout.endTime! - 1000 }} dispatch={dispatch} />
   );
   await settle();
   await fireEvent.press(screen.getByTestId("apple-health-shortcut-send"));

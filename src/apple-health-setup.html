@@ -8,30 +8,49 @@
     <style>
       :root { color-scheme: dark light; }
       body { font: 17px/1.6 system-ui, sans-serif; max-width: 35rem; margin: 2rem auto; padding: 0 1.5rem 3rem; }
-      a { color: #9b87f5; } h1 { font-size: 1.7rem; } h2 { font-size: 1.15rem; margin-top: 2rem; } li { margin: 1rem 0; }
+      a { color: #9b87f5; } h1 { font-size: 1.7rem; } h2 { font-size: 1.15rem; margin-top: 2rem; } li { margin: .8rem 0; }
+      code { font-size: .95em; }
       .button { display: inline-block; background: #7655c8; color: white; padding: .7rem 1rem; border-radius: .6rem; text-decoration: none; }
     </style>
   </head>
   <body>
     <h1>Send workouts to Apple Health</h1>
-    <p>Keep using VelociReps on your Home Screen. A one-time Apple Shortcut connects your finished workouts to Health.</p>
-    <p><strong>Already installed it?</strong> Open your saved workout and use <strong>Share → Send to Apple Health</strong>. You do not need to install it again or repeat setup after a failed send.</p>
+    <p>Once the Shortcut is installed, tapping <strong>Finish</strong> in VelociReps opens Shortcuts, which logs the workout in Health and shows <strong>Saved to Apple Health</strong>. Switch back to VelociReps and you land on the Congratulations screen. That is the whole flow: one tap.</p>
+    <p>You can finish at any point: after the first set, half way through, or after the whole session. Unfinished exercises and skipped sets never block the send.</p>
+
+    <h2>1. Install the Shortcut</h2>
+    <p><a class="button" href="/shortcuts/VelociReps%20Log%20Workout.shortcut">Download the Shortcut</a></p>
+    <p>Open the downloaded file from Safari's Downloads (the arrow icon) or from Files, then tap <strong>Add Shortcut</strong>. Keep its name exactly <strong>VelociReps Log Workout</strong>.</p>
+    <p>If the download does not open in Shortcuts, build it by hand instead. It takes about two minutes:</p>
     <ol>
-      <li><a class="button" href="/shortcuts/VelociReps%20Log%20Workout.shortcut">Download the Shortcut</a><br />Open the downloaded file from Safari's downloads or Files, then tap <strong>Add Shortcut</strong>. Keep its name <strong>VelociReps Log Workout</strong>.</li>
-      <li>Return to the VelociReps Home Screen app. Optionally go to <strong>Me → Apple Health</strong> and tap <strong>Make Send the main finish action</strong>. This changes the primary finish-screen button; sending saved workouts from Share is always available.</li>
-      <li>Finish your next workout normally. On the congratulations screen, tap <strong>Done &amp; Send to Apple Health</strong>.</li>
-      <li>The first time Shortcuts runs, allow it to access its files and write workouts to Health. It keeps a small retry record in <strong>iCloud Drive → Shortcuts</strong>.</li>
+      <li>Open <strong>Shortcuts</strong>, tap <strong>+</strong>, and name it <code>VelociReps Log Workout</code>.</li>
+      <li>Add <strong>Get Dictionary Value</strong>. Set it to get the value for key <code>startDate</code> in <strong>Shortcut Input</strong>.</li>
+      <li>Add <strong>Get Dictionary Value</strong> again for key <code>durationSeconds</code> in <strong>Shortcut Input</strong>.</li>
+      <li>Add <strong>Get Dictionary Value</strong> again for key <code>energyKcal</code> in <strong>Shortcut Input</strong>.</li>
+      <li>Add <strong>Log Workout</strong>. Set <strong>Type</strong> to Traditional Strength Training. Set <strong>Date</strong> to the first Dictionary Value, <strong>Duration</strong> to the second with the unit set to <strong>sec</strong>, and <strong>Calories</strong> to the third in <strong>kcal</strong>.</li>
+      <li>Add <strong>Show Alert</strong> with the text <code>Saved to Apple Health</code>.</li>
     </ol>
-    <p>The Shortcut shows a success message after logging. iOS may return you to Safari; switch back to the VelociReps Home Screen icon.</p>
+    <p>You can check the same six steps in the downloaded Shortcut: it has nothing else in it, apart from a check that it was started from VelociReps.</p>
+
+    <h2>2. Allow Health access</h2>
+    <p>The first time it runs, Shortcuts asks to write workouts to Health. Tap <strong>Allow</strong>. If you tapped Don't Allow earlier, open <strong>Health → your picture → Apps → Shortcuts</strong> and turn on <strong>Workouts</strong>. If it also asks for Active Energy, allow that too.</p>
+    <p>If iOS asks <strong>Open in "Shortcuts"?</strong> when you tap Finish, tap <strong>Open</strong>.</p>
+
+    <h2>3. Finish a workout</h2>
+    <p>Tap <strong>Finish</strong>. Shortcuts opens, logs the workout, and shows <strong>Saved to Apple Health</strong>. Tap OK and switch back to the VelociReps icon on your Home Screen. The workout is saved in VelociReps whether or not Shortcuts finished.</p>
+    <p>To send a workout later, or again, open it from the history list and use <strong>Share → Send to Apple Health</strong>. Sending the same workout twice creates two entries in Health, so VelociReps warns before a second send.</p>
+    <p>To stop sending on Finish, go to <strong>Me → Apple Health</strong> and tap <strong>Stop sending when I tap Finish</strong>.</p>
+
     <h2>What is sent</h2>
-    <p>A traditional strength training workout with its start date, active duration, and estimated calories. Calories use the app's existing estimate of six kcal per whole minute. Your exercises, reps, weights, and notes stay in VelociReps.</p>
-    <p>Paused time is excluded from duration. Health may display an end time calculated from the start plus active duration, rather than the actual end of a session with pauses.</p>
-    <p>You can finish and send a partial workout. Unfinished exercises and skipped sets do not block sending. If the saved workout's timer data is unusable, the app uses its saved start and end times. Very short workouts are rounded up to one second.</p>
-    <h2>If sending doesn't finish</h2>
-    <p>Your workout is already saved in VelociReps. Check Health, then use the workout's Share menu to send again. The Shortcut checks its retry record before logging. An interrupted attempt asks you to check Health before choosing whether to send again.</p>
-    <p>If permissions were denied, open <strong>Health → your profile → Apps → Shortcuts</strong> and allow Workouts. If Shortcuts asks to log Active Energy, allow it too. The Shortcut also needs its iCloud Drive files available.</p>
-    <p>Editing an exported workout in VelociReps does not update the Health entry. Make corrections in Health. Deleting the Shortcut's retry files removes duplicate protection.</p>
-    <p>No developer account or weekly app installation is needed.</p>
+    <p>One Traditional Strength Training workout: the start time, the active duration in seconds, and the estimated calories. Calories use the app's estimate of six kcal per whole minute. Exercises, reps, weights and notes stay in VelociReps. Health has no field for them through Shortcuts.</p>
+    <p>Paused time is excluded from the duration, so Health may show an end time earlier than when you tapped Finish on a paused session.</p>
+
+    <h2>If something goes wrong</h2>
+    <p><strong>Shortcuts says it could not find the shortcut.</strong> The name must be exactly <code>VelociReps Log Workout</code>.</p>
+    <p><strong>Shortcuts shows "Use this from VelociReps".</strong> It was run without workout data. Run it from VelociReps, not from the Shortcuts app.</p>
+    <p><strong>Log Workout fails or asks for a value.</strong> Check that the three Get Dictionary Value actions read from Shortcut Input and that Duration uses seconds. Check Health permissions as in step 2.</p>
+    <p><strong>Nothing happens when you tap Finish.</strong> Shortcuts opens only from a tap on an iPhone. Check <strong>Me → Apple Health</strong> shows sending is on, and send the workout from its Share menu.</p>
+    <p>Editing a workout in VelociReps after sending does not update the Health entry. Make corrections in Health.</p>
     <p><a href="/app/">Return to VelociReps in this browser</a></p>
   </body>
 </html>
