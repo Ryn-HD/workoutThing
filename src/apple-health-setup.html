@@ -27,7 +27,7 @@
       <li>Add <strong>Get Dictionary Value</strong>. Set it to get the value for key <code>startDate</code> in <strong>Shortcut Input</strong>.</li>
       <li>Add <strong>Get Dictionary Value</strong> again for key <code>durationSeconds</code> in <strong>Shortcut Input</strong>.</li>
       <li>Add <strong>Get Dictionary Value</strong> again for key <code>energyKcal</code> in <strong>Shortcut Input</strong>.</li>
-      <li>Add <strong>Log Workout</strong>. Set <strong>Type</strong> to Traditional Strength Training. Set <strong>Date</strong> to the first Dictionary Value, <strong>Duration</strong> to the second with the unit set to <strong>sec</strong>, and <strong>Calories</strong> to the third in <strong>kcal</strong>.</li>
+      <li>Add <strong>Log Workout</strong>. Set <strong>Type</strong> to Traditional Strength Training. Set <strong>Date</strong> to the first Dictionary Value, <strong>Duration</strong> to the second with the unit set to <strong>sec</strong>, and <strong>Calories</strong> to the third in <strong>kcal</strong>. Set <strong>Distance</strong> to <strong>0</strong> mi. A blank Distance makes Log Workout fail with "There was a problem running the shortcut".</li>
       <li>Add <strong>Show Alert</strong> with the text <code>Saved to Apple Health</code>.</li>
     </ol>
     <p>You can check the same six steps in the downloaded Shortcut: it has nothing else in it, apart from a check that it was started from VelociReps.</p>
@@ -48,7 +48,7 @@
     <h2>If something goes wrong</h2>
     <p><strong>Shortcuts says it could not find the shortcut.</strong> The name must be exactly <code>VelociReps Log Workout</code>.</p>
     <p><strong>Shortcuts shows "Use this from VelociReps".</strong> It was run without workout data. Run it from VelociReps, not from the Shortcuts app.</p>
-    <p><strong>Log Workout fails or asks for a value.</strong> Check that the three Get Dictionary Value actions read from Shortcut Input and that Duration uses seconds. Check Health permissions as in step 2.</p>
+    <p><strong>"There was a problem running the shortcut" with no action marked red.</strong> Open the shortcut in the editor and check Log Workout's <strong>Distance</strong> field shows <strong>0 mi</strong>, not a grey placeholder. Then check that the three Get Dictionary Value actions read from Shortcut Input and that Duration uses seconds, and check Health permissions as in step 2.</p>
     <p><strong>Nothing happens when you tap Finish.</strong> Shortcuts opens only from a tap on an iPhone. Check <strong>Me → Apple Health</strong> shows sending is on, and send the workout from its Share menu.</p>
     <p>Editing a workout in VelociReps after sending does not update the Health entry. Make corrections in Health.</p>
     <p><a href="/app/">Return to VelociReps in this browser</a></p>

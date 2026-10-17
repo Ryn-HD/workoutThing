@@ -67,7 +67,10 @@ action('health.workout.log',
     WFWorkoutReadableActivityType='Traditional Strength Training',
     WFWorkoutDate=token(start_date),
     WFWorkoutDuration=quantity(duration, 's'),
-    WFWorkoutCaloriesQuantity=quantity(kcal, 'kcal'))
+    WFWorkoutCaloriesQuantity=quantity(kcal, 'kcal'),
+    # Log Workout fails with "There was a problem running the shortcut" when
+    # Distance is left blank (iOS 18 and 26, confirmed on an iPhone 17).
+    WFWorkoutDistanceQuantity=quantity('0', 'mi'))
 action('alert', WFAlertActionTitle='Saved to Apple Health', WFAlertActionMessage='Switch back to VelociReps.', WFAlertActionCancelButtonShown=False)
 
 workflow = {

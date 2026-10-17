@@ -251,6 +251,28 @@
 					<key>WFSerializationType</key>
 					<string>WFQuantityFieldValue</string>
 				</dict>
+				<key>WFWorkoutDistanceQuantity</key>
+				<dict>
+					<key>Value</key>
+					<dict>
+						<key>Magnitude</key>
+						<dict>
+							<key>Value</key>
+							<dict>
+								<key>string</key>
+								<string>0</string>
+								<key>attachmentsByRange</key>
+								<dict/>
+							</dict>
+							<key>WFSerializationType</key>
+							<string>WFTextTokenString</string>
+						</dict>
+						<key>Unit</key>
+						<string>mi</string>
+					</dict>
+					<key>WFSerializationType</key>
+					<string>WFQuantityFieldValue</string>
+				</dict>
 				<key>UUID</key>
 				<string>F64E1763-71B8-59BF-AE49-FE47E4D03370</string>
 			</dict>
